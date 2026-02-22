@@ -1,0 +1,23 @@
+{
+  "name": "@tl/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tl": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@tl/shared": "workspace:*",
+    "@tl/core": "workspace:*",
+    "@tl/adapters": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.7"
+  }
+}

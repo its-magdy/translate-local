@@ -1,0 +1,25 @@
+{
+  "name": "@tl/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pipeline": "./src/pipeline.ts",
+    "./glossary": "./src/glossary.ts",
+    "./context": "./src/context.ts",
+    "./config": "./src/config.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@tl/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@tl/shared": "workspace:*",
+    "bun-types": "latest",
+    "typescript": "^5.7"
+  }
+}
