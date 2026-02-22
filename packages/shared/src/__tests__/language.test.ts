@@ -29,9 +29,13 @@ describe("isSupported", () => {
     expect(isSupported("AR")).toBe(true);
   });
 
-  test("accepts BCP-47 tags with regional subtags", () => {
+  test("accepts BCP-47 tags with regional subtags via base-code fallback", () => {
+    // zh-cn is NOT in SUPPORTED_LANGUAGES; "zh" base code is — exercises the fallback
     expect(isSupported("zh-CN")).toBe(true);
+    // pt-BR is NOT in SUPPORTED_LANGUAGES; "pt" base code is
     expect(isSupported("pt-BR")).toBe(true);
+    // zh-XX: unknown subtag, but base "zh" is supported
+    expect(isSupported("zh-XX")).toBe(true);
   });
 
   test("returns false for unsupported languages", () => {

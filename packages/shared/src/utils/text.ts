@@ -1,7 +1,12 @@
 import type { GlossaryHit } from "../types";
+import { TlError } from "../errors";
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function escapeContent(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
@@ -14,7 +19,7 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
 
   for (let i = 1; i < hits.length; i++) {
     if (hits[i].startIndex < hits[i - 1].endIndex) {
-      throw new Error("injectGlossaryTags: hits must be sorted by startIndex and non-overlapping");
+      throw new TlError("INVALID_INPUT", "injectGlossaryTags: hits must be sorted by startIndex and non-overlapping", "Sort hits by startIndex and ensure they do not overlap before calling injectGlossaryTags");
     }
   }
 
@@ -24,7 +29,7 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
   for (const hit of hits) {
     result += text.slice(cursor, hit.startIndex);
     const sourcePart = text.slice(hit.startIndex, hit.endIndex);
-    result += `<term translation="${escapeAttr(hit.entry.targetTerm)}">${sourcePart}</term>`;
+    result += `<term translation="${escapeAttr(hit.entry.targetTerm)}">${escapeContent(sourcePart)}</term>`;
     cursor = hit.endIndex;
   }
 

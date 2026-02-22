@@ -22,12 +22,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+
+      - name: Install dependencies
+        run: bun install
 
       - name: Run Claude Code
         id: claude
@@ -35,5 +37,5 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --allowedTools "Bash(bun install),Bash(bun test:*),Bash(bun run format),Bash(bun typecheck)"
+            --allowedTools "Bash(bun test:*),Bash(bun run format),Bash(bun typecheck)"
             --model "claude-sonnet-4-6"

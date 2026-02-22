@@ -13,6 +13,11 @@ export const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
 
 export const DEFAULT_MODEL = "translate-gemma-12b";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+/**
+ * NOTE: `~` is NOT expanded by Node/Bun. Consumers must resolve this themselves, e.g.:
+ *   import os from "os"; import path from "path";
+ *   path.join(os.homedir(), ".config/tl/config.jsonc")
+ */
 export const DEFAULT_CONFIG_PATH = "~/.config/tl/config.jsonc";
 export const DEFAULT_GLOSSARY_DB_PATH = "~/.config/tl/glossary.db";
 export const DEFAULT_CONTEXT_DB_PATH = "~/.config/tl/context.db";
