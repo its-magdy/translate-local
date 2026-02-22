@@ -1,12 +1,14 @@
 {
   "name": "@tl/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./errors": "./src/errors.ts",
     "./utils": "./src/utils.ts",
+    "./utils/language": "./src/utils/language.ts",
+    "./utils/text": "./src/utils/text.ts",
     "./constants": "./src/constants.ts"
   },
   "types": "./src/index.ts",
