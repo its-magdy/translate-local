@@ -39,6 +39,14 @@ t/
 - **Peer deps**: `@tl/core` and `@tl/adapters` peer-depend on `@tl/shared`
 - **Bun-first**: In dev, `.ts` sources are consumed directly via `exports` — no build step needed
 
+## Versioning & Changelog
+
+- Each publishable package (`packages/*`) maintains its own `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format.
+- Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+- Starting version: `0.1.0` for all packages until a stable public API is established.
+- When completing a feature, bump the affected package version(s) in their `package.json` and update their `CHANGELOG.md`.
+- Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
+
 ## Key Patterns
 
 - **Adapter interface**: All adapters implement `translate()` and `dispose()`. Use `createAdapter(config)` factory.

@@ -1,0 +1,65 @@
+import { describe, test, expect } from "bun:test";
+import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace } from "../utils/text";
+import type { GlossaryHit } from "../types";
+
+function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
+  return {
+    entry: {
+      id: "1",
+      sourceTerm,
+      targetTerm,
+      sourceLang: "en",
+      targetLang: "ar",
+    },
+    startIndex,
+    endIndex: startIndex + sourceTerm.length,
+  };
+}
+
+describe("injectGlossaryTags", () => {
+  test("wraps matched term in XML tag", () => {
+    const result = injectGlossaryTags("Use the API here", [makeHit("API", "واجهة", 8)]);
+    expect(result).toBe('Use the <term translation="واجهة">API</term> here');
+  });
+
+  test("handles no hits", () => {
+    expect(injectGlossaryTags("Hello", [])).toBe("Hello");
+  });
+
+  test("handles multiple hits in order", () => {
+    const text = "The API and Cloud";
+    const hits = [makeHit("API", "واجهة", 4), makeHit("Cloud", "سحابة", 12)];
+    const result = injectGlossaryTags(text, hits);
+    expect(result).toBe('The <term translation="واجهة">API</term> and <term translation="سحابة">Cloud</term>');
+  });
+});
+
+describe("stripGlossaryTags", () => {
+  test("removes term tags keeping inner content", () => {
+    const input = 'Use the <term translation="واجهة">API</term> here';
+    expect(stripGlossaryTags(input)).toBe("Use the API here");
+  });
+
+  test("handles text without tags", () => {
+    expect(stripGlossaryTags("Hello world")).toBe("Hello world");
+  });
+
+  test("removes multiple tags", () => {
+    const input = '<term translation="a">X</term> and <term translation="b">Y</term>';
+    expect(stripGlossaryTags(input)).toBe("X and Y");
+  });
+});
+
+describe("normalizeWhitespace", () => {
+  test("collapses multiple spaces", () => {
+    expect(normalizeWhitespace("hello   world")).toBe("hello world");
+  });
+
+  test("trims leading and trailing whitespace", () => {
+    expect(normalizeWhitespace("  hello  ")).toBe("hello");
+  });
+
+  test("collapses newlines", () => {
+    expect(normalizeWhitespace("hello\n\nworld")).toBe("hello world");
+  });
+});

@@ -7,6 +7,8 @@
     "./types": "./src/types.ts",
     "./errors": "./src/errors.ts",
     "./utils": "./src/utils.ts",
+    "./utils/language": "./src/utils/language.ts",
+    "./utils/text": "./src/utils/text.ts",
     "./constants": "./src/constants.ts"
   },
   "types": "./src/index.ts",

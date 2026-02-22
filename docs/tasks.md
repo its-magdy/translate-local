@@ -3,13 +3,13 @@
 ## Phase 1: Foundation
 - [x] Initialize root monorepo (`package.json`, `turbo.json`, `tsconfig.base.json`)
 - [x] Create `packages/shared/` with package.json and tsconfig
-- [ ] Implement shared types: `adapter.ts`, `translation.ts`, `glossary.ts`, `context.ts`, `config.ts`
-- [ ] Implement `errors.ts` — `TlError` with tagged errors and hints
-- [ ] Implement `constants.ts` — supported languages (55), default paths, default model
-- [ ] Implement `utils/language.ts` — BCP-47 normalization, validation
-- [ ] Implement `utils/text.ts` — glossary tag injection/stripping, whitespace normalization
-- [ ] Write tests for text utils and language utils
-- [ ] Verify: `bun install && bun run build` succeeds
+- [x] Implement shared types: `adapter.ts`, `translation.ts`, `glossary.ts`, `context.ts`, `config.ts`
+- [x] Implement `errors.ts` — `TlError` with tagged errors and hints
+- [x] Implement `constants.ts` — supported languages (55), default paths, default model
+- [x] Implement `utils/language.ts` — BCP-47 normalization, validation
+- [x] Implement `utils/text.ts` — glossary tag injection/stripping, whitespace normalization
+- [x] Write tests for text utils and language utils
+- [x] Verify: `bun install && bun run build` succeeds
 
 ## Phase 2: Adapters
 - [x] Create `packages/adapters/` with package.json and tsconfig
