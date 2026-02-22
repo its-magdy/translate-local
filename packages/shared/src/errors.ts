@@ -13,8 +13,8 @@ export class TlError extends Error {
   readonly tag: ErrorTag;
   readonly hint: string;
 
-  constructor(tag: ErrorTag, message: string, hint: string) {
-    super(message);
+  constructor(tag: ErrorTag, message: string, hint: string, cause?: unknown) {
+    super(message, { cause });
     this.name = "TlError";
     this.tag = tag;
     this.hint = hint;

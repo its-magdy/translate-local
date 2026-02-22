@@ -38,6 +38,23 @@ describe("injectGlossaryTags", () => {
     expect(result).toBe('Use <term translation="val&quot;ue">API</term>');
   });
 
+  test("escapes & and < > in targetTerm attribute", () => {
+    const result = injectGlossaryTags("Use API", [makeHit("API", "a&b<c>d", 4)]);
+    expect(result).toBe('Use <term translation="a&amp;b&lt;c&gt;d">API</term>');
+  });
+
+  test("escapes & and < > in source text content", () => {
+    const text = "Use A&B here";
+    const result = injectGlossaryTags(text, [makeHit("A&B", "target", 4)]);
+    expect(result).toBe('Use <term translation="target">A&amp;B</term> here');
+  });
+
+  test("escapes < > in source text content", () => {
+    const text = "Use A<B here";
+    const result = injectGlossaryTags(text, [makeHit("A<B", "target", 4)]);
+    expect(result).toBe('Use <term translation="target">A&lt;B</term> here');
+  });
+
   test("throws on out-of-order hits", () => {
     const hits = [makeHit("Cloud", "سحابة", 8), makeHit("API", "واجهة", 4)];
     expect(() => injectGlossaryTags("The API and Cloud", hits)).toThrow();

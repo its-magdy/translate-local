@@ -11,7 +11,9 @@ export function normalizeLang(lang: string): string {
 /**
  * Return true if the language code is in the supported set (after normalization).
  * Accepts both full BCP-47 tags (e.g. "zh-CN") and base codes (e.g. "zh").
- * Regional subtags are matched against the base code.
+ * Regional subtags fall back to the base code (e.g. "zh-TW" → "zh").
+ * Note: this means distinct regional variants like zh-TW and zh-HK both return
+ * true via the same base code — callers cannot distinguish exact vs fallback matches.
  */
 export function isSupported(lang: string): boolean {
   const normalized = normalizeLang(lang);
