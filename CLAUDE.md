@@ -127,6 +127,21 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 4a. Verification Before Every Commit
+
+**Never commit until all checks pass. Fix, then commit.**
+
+Before committing any change, run all of the following in order:
+
+1. **Build**: `bun run build` — must succeed with no errors
+2. **Tests**: `bun run test` — all tests must pass (0 failures)
+3. **Smoke test the CLI**: run `tl` commands relevant to the changed code and confirm expected output
+   - If the CLI binary isn't built yet for the phase, skip step 3 and note it explicitly
+4. **Integration tests** (when applicable): `TEST_INTEGRATION=1 bun run test`
+
+If any check fails: fix the issue, re-run all checks, then commit.
+Do not commit with failing tests, build errors, or broken CLI commands.
+
 ## 5. Git Workflow
 
 **Use branches. Keep main clean. Write meaningful commits.**
