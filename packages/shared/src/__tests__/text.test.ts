@@ -32,6 +32,16 @@ describe("injectGlossaryTags", () => {
     const result = injectGlossaryTags(text, hits);
     expect(result).toBe('The <term translation="واجهة">API</term> and <term translation="سحابة">Cloud</term>');
   });
+
+  test("escapes quotes in targetTerm attribute", () => {
+    const result = injectGlossaryTags("Use API", [makeHit("API", 'val"ue', 4)]);
+    expect(result).toBe('Use <term translation="val&quot;ue">API</term>');
+  });
+
+  test("throws on out-of-order hits", () => {
+    const hits = [makeHit("Cloud", "سحابة", 8), makeHit("API", "واجهة", 4)];
+    expect(() => injectGlossaryTags("The API and Cloud", hits)).toThrow();
+  });
 });
 
 describe("stripGlossaryTags", () => {
@@ -47,6 +57,11 @@ describe("stripGlossaryTags", () => {
   test("removes multiple tags", () => {
     const input = '<term translation="a">X</term> and <term translation="b">Y</term>';
     expect(stripGlossaryTags(input)).toBe("X and Y");
+  });
+
+  test("strips tags when inner content spans a newline", () => {
+    const input = '<term translation="a">line one\nline two</term>';
+    expect(stripGlossaryTags(input)).toBe("line one\nline two");
   });
 });
 

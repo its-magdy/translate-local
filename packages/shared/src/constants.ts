@@ -1,12 +1,12 @@
-// BCP-47 codes for TranslateGemma's 55 benchmarked languages
+// BCP-47 base codes for the 50 unique target languages in the WMT24++ benchmark
+// (WMT24++ has 55 pairs; ar, fr, sw, pt, zh each have two regional variants)
+// Source: https://huggingface.co/datasets/google/wmt24pp
 export const SUPPORTED_LANGUAGES: readonly string[] = [
-  "af", "ar", "az", "be", "bg", "bn", "ca", "cs", "cy", "da",
-  "de", "el", "en", "es", "et", "eu", "fa", "fi", "fr", "ga",
-  "gl", "gu", "he", "hi", "hr", "hu", "hy", "id", "is", "it",
-  "ja", "ka", "kk", "km", "kn", "ko", "lt", "lv", "mk", "ml",
-  "mn", "mr", "ms", "mt", "my", "nl", "no", "pl", "pt", "ro",
-  "ru", "sk", "sl", "sq", "sr", "sv", "sw", "ta", "te", "th",
-  "tl", "tr", "uk", "ur", "vi", "zh",
+  "ar", "bg", "bn", "ca", "cs", "da", "de", "el", "es", "et",
+  "fa", "fi", "fil", "fr", "gu", "he", "hi", "hr", "hu", "id",
+  "is", "it", "ja", "kn", "ko", "lt", "lv", "ml", "mr", "nl",
+  "no", "pa", "pl", "pt", "ro", "ru", "sk", "sl", "sr", "sv",
+  "sw", "ta", "te", "th", "tr", "uk", "ur", "vi", "zh", "zu",
 ] as const;
 
 export const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
