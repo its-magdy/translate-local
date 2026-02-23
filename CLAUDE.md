@@ -144,20 +144,26 @@ Do not commit with failing tests, build errors, or broken CLI commands.
 
 ## 5. Git Workflow
 
-**Use branches. Keep main clean. Write meaningful commits.**
+**Use branches. Keep main clean. Write meaningful commits. Commit regularly.**
 
 Branch strategy:
-- `main` is the stable, deployable branch. Never commit directly to it.
-- Create feature branches from `main`: `feature/<short-description>` (e.g., `feature/user-auth`).
+- `main` is the stable, deployable branch. **Never commit directly to it — not even a single line.**
+- **Always create a feature branch before starting any work**, even small tasks. Do this as the very first step.
+- Create feature branches from `main`: `feature/<short-description>` (e.g., `feature/phase-2-adapters`).
 - Use `fix/<short-description>` for bug fixes, `chore/<short-description>` for non-feature work.
-- Keep branches short-lived. Merge back to `main` promptly.
+- Keep branches short-lived. Merge back to `main` promptly via PR.
 
-Commits:
+Commits — commit early and often:
+- **Commit after each logical unit of work** — don't accumulate all changes into one giant commit at the end.
+- A "logical unit" can be: one file implemented, one feature complete, tests passing, a bug fixed.
 - Write clear, concise commit messages: imperative mood, under 72 chars for the subject.
-- One logical change per commit. Don't bundle unrelated changes.
 - If a commit needs a body, separate it from the subject with a blank line.
-- Good: `Add email validation to signup form`
-- Bad: `updates`, `fix stuff`, `wip`
+- Good: `Add MockAdapter with deterministic glossary substitution`
+- Bad: `updates`, `fix stuff`, `wip`, `done`
+
+Push regularly:
+- **Push your branch to remote after every commit** (or at minimum at the end of each working session). Don't let local commits sit unpushed.
+- Use `git push -u origin <branch>` on first push; `git push` thereafter.
 
 Merging:
 - Merge feature branches into `main` via PR or after verification.
