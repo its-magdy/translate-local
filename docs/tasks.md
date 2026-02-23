@@ -13,13 +13,13 @@
 
 ## Phase 2: Adapters
 - [x] Create `packages/adapters/` with package.json and tsconfig
-- [ ] Implement `base.ts` — abstract base with prompt builders (structured + natural)
-- [ ] Implement `mock.ts` — deterministic mock adapter
-- [ ] Implement `factory.ts` — `createAdapter(config)`
-- [ ] Implement `translate-gemma/local.ts` — Ollama HTTP API + `dispose()` for memory cleanup
-- [ ] Implement `translate-gemma/huggingface.ts` — HF Inference API with token resolution
-- [ ] Write tests: mock, factory, prompt format
-- [ ] Write gated tests (`TEST_ADAPTER=1`): real Ollama and HF calls
+- [x] Implement `base.ts` — abstract base with prompt builders (structured + natural)
+- [x] Implement `mock.ts` — deterministic mock adapter
+- [x] Implement `factory.ts` — `createAdapter(config)`
+- [x] Implement `translate-gemma/local.ts` — Ollama HTTP API + `dispose()` for memory cleanup
+- [x] Implement `translate-gemma/huggingface.ts` — HF Inference API with token resolution
+- [x] Write tests: mock, factory, prompt format
+- [x] Write gated tests (`TEST_ADAPTER=1`): real Ollama and HF calls
 
 ## Phase 3: Core Pipeline
 - [x] Create `packages/core/` with package.json and tsconfig
