@@ -47,3 +47,33 @@ describe("createMockAdapter", () => {
     expect(adapter).toBeInstanceOf(MockAdapter);
   });
 });
+
+describe("resolveToken (via createAdapter)", () => {
+  test("resolves ${ENV_VAR} from environment", () => {
+    process.env.TEST_HF_TOKEN = "hf_resolved";
+    const config: AdapterConfig = {
+      backend: "huggingface",
+      model: "google/translategemma-12b-it",
+      hfToken: "${TEST_HF_TOKEN}",
+    };
+    const adapter = createAdapter(config);
+    expect(adapter).toBeInstanceOf(TranslateGemmaHFAdapter);
+    delete process.env.TEST_HF_TOKEN;
+  });
+
+  test("throws TlError with variable name when env var is unset", () => {
+    delete process.env.MISSING_HF_TOKEN;
+    const config: AdapterConfig = {
+      backend: "huggingface",
+      model: "google/translategemma-12b-it",
+      hfToken: "${MISSING_HF_TOKEN}",
+    };
+    expect(() => createAdapter(config)).toThrow(TlError);
+    try {
+      createAdapter(config);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TlError);
+      expect((err as TlError).message).toContain("MISSING_HF_TOKEN");
+    }
+  });
+});

@@ -9,9 +9,7 @@ export function buildStructuredPrompt(request: TranslationRequest): string {
 
   lines.push(`Translate the following from ${request.sourceLang} to ${request.targetLang}.`);
 
-  if (request.glossaryHits && request.glossaryHits.length > 0) {
-    lines.push("Preserve terms marked with <term> tags using their specified translations.");
-  }
+
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
     lines.push("\nContext:");

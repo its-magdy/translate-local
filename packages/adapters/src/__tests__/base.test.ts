@@ -32,14 +32,10 @@ describe("buildStructuredPrompt", () => {
     expect(prompt).toContain("The API is ready.");
   });
 
-  test("includes glossary instruction when hits present", () => {
+  test("does not include glossary instruction (deferred to preprocessor)", () => {
+    // XML tag injection is handled by the Phase 3 preprocessor, not the prompt builder
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
     const prompt = buildStructuredPrompt(req);
-    expect(prompt).toContain("<term>");
-  });
-
-  test("no glossary instruction without hits", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
     expect(prompt).not.toContain("<term>");
   });
 

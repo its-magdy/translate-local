@@ -1,5 +1,6 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
+import { computeGlossaryCoverage } from "@tl/shared/utils/text";
 import { buildStructuredPrompt } from "../base";
 
 const HF_API_URL = "https://api-inference.huggingface.co/models";
@@ -9,8 +10,18 @@ interface HFTextGenerationResponse {
 }
 
 function resolveToken(token: string): string {
-  // Support ${ENV_VAR} syntax
-  return token.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
+  // Support ${ENV_VAR} syntax; throw early if the referenced variable is unset
+  return token.replace(/\$\{([^}]+)\}/g, (_, name) => {
+    const value = process.env[name];
+    if (value === undefined) {
+      throw new TlError(
+        "ADAPTER_UNAVAILABLE",
+        `Environment variable ${name} is not set`,
+        `Set the ${name} environment variable or provide a literal token in your config`
+      );
+    }
+    return value;
+  });
 }
 
 export class TranslateGemmaHFAdapter implements Adapter {
@@ -80,13 +91,10 @@ export class TranslateGemmaHFAdapter implements Adapter {
     const markerIdx = raw.lastIndexOf(marker);
     const translated = (markerIdx >= 0 ? raw.slice(markerIdx + marker.length) : raw).trim();
 
-    const hits = request.glossaryHits ?? [];
-    const missingTerms = hits
-      .filter((h) => !translated.includes(h.entry.targetTerm))
-      .map((h) => h.entry.sourceTerm);
-
-    const glossaryCoverage =
-      hits.length === 0 ? 1 : (hits.length - missingTerms.length) / hits.length;
+    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(
+      request.glossaryHits ?? [],
+      translated
+    );
 
     return {
       translated,

@@ -1,4 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
+import { computeGlossaryCoverage } from "@tl/shared/utils/text";
 
 /**
  * Deterministic mock adapter for testing.
@@ -19,12 +20,7 @@ export class MockAdapter implements Adapter {
       translated = translated.replace(hit.entry.sourceTerm, hit.entry.targetTerm);
     }
 
-    const missingTerms = hits
-      .filter((h) => !translated.includes(h.entry.targetTerm))
-      .map((h) => h.entry.sourceTerm);
-
-    const glossaryCoverage =
-      hits.length === 0 ? 1 : (hits.length - missingTerms.length) / hits.length;
+    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(hits, translated);
 
     return {
       translated,
