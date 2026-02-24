@@ -3,7 +3,6 @@ import { loadConfig } from "@tl/core/config";
 import { GlossaryStore } from "@tl/core/glossary";
 import { runPipeline } from "@tl/core/pipeline";
 import { createAdapter } from "@tl/adapters/factory";
-import { TlError } from "@tl/shared/errors";
 import type { AdapterConfig } from "@tl/shared/types";
 import { formatTranslationResult, formatError } from "../formatters/output";
 

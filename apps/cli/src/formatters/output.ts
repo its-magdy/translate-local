@@ -10,7 +10,7 @@ const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 
 function color(s: string, c: string): string {
-  if (!process.stdout.isTTY) return s;
+  if (!process.stdout.isTTY || process.env.NO_COLOR !== undefined) return s;
   return `${c}${s}${RESET}`;
 }
 
@@ -41,7 +41,7 @@ export function formatGlossaryList(entries: GlossaryEntry[], json: boolean): str
   const rows = entries.map((e) => {
     const domain = e.domain ? color(` [${e.domain}]`, CYAN) : "";
     const note = e.note ? color(` — ${e.note}`, DIM) : "";
-    return `  ${color(e.id.slice(0, 8), DIM)}  ${BOLD}${e.sourceTerm}${RESET} → ${e.targetTerm}  ${e.sourceLang}→${e.targetLang}${domain}${note}`;
+    return `  ${color(e.id.slice(0, 8), DIM)}  ${color(e.sourceTerm, BOLD)} → ${e.targetTerm}  ${e.sourceLang}→${e.targetLang}${domain}${note}`;
   });
 
   return [color(`${entries.length} entr${entries.length === 1 ? "y" : "ies"}:`, BOLD), ...rows].join("\n");

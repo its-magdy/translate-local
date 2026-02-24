@@ -1,8 +1,6 @@
 import { Command } from "commander";
-import { loadConfig, saveConfig } from "@tl/core/config";
+import { loadConfig, saveConfig, getConfigPath } from "@tl/core/config";
 import { formatError } from "../formatters/output";
-import { join } from "path";
-import { homedir } from "os";
 
 export function makeConfigCommand(): Command {
   const cmd = new Command("config").description("Manage tl configuration");
@@ -72,7 +70,7 @@ export function makeConfigCommand(): Command {
     .command("path")
     .description("Print config file path")
     .action(() => {
-      console.log(join(homedir(), ".config", "tl", "config.jsonc"));
+      console.log(getConfigPath());
     });
 
   return cmd;

@@ -70,11 +70,11 @@ describe("tl CLI", () => {
   });
 
   describe("config status", () => {
-    it("shows status from config file", () => {
-      const r = run(["config", "status"], { TL_CONFIG: configPath });
-      // TL_CONFIG env var not wired yet — but at least shouldn't crash with parse error
-      // and default config should show something meaningful
-      expect([0, 1]).toContain(r.exitCode);
+    it("shows backend and model in output", () => {
+      const r = run(["config", "status"]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Backend:");
+      expect(r.stdout).toContain("Model:");
     });
   });
 

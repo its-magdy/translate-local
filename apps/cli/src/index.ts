@@ -27,11 +27,10 @@ if (process.argv.length <= 2) {
 }
 
 // Support: `tl <text>` as shorthand for `tl translate <text>`
-// Commander doesn't natively support default positional-only commands,
-// so we detect when the first arg isn't a known subcommand and prepend "translate".
-const knownSubcommands = new Set(["translate", "glossary", "context", "config", "--help", "-h", "--version", "-V"]);
+// Derive command names dynamically so new subcommands are picked up automatically.
+const registeredCommands = new Set(program.commands.map((c) => c.name()));
 const firstArg = process.argv[2];
-if (firstArg && !knownSubcommands.has(firstArg) && !firstArg.startsWith("-")) {
+if (firstArg && !registeredCommands.has(firstArg) && !firstArg.startsWith("-")) {
   process.argv.splice(2, 0, "translate");
 }
 

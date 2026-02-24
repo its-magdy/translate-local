@@ -4,6 +4,38 @@ import { GlossaryStore } from "@tl/core/glossary";
 import { readFileSync } from "fs";
 import { formatGlossaryList, formatError } from "../formatters/output";
 
+/** Wrap a CSV field in double-quotes if it contains a comma, quote, or newline. */
+function csvField(s: string): string {
+  if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+/** Parse one CSV line, respecting double-quoted fields. */
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let i = 0;
+  while (i <= line.length) {
+    if (line[i] === '"') {
+      // Quoted field
+      i++;
+      let field = "";
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') { field += '"'; i += 2; }
+        else if (line[i] === '"') { i++; break; }
+        else { field += line[i++]; }
+      }
+      fields.push(field);
+      if (line[i] === ",") i++; // skip comma
+    } else {
+      const end = line.indexOf(",", i);
+      if (end === -1) { fields.push(line.slice(i)); break; }
+      fields.push(line.slice(i, end));
+      i = end + 1;
+    }
+  }
+  return fields;
+}
+
 function withStore<T>(fn: (store: GlossaryStore) => T): T {
   const config = loadConfig();
   const store = new GlossaryStore(config.glossary.dbPath);
@@ -99,7 +131,7 @@ export function makeGlossaryCommand(): Command {
         let added = 0;
         withStore((store) => {
           for (const line of lines) {
-            const [sourceTerm, targetTerm, sourceLang, targetLang, domain, note] = line.split(",").map((s) => s.trim());
+            const [sourceTerm, targetTerm, sourceLang, targetLang, domain, note] = parseCsvLine(line).map((s) => s.trim());
             if (!sourceTerm || !targetTerm || !sourceLang || !targetLang) continue;
             store.add({ sourceTerm, targetTerm, sourceLang, targetLang, domain: domain || undefined, note: note || undefined });
             added++;
@@ -127,7 +159,7 @@ export function makeGlossaryCommand(): Command {
         } else {
           console.log("source,target,from,to,domain,note");
           for (const e of entries) {
-            console.log([e.sourceTerm, e.targetTerm, e.sourceLang, e.targetLang, e.domain ?? "", e.note ?? ""].join(","));
+            console.log([e.sourceTerm, e.targetTerm, e.sourceLang, e.targetLang, e.domain ?? "", e.note ?? ""].map(csvField).join(","));
           }
         }
       } catch (err) {
