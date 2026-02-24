@@ -40,9 +40,9 @@
 - [x] Write CLI tests: spawn binary, assert stdout/exit codes
 
 ## Phase 5: Context System
-- [ ] Implement `context/indexer.ts` — TF-IDF in SQLite, file walking, tokenization
-- [ ] Implement `context/provider.ts` — add/remove/index/retrieve wrapper
-- [ ] Write tests: index temp directory, retrieve relevant snippets
+- [x] Implement `context.ts` — `ContextStore` with SQLite-backed TF-IDF indexing, file walking (.txt/.md/.mdx/.rst), tokenization
+- [x] Implement CLI `commands/context.ts` — add/list/remove/index subcommands (replaces Phase 4 stubs)
+- [x] Write tests: index temp directory, retrieve relevant snippets, error handling (`TEST_INTEGRATION=1`)
 
 ## Phase 6: TUI
 - [x] Create `apps/tui/` with package.json and tsconfig
