@@ -23,16 +23,11 @@
 
 ## Phase 3: Core Pipeline
 - [x] Create `packages/core/` with package.json and tsconfig
-- [ ] Implement `config/schema.ts` — Zod schema for config.jsonc
-- [ ] Implement `config/manager.ts` — load/save JSONC, `~` expansion, env var resolution
-- [ ] Implement `glossary/store.ts` — SQLite CRUD via `bun:sqlite`
-- [ ] Implement `glossary/matcher.ts` — word-boundary matching, longest-first greedy
-- [ ] Implement `pipeline/preprocess.ts` — glossary detection + tag injection
-- [ ] Implement `pipeline/postprocess.ts` — tag stripping + normalization
-- [ ] Implement `pipeline/validate.ts` — glossary coverage check + retry decision
-- [ ] Implement `pipeline/pipeline.ts` — orchestrator with retry loop and dispose
-- [ ] Write tests: matcher, pre/postprocess, validation
-- [ ] Write integration tests (`TEST_INTEGRATION=1`): full pipeline with mock adapter + SQLite
+- [x] Implement `config.ts` — Zod schema, load/save JSONC, `~` expansion, env var resolution
+- [x] Implement `glossary.ts` — SQLite CRUD via `bun:sqlite`, word-boundary matcher (longest-first greedy)
+- [x] Implement `pipeline.ts` — preprocess (tag inject), postprocess (tag strip + normalize), validate (coverage + retry), orchestrator
+- [x] Write tests: matcher, glossary store, config, pipeline (unit)
+- [x] Write integration tests (`TEST_INTEGRATION=1`): full pipeline with mock adapter + SQLite
 
 ## Phase 4: CLI
 - [x] Create `apps/cli/` with package.json and tsconfig

@@ -1,6 +1,6 @@
 {
   "name": "@tl/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -12,14 +12,18 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "test": "bun test --pass-with-no-tests"
+    "test": "bun test"
   },
   "peerDependencies": {
     "@tl/shared": "workspace:*"
   },
   "devDependencies": {
+    "@tl/adapters": "workspace:*",
     "@tl/shared": "workspace:*",
     "bun-types": "latest",
     "typescript": "^5.7"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   }
 }
