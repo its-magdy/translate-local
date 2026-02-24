@@ -31,13 +31,13 @@
 
 ## Phase 4: CLI
 - [x] Create `apps/cli/` with package.json and tsconfig
-- [ ] Implement `commands/translate.ts` — main translate command with `--from`, `--to`, `--glossary`, `--json`
-- [ ] Implement `commands/glossary.ts` — add/list/remove/import/export subcommands
-- [ ] Implement `commands/context.ts` — add/list/remove/index subcommands
-- [ ] Implement `commands/config.ts` — connect (set adapter via flags), status (health check), path
-- [ ] Implement `formatters/output.ts` — plain/table/JSON formatters, ANSI colors
-- [ ] Implement `index.ts` — Commander program entry, bin: `tl`
-- [ ] Write CLI tests: spawn binary, assert stdout/exit codes
+- [x] Implement `commands/translate.ts` — main translate command with `--from`, `--to`, `--glossary`, `--json`
+- [x] Implement `commands/glossary.ts` — add/list/remove/import/export subcommands
+- [x] Implement `commands/context.ts` — add/list/remove/index subcommands
+- [x] Implement `commands/config.ts` — connect (set adapter via flags), status (health check), path
+- [x] Implement `formatters/output.ts` — plain/table/JSON formatters, ANSI colors
+- [x] Implement `index.ts` — Commander program entry, bin: `tl`
+- [x] Write CLI tests: spawn binary, assert stdout/exit codes
 
 ## Phase 5: Context System
 - [ ] Implement `context/indexer.ts` — TF-IDF in SQLite, file walking, tokenization
