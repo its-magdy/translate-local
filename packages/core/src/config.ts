@@ -9,14 +9,55 @@ function expandTilde(p: string): string {
 }
 
 function resolveEnvVars(s: string): string {
-  return s.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] ?? "");
+  return s.replace(/\$\{([^}]+)\}/g, (_, key) => {
+    const val = process.env[key];
+    if (val === undefined) {
+      throw new TlError(
+        "CONFIG_INVALID",
+        `Environment variable "${key}" is not set`,
+        `Set the ${key} environment variable before running tl`,
+      );
+    }
+    return val;
+  });
 }
 
 function stripJsoncComments(src: string): string {
-  // Remove /* */ block comments, then // line comments
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "");
+  // State-machine parser: skips comment characters inside JSON strings.
+  let result = "";
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === '"') {
+      // Consume string literal verbatim
+      result += ch;
+      i++;
+      while (i < src.length) {
+        const sc = src[i];
+        result += sc;
+        i++;
+        if (sc === "\\") {
+          // Escape sequence: copy next char and continue
+          if (i < src.length) { result += src[i]; i++; }
+        } else if (sc === '"') {
+          break;
+        }
+      }
+    } else if (ch === "/" && src[i + 1] === "*") {
+      // Block comment: skip until */
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+    } else if (ch === "/" && src[i + 1] === "/") {
+      // Line comment: skip until newline
+      i += 2;
+      while (i < src.length && src[i] !== "\n") i++;
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+  return result;
 }
 
 export const configSchema = z.object({

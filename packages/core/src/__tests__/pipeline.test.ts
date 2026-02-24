@@ -52,14 +52,28 @@ describe("runPipeline", () => {
   });
 
   it("prefer mode returns result even with missing terms", async () => {
-    // Add a term the mock won't translate (different term)
-    store.add({ sourceTerm: "quantum", targetTerm: "كمية", sourceLang: "en", targetLang: "ar" });
-    // MockAdapter substitutes sourceTerm → targetTerm in "[ar] source", so "quantum" → "كمية"
-    // This should actually succeed; let's test with a term that doesn't appear in source
+    // "API" appears in the source text, so matchTerms produces a hit.
+    // AlwaysMissAdapter never includes the translation → coverage < 1.
+    // prefer mode should return the result instead of throwing.
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
-    // Text without "API" but store has it → no hit → coverage = 1
-    const result = await runPipeline("Hello world", "en", "ar", adapter, store, { glossaryMode: "prefer" });
-    expect(result.glossaryCoverage).toBe(1);
+    class AlwaysMissAdapter {
+      readonly name = "always-miss";
+      async translate(req: any) {
+        return {
+          translated: "[ar] untranslated",
+          sourceLang: req.sourceLang,
+          targetLang: req.targetLang,
+          glossaryCoverage: 0,
+          missingTerms: [],
+          metadata: { adapter: "always-miss", durationMs: 0, retries: 0 },
+        };
+      }
+      async dispose() {}
+    }
+    const missAdapter = new AlwaysMissAdapter() as any;
+    const result = await runPipeline("The API is ready", "en", "ar", missAdapter, store, { glossaryMode: "prefer", maxRetries: 0 });
+    expect(result.glossaryCoverage).toBeLessThan(1);
+    expect(result.missingTerms).toContain("API");
   });
 
   it("strict mode throws after max retries when terms are missing", async () => {

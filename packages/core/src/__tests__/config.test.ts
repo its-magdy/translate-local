@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { loadConfig, configSchema } from "../config";
+import { loadConfig, saveConfig, configSchema } from "../config";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -52,10 +52,36 @@ describe("loadConfig", () => {
     mkdirSync(dir, { recursive: true });
     const p = join(dir, "config.jsonc");
     process.env.TEST_TL_TOKEN = "test-token-123";
-    writeFileSync(p, `{ "adapter": { "huggingface": { "token": "${process.env.TEST_TL_TOKEN}" } } }`);
+    // Use a literal placeholder string so resolveEnvVars actually processes it
+    writeFileSync(p, '{ "adapter": { "huggingface": { "token": "${TEST_TL_TOKEN}" } } }');
     const cfg = loadConfig(p);
     expect(cfg.adapter.huggingface.token).toBe("test-token-123");
     delete process.env.TEST_TL_TOKEN;
+    rmSync(dir, { recursive: true });
+  });
+
+  it("throws CONFIG_INVALID for unset env var", () => {
+    const dir = join(tmpdir(), `tl-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, "config.jsonc");
+    delete process.env.UNSET_TL_VAR;
+    writeFileSync(p, '{ "adapter": { "huggingface": { "token": "${UNSET_TL_VAR}" } } }');
+    let err: any;
+    try { loadConfig(p); } catch (e) { err = e; }
+    expect(err?.tag).toBe("CONFIG_INVALID");
+    rmSync(dir, { recursive: true });
+  });
+
+  it("preserves URLs in config values (stripJsoncComments string safety)", () => {
+    const dir = join(tmpdir(), `tl-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, "config.jsonc");
+    writeFileSync(p, `{
+      // endpoint with URL containing //
+      "adapter": { "local": { "endpoint": "http://localhost:11434" } }
+    }`);
+    const cfg = loadConfig(p);
+    expect(cfg.adapter.local.endpoint).toBe("http://localhost:11434");
     rmSync(dir, { recursive: true });
   });
 
@@ -67,6 +93,18 @@ describe("loadConfig", () => {
     let err: any;
     try { loadConfig(p); } catch (e) { err = e; }
     expect(err?.tag).toBe("CONFIG_INVALID");
+    rmSync(dir, { recursive: true });
+  });
+
+  it("saveConfig round-trip preserves values", () => {
+    const dir = join(tmpdir(), `tl-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, "config.jsonc");
+    const original = configSchema.parse({ glossary: { mode: "strict" }, defaults: { targetLang: "fr" } });
+    saveConfig(original, p);
+    const loaded = loadConfig(p);
+    expect(loaded.glossary.mode).toBe("strict");
+    expect(loaded.defaults.targetLang).toBe("fr");
     rmSync(dir, { recursive: true });
   });
 });

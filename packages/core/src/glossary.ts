@@ -13,6 +13,9 @@ function escapeRegex(s: string): string {
  * Match glossary terms in text using word-boundary matching.
  * Longest-first greedy to avoid partial overlaps.
  * Returns hits sorted by startIndex ascending.
+ *
+ * Known limitation: \b operates on ASCII word boundaries (\w = [a-zA-Z0-9_]).
+ * For non-Latin source terms (CJK, Arabic, etc.), \b will not match correctly.
  */
 export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[] {
   const sorted = [...entries].sort((a, b) => b.sourceTerm.length - a.sourceTerm.length);
@@ -50,7 +53,8 @@ export class GlossaryStore {
           source_lang TEXT NOT NULL,
           target_lang TEXT NOT NULL,
           domain TEXT,
-          note TEXT
+          note TEXT,
+          UNIQUE(source_term, target_term, source_lang, target_lang)
         )
       `);
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_langs ON glossary(source_lang, target_lang)`);
@@ -68,7 +72,7 @@ export class GlossaryStore {
     const id = randomUUID();
     try {
       this.db.run(
-        `INSERT INTO glossary (id, source_term, target_term, source_lang, target_lang, domain, note)
+        `INSERT OR IGNORE INTO glossary (id, source_term, target_term, source_lang, target_lang, domain, note)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang, entry.domain ?? null, entry.note ?? null],
       );
