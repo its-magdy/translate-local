@@ -106,10 +106,10 @@ describe("tl CLI", () => {
   });
 
   describe("context", () => {
-    it("context add returns not-yet-available error", () => {
-      const r = run(["context", "add", "/tmp/foo"]);
+    it("context add with invalid path returns CONTEXT_DB_ERROR", () => {
+      const r = run(["context", "add", "/nonexistent/path/xyz"]);
       expect(r.exitCode).toBe(1);
-      expect(r.stderr).toContain("Phase 5");
+      expect(r.stderr).toContain("CONTEXT_DB_ERROR");
     });
   });
 
