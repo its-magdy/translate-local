@@ -98,8 +98,12 @@ export const configSchema = z.object({
 
 export type CoreConfig = z.infer<typeof configSchema>;
 
+export function getConfigPath(configPath?: string): string {
+  return expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+}
+
 export function loadConfig(configPath?: string): CoreConfig {
-  const p = expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+  const p = getConfigPath(configPath);
   let raw: string;
   try {
     raw = readFileSync(p, "utf8");
