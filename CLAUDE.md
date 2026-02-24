@@ -4,6 +4,22 @@ Guidelines for the `tl` translation CLI tool. Merge with project-specific instru
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
+---
+
+## ⛔ MANDATORY BEFORE WRITING ANY CODE
+
+These are non-negotiable. Do them in order before touching a single file:
+
+1. **Create a feature branch** — `git checkout -b feature/<short-description>` from `main`. No exceptions, not even for "small" tasks.
+2. **Commit after every logical unit** — one file done, one feature complete, tests passing = commit + push. Do NOT accumulate all work into one commit at the end.
+3. **Push after every commit** — `git push` immediately. Never leave commits sitting locally.
+
+Violations of these three rules are not acceptable. Past agents have failed on all three. Do not repeat this.
+
+**Enforce this by checking `git status` and `git branch` before writing any file.**
+
+---
+
 ## Project Overview
 
 `tl` is an open-source CLI-first translation tool with optional TUI. Default model: TranslateGemma via Ollama (local) or HuggingFace API. Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
@@ -148,14 +164,15 @@ Do not commit with failing tests, build errors, or broken CLI commands.
 
 Branch strategy:
 - `main` is the stable, deployable branch. **Never commit directly to it — not even a single line.**
-- **Always create a feature branch before starting any work**, even small tasks. Do this as the very first step.
+- **Always create a feature branch before starting any work**, even small tasks. Do this as the very first step — before reading files, before planning, before writing anything.
 - Create feature branches from `main`: `feature/<short-description>` (e.g., `feature/phase-2-adapters`).
 - Use `fix/<short-description>` for bug fixes, `chore/<short-description>` for non-feature work.
 - Keep branches short-lived. Merge back to `main` promptly via PR.
 
 Commits — commit early and often:
-- **Commit after each logical unit of work** — don't accumulate all changes into one giant commit at the end.
+- **Commit after each logical unit of work** — don't accumulate all changes into one giant commit at the end. Past agents have done this and it is wrong.
 - A "logical unit" can be: one file implemented, one feature complete, tests passing, a bug fixed.
+- After each commit, immediately push. Don't batch pushes.
 - Write clear, concise commit messages: imperative mood, under 72 chars for the subject.
 - If a commit needs a body, separate it from the subject with a blank line.
 - Good: `Add MockAdapter with deterministic glossary substitution`
