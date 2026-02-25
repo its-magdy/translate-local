@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
+import { existsSync } from "fs";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
@@ -21,9 +22,18 @@ program.addCommand(makeGlossaryCommand());
 program.addCommand(makeContextCommand());
 program.addCommand(makeConfigCommand());
 
-// When called with no args, show help (TUI in Phase 6)
+// When called with no args, launch TUI
 if (process.argv.length <= 2) {
-  program.help();
+  const tuiPath = new URL("../../tui/src/index.ts", import.meta.url).pathname;
+  if (!existsSync(tuiPath)) {
+    console.error(`tl: TUI entry point not found at ${tuiPath}`);
+    process.exit(1);
+  }
+  const proc = Bun.spawn(["bun", "run", tuiPath], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  await proc.exited;
+  process.exit(proc.exitCode ?? 0);
 }
 
 // Support: `tl <text>` as shorthand for `tl translate <text>`
