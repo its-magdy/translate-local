@@ -1,15 +1,17 @@
 import { Command } from "commander";
+import { resolve } from "path";
 import { loadConfig } from "@tl/core/config";
 import { ContextStore } from "@tl/core/context";
 import { formatError } from "../formatters/output";
 
 async function withStore<T>(fn: (s: ContextStore) => Promise<T>): Promise<T> {
   const config = loadConfig();
-  const store = new ContextStore(config.context.dbPath);
+  let store: ContextStore | undefined;
   try {
+    store = new ContextStore(config.context.dbPath);
     return await fn(store);
   } finally {
-    store.close();
+    store?.close();
   }
 }
 
@@ -58,7 +60,8 @@ export function makeContextCommand(): Command {
       try {
         await withStore(async (store) => {
           const sources = store.listSources();
-          const match = sources.find((s) => s.path === path);
+          const normalizedInput = resolve(path);
+          const match = sources.find((s) => resolve(s.path) === normalizedInput);
           if (!match) throw new Error(`No context source found for path: ${path}`);
           store.removeSource(match.id);
         });

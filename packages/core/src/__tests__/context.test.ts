@@ -83,6 +83,14 @@ describe("ContextStore", () => {
     expect(snippets[0].filePath).toContain("legal.md");
   });
 
+  testFn("addSource same path twice returns 1 source (no duplicates)", () => {
+    store = new ContextStore(dbPath);
+    store.addSource(tmpDir);
+    store.addSource(tmpDir);
+    const sources = store.listSources();
+    expect(sources).toHaveLength(1);
+  });
+
   testFn("addSource with invalid path throws CONTEXT_DB_ERROR", () => {
     store = new ContextStore(dbPath);
     expect(() => store.addSource("/nonexistent/path/that/does/not/exist")).toThrow();

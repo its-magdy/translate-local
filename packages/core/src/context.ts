@@ -12,7 +12,7 @@ function tokenize(text: string): string[] {
 function* walkDir(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
       yield* walkDir(full);
     } else if (/\.(txt|md|mdx|rst)$/.test(entry.name)) {
       yield full;
@@ -96,9 +96,11 @@ export class ContextStore {
     if (!row) {
       throw new TlError("CONTEXT_DB_ERROR", `Context source not found: ${id}`, `Check the id is valid`);
     }
-    this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [id]);
-    this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [id]);
-    this.db.run(`DELETE FROM context_sources WHERE id = ?`, [id]);
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [id]);
+      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [id]);
+      this.db.run(`DELETE FROM context_sources WHERE id = ?`, [id]);
+    })();
   }
 
   listSources(): ContextSource[] {
@@ -115,8 +117,10 @@ export class ContextStore {
   reindex(): void {
     const sources = this.listSources();
     for (const src of sources) {
-      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
-      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
+      this.db.transaction(() => {
+        this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
+        this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
+      })();
       this._indexSource(src.id, src.path);
     }
   }
@@ -162,21 +166,21 @@ export class ContextStore {
     }
 
     // Pass 1: build per-file token lists and document frequency
-    const fileTokens = new Map<string, string[]>();
+    const fileData = new Map<string, { tokens: string[]; text: string }>();
     const docFrequency = new Map<string, number>();
 
     for (const file of files) {
       let text = "";
       try { text = readFileSync(file, "utf8"); } catch { continue; }
       const tokens = tokenize(text);
-      fileTokens.set(file, tokens);
+      fileData.set(file, { tokens, text });
       const unique = new Set(tokens);
       for (const term of unique) {
         docFrequency.set(term, (docFrequency.get(term) ?? 0) + 1);
       }
     }
 
-    const totalDocs = fileTokens.size;
+    const totalDocs = fileData.size;
 
     // Pass 2: compute TF-IDF per file
     const insertDoc = this.db.prepare(`INSERT OR REPLACE INTO context_docs (source_id, file_path, content) VALUES (?, ?, ?)`);
@@ -184,14 +188,11 @@ export class ContextStore {
 
     this.db.transaction(() => {
       let indexedCount = 0;
-      for (const [file, tokens] of fileTokens) {
+      for (const [file, { tokens, text }] of fileData) {
         if (tokens.length === 0) continue;
         indexedCount++;
 
-        let rawText = "";
-        try { rawText = readFileSync(file, "utf8"); } catch { continue; }
-
-        insertDoc.run(sourceId, file, rawText.slice(0, 500));
+        insertDoc.run(sourceId, file, text.slice(0, 500));
 
         const termFreq = new Map<string, number>();
         for (const t of tokens) termFreq.set(t, (termFreq.get(t) ?? 0) + 1);
