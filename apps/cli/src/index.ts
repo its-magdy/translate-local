@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
+import { existsSync } from "fs";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
@@ -24,6 +25,10 @@ program.addCommand(makeConfigCommand());
 // When called with no args, launch TUI
 if (process.argv.length <= 2) {
   const tuiPath = new URL("../../tui/src/index.ts", import.meta.url).pathname;
+  if (!existsSync(tuiPath)) {
+    console.error(`tl: TUI entry point not found at ${tuiPath}`);
+    process.exit(1);
+  }
   const proc = Bun.spawn(["bun", "run", tuiPath], {
     stdio: ["inherit", "inherit", "inherit"],
   });

@@ -10,6 +10,7 @@ import { GlossaryStore } from "@tl/core/glossary";
 import { createAdapter } from "@tl/adapters/factory";
 import type { Adapter, AdapterConfig } from "@tl/shared/types";
 import type { CoreConfig } from "@tl/core/config";
+import { TlError } from "@tl/shared/errors";
 import { makeTranslateView } from "./views/translate";
 import { makeGlossaryView } from "./views/glossary";
 import { makeCompareView } from "./views/compare";
@@ -21,25 +22,32 @@ export interface AppState {
   renderer: CliRenderer;
 }
 
-const config = loadConfig();
-const adapterCfg: AdapterConfig = {
-  backend: config.adapter.backend === "local" ? "ollama" : "huggingface",
-  model: config.adapter.backend === "local"
-    ? config.adapter.local.model
-    : config.adapter.huggingface.model,
-  ollamaUrl: config.adapter.local.endpoint,
-  hfToken: config.adapter.huggingface.token,
-};
-const adapter = createAdapter(adapterCfg);
-const glossaryStore = new GlossaryStore(config.glossary.dbPath);
-const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 });
+let config: CoreConfig, adapter: Adapter, glossaryStore: GlossaryStore, renderer: CliRenderer;
+try {
+  config = loadConfig();
+  const adapterCfg: AdapterConfig = {
+    backend: config.adapter.backend === "local" ? "ollama" : "huggingface",
+    model: config.adapter.backend === "local"
+      ? config.adapter.local.model
+      : config.adapter.huggingface.model,
+    ollamaUrl: config.adapter.local.endpoint,
+    hfToken: config.adapter.huggingface.token,
+  };
+  adapter = createAdapter(adapterCfg);
+  glossaryStore = new GlossaryStore(config.glossary.dbPath);
+  renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 });
+} catch (err) {
+  const msg = err instanceof TlError ? err.hint : String(err);
+  console.error(`tl: failed to start — ${msg}`);
+  process.exit(1);
+}
 
 const state: AppState = { config, adapter, glossaryStore, renderer };
 
 async function teardown() {
-  glossaryStore.close();
-  await adapter.dispose();
-  renderer.destroy();
+  try { glossaryStore.close(); } catch {}
+  try { await Promise.race([adapter.dispose(), new Promise(r => setTimeout(r, 3000))]); } catch {}
+  try { renderer.destroy(); } catch {}
   process.exit(0);
 }
 
@@ -97,6 +105,6 @@ tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, (idx: number) => {
 
 // Global keyboard
 renderer.keyInput.on("keypress", (key) => {
-  if (key.ctrl && key.name === "c") process.emit("SIGINT" as any);
+  if (key.ctrl && key.name === "c") teardown();
   if (key.name === "tab" && !key.shift) tabs.focus();
 });

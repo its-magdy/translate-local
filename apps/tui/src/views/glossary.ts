@@ -65,6 +65,12 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   let selectedIdx = 0;
   let entries: GlossaryEntry[] = [];
+  let listFocused = true;
+
+  [srcInput, tgtInput, fromInput, toInput].forEach(input => {
+    input.on("focus", () => { listFocused = false; });
+    input.on("blur",  () => { listFocused = true; });
+  });
 
   function refreshList() {
     listContainer.destroyRecursively();
@@ -101,7 +107,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       if (selectedIdx < entries.length - 1) { selectedIdx++; refreshList(); }
       return;
     }
-    if (key.name === "d" && !key.ctrl) {
+    if (key.name === "d" && !key.ctrl && listFocused) {
       if (entries[selectedIdx]) {
         glossaryStore.remove(entries[selectedIdx].id);
         refreshList();

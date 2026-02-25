@@ -12,7 +12,7 @@
     "@tl/shared": "workspace:*",
     "@tl/core": "workspace:*",
     "@tl/adapters": "workspace:*",
-    "@opentui/core": "latest"
+    "@opentui/core": "0.1.82"
   },
   "devDependencies": {
     "bun-types": "latest",
