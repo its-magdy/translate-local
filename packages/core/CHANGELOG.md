@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-02-24
+
+### Added
+- `context.ts`: `ContextStore` class with SQLite-backed TF-IDF context retrieval; `addSource`, `removeSource`, `listSources`, `reindex`, `retrieve`, `close` methods
+- Integration tests for `ContextStore` covering add, list, retrieve, remove, reindex, and error handling
+
 ## [0.2.0] - 2026-02-24
 
 ### Added
