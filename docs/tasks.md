@@ -46,10 +46,10 @@
 
 ## Phase 6: TUI
 - [x] Create `apps/tui/` with package.json and tsconfig
-- [ ] Implement translate view — side-by-side source/target with language selector
-- [ ] Implement glossary view — table with CRUD operations
-- [ ] Implement compare view — multi-model parallel comparison
-- [ ] Implement entry point with cleanup handlers (dispose adapter on SIGINT/SIGTERM)
+- [x] Implement translate view — side-by-side source/target with language selector
+- [x] Implement glossary view — table with CRUD operations
+- [x] Implement compare view — multi-model parallel comparison
+- [x] Implement entry point with cleanup handlers (dispose adapter on SIGINT/SIGTERM)
 
 ## Phase 7: Documentation
 - [ ] Write `README.md` — quickstart, features, installation
