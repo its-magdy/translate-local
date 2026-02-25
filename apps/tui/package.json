@@ -11,7 +11,8 @@
   "dependencies": {
     "@tl/shared": "workspace:*",
     "@tl/core": "workspace:*",
-    "@tl/adapters": "workspace:*"
+    "@tl/adapters": "workspace:*",
+    "@opentui/core": "latest"
   },
   "devDependencies": {
     "bun-types": "latest",
