@@ -225,8 +225,11 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   function rtlAlign(text: string): string {
     const paneWidth = Math.floor(renderer.width / 2) - 1;
     return text.split("\n").map((line) => {
+      // Reverse chars: OpenTUI uses explicit LTR cursor positioning, bypassing the
+      // terminal's bidi engine. Reversing gives correct visual RTL order.
+      const reversed = [...line].reverse().join("");
       const pad = Math.max(0, paneWidth - line.length);
-      return " ".repeat(pad) + line;
+      return " ".repeat(pad) + reversed;
     }).join("\n");
   }
 
