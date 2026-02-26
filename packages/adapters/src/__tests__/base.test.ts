@@ -45,9 +45,26 @@ describe("buildStructuredPrompt", () => {
     expect(prompt).toContain("This is a software project.");
   });
 
-  test("ends with Translation: marker", () => {
+  test("does not include Source: or Translation: labels (BUG-006)", () => {
     const prompt = buildStructuredPrompt(baseRequest);
-    expect(prompt).toContain("Translation:");
+    expect(prompt).not.toContain("Source:");
+    expect(prompt).not.toContain("Translation:");
+  });
+
+  test("ends with source text as last line (BUG-006)", () => {
+    const prompt = buildStructuredPrompt(baseRequest);
+    expect(prompt.trimEnd()).toEndWith("The API is ready.");
+  });
+
+  test("includes term tag instruction when glossary hits provided (BUG-007)", () => {
+    const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
+    const prompt = buildStructuredPrompt(req);
+    expect(prompt).toContain("Preserve terms marked with <term> tags");
+  });
+
+  test("does not include term tag instruction when no glossary hits", () => {
+    const prompt = buildStructuredPrompt(baseRequest);
+    expect(prompt).not.toContain("Preserve terms");
   });
 });
 

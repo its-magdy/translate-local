@@ -7,9 +7,11 @@ import type { TranslationRequest } from "@tl/shared/types";
 export function buildStructuredPrompt(request: TranslationRequest): string {
   const lines: string[] = [];
 
-  lines.push(`Translate the following from ${request.sourceLang} to ${request.targetLang}.`);
+  lines.push(`Translate the following text from ${request.sourceLang} to ${request.targetLang}.`);
 
-
+  if (request.glossaryHits && request.glossaryHits.length > 0) {
+    lines.push("Preserve terms marked with <term> tags and use their specified translations.");
+  }
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
     lines.push("\nContext:");
@@ -18,8 +20,7 @@ export function buildStructuredPrompt(request: TranslationRequest): string {
     }
   }
 
-  lines.push(`\nSource: ${request.source}`);
-  lines.push("Translation:");
+  lines.push(request.source);
 
   return lines.join("\n");
 }
