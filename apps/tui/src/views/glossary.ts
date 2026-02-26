@@ -8,6 +8,8 @@ import {
 import type { GlossaryEntry } from "@tl/shared/types";
 import type { AppState } from "../index";
 import type { View } from "./translate";
+import { makeLangPicker } from "./widgets";
+import { C } from "../theme";
 
 export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   const { renderer, glossaryStore } = state;
@@ -20,6 +22,24 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   });
   parent.add(container);
 
+  // Table header
+  const tableHeader = new BoxRenderable(renderer, {
+    id: "glossary-table-header",
+    flexDirection: "row",
+    height: 1,
+    width: "100%",
+  });
+  container.add(tableHeader);
+  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID      ",  fg: C.textMuted, width: 10 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM         ", fg: C.textMuted, width: 20 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION         ", fg: C.textMuted, width: 20 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR        ",        fg: C.textMuted, width: 12 }));
+
+  // Header separator
+  const headerSep = new BoxRenderable(renderer, { id: "glossary-header-sep", height: 1, width: "100%" });
+  container.add(headerSep);
+  headerSep.add(new TextRenderable(renderer, { id: "header-sep-line", content: "─".repeat(120), fg: C.borderSubtle }));
+
   // List area
   const listContainer = new BoxRenderable(renderer, {
     id: "glossary-list",
@@ -29,82 +49,136 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   });
   container.add(listContainer);
 
-  // Add form
+  // Add form — two rows: text inputs on top, lang pickers below
   const formContainer = new BoxRenderable(renderer, {
     id: "glossary-form",
-    flexDirection: "row",
-    height: 3,
+    flexDirection: "column",
+    height: 2,
     width: "100%",
   });
   container.add(formContainer);
 
-  formContainer.add(new TextRenderable(renderer, { id: "src-label", content: "Src: " }));
-  const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: 16, placeholder: "source term" });
-  formContainer.add(srcInput);
+  const termRow = new BoxRenderable(renderer, { id: "glossary-term-row", flexDirection: "row", height: 1, width: "100%" });
+  formContainer.add(termRow);
+  termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textMuted }));
+  const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: 20, placeholder: "source term" });
+  termRow.add(srcInput);
+  const srcRtlPreview = new TextRenderable(renderer, { id: "g-src-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  termRow.add(srcRtlPreview);
+  termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
+  const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 20, placeholder: "target term" });
+  termRow.add(tgtInput);
+  const rtlPreview = new TextRenderable(renderer, { id: "g-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  termRow.add(rtlPreview);
 
-  formContainer.add(new TextRenderable(renderer, { id: "tgt-label", content: " Tgt: " }));
-  const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 16, placeholder: "target term" });
-  formContainer.add(tgtInput);
-
-  formContainer.add(new TextRenderable(renderer, { id: "from-label", content: " From: " }));
-  const fromInput = new InputRenderable(renderer, { id: "g-from-input", width: 6, placeholder: "en" });
-  formContainer.add(fromInput);
-
-  formContainer.add(new TextRenderable(renderer, { id: "to-label-g", content: " To: " }));
-  const toInput = new InputRenderable(renderer, { id: "g-to-input", width: 6, placeholder: "fr" });
-  formContainer.add(toInput);
+  const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
+  formContainer.add(langRow);
+  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
+  const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false);
+  langRow.add(fromPicker.renderable);
+  langRow.add(new TextRenderable(renderer, { id: "arrow-g", content: "  →  ", fg: C.accent }));
+  langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textMuted }));
+  const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false);
+  langRow.add(toPicker.renderable);
+  langRow.add(new TextRenderable(renderer, { id: "add-hint", content: "  [Enter] + Add", fg: C.accent }));
 
   // Footer
-  const footer = new BoxRenderable(renderer, { id: "glossary-footer", height: 1, width: "100%" });
+  const footer = new BoxRenderable(renderer, { id: "glossary-footer", flexDirection: "row", height: 1, width: "100%" });
   container.add(footer);
   footer.add(new TextRenderable(renderer, {
     id: "glossary-footer-text",
-    content: "[↑↓] navigate · [d] delete · [Tab] focus form · [Enter] add",
-    fg: "#666",
+    content: "↑↓ navigate  ·  d delete  ·  Tab focus form  ·  Ctrl+Q quit  ",
+    fg: C.textMuted,
   }));
+
+  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
+
+  function rtlReverse(text: string): string {
+    return [...text].reverse().join("");
+  }
 
   let selectedIdx = 0;
   let entries: GlossaryEntry[] = [];
   let listFocused = true;
 
-  [srcInput, tgtInput, fromInput, toInput].forEach(input => {
+  [srcInput, tgtInput].forEach(input => {
     input.on("focus", () => { listFocused = false; });
     input.on("blur",  () => { listFocused = true; });
   });
 
+  function hasRtlChars(text: string): boolean {
+    return /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/.test(text);
+  }
+
+  srcInput.onContentChange = () => {
+    const val = srcInput.value;
+    srcRtlPreview.content = val && hasRtlChars(val) ? `→ ${val}` : "";
+  };
+
+  tgtInput.onContentChange = () => {
+    const val = tgtInput.value;
+    rtlPreview.content = val && hasRtlChars(val) ? `→ ${val}` : "";
+  };
+
   function refreshList() {
-    listContainer.destroyRecursively();
-    entries = glossaryStore.list();
+    for (const child of [...listContainer.getChildren()]) {
+      listContainer.remove(child.id);
+    }
+    try {
+      entries = glossaryStore.list();
+    } catch {
+      entries = [];
+    }
+    footer.remove("glossary-entry-count");
+    footer.add(new TextRenderable(renderer, {
+      id: "glossary-entry-count",
+      content: `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`,
+      fg: C.textMuted,
+    }));
     if (entries.length === 0) {
-      listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: "#666" }));
+      listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: C.textMuted }));
       return;
     }
     if (selectedIdx >= entries.length) selectedIdx = entries.length - 1;
     entries.forEach((e, idx) => {
+      const selected = idx === selectedIdx;
       const row = new BoxRenderable(renderer, {
         id: `row-${e.id}`,
         flexDirection: "row",
-        backgroundColor: idx === selectedIdx ? "#1e3a5f" : undefined,
+        backgroundColor: selected ? C.selectionBg : undefined,
       });
-      row.add(new TextRenderable(renderer, { id: `id-${e.id}`, content: e.id.slice(0, 8), width: 10 }));
-      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20 }));
-      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: e.targetTerm, width: 20 }));
-      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `${e.sourceLang}→${e.targetLang}`, width: 12 }));
+      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: 10, fg: C.textMuted }));
+      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20, fg: C.textPrimary }));
+      const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
+      const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;
+      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20, fg: C.textPrimary }));
+      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `[${e.sourceLang}→${e.targetLang}]`, width: 12, fg: C.textSecondary }));
       listContainer.add(row);
     });
   }
 
   refreshList();
 
+  function updateSelection(newIdx: number) {
+    const oldIdx = selectedIdx;
+    selectedIdx = newIdx;
+    // Only update background colors — no DB query, no DOM rebuild
+    const children = listContainer.getChildren() as BoxRenderable[];
+    const oldRow = children.find(c => c.id === `row-${entries[oldIdx]?.id}`);
+    const newRow = children.find(c => c.id === `row-${entries[newIdx]?.id}`);
+    if (oldRow) oldRow.backgroundColor = undefined;
+    if (newRow) newRow.backgroundColor = C.selectionBg;
+  }
+
   // List navigation keyboard
   renderer.keyInput.on("keypress", (key) => {
     if (!container.visible) return;
     if (key.name === "up") {
-      if (selectedIdx > 0) { selectedIdx--; refreshList(); }
+      if (selectedIdx > 0) updateSelection(selectedIdx - 1);
       return;
     }
     if (key.name === "down") {
-      if (selectedIdx < entries.length - 1) { selectedIdx++; refreshList(); }
+      if (selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
       return;
     }
     if (key.name === "d" && !key.ctrl && listFocused) {
@@ -115,19 +189,19 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     }
   });
 
-  // Add entry on Enter in last field
-  toInput.on(InputRenderableEvents.ENTER, () => {
+  // Add entry on Enter in tgt field (last text input; lang pickers are already set)
+  tgtInput.on(InputRenderableEvents.ENTER, () => {
     const src = srcInput.value.trim();
     const tgt = tgtInput.value.trim();
-    const from = fromInput.value.trim();
-    const to = toInput.value.trim();
-    if (!src || !tgt || !from || !to) return;
+    const from = fromPicker.getValue();
+    const to = toPicker.getValue();
+    if (!src || !tgt) return;
 
     glossaryStore.add({ sourceTerm: src, targetTerm: tgt, sourceLang: from, targetLang: to });
     srcInput.value = "";
     tgtInput.value = "";
-    fromInput.value = "";
-    toInput.value = "";
+    srcRtlPreview.content = "";
+    rtlPreview.content = "";
     refreshList();
   });
 

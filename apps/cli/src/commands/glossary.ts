@@ -3,6 +3,7 @@ import { loadConfig } from "@tl/core/config";
 import { GlossaryStore } from "@tl/core/glossary";
 import { readFileSync } from "fs";
 import { formatGlossaryList, formatError } from "../formatters/output";
+import { isSupported } from "@tl/shared/utils/language";
 
 /** Wrap a CSV field in double-quotes if it contains a comma, quote, or newline. */
 function csvField(s: string): string {
@@ -61,6 +62,14 @@ export function makeGlossaryCommand(): Command {
     .option("--note <note>", "Usage note")
     .action((opts: { source: string; target: string; from: string; to: string; domain?: string; note?: string }) => {
       try {
+        if (!isSupported(opts.from)) {
+          console.error(`Unsupported language code: "${opts.from}". Run \`tl config status\` to see supported codes.`);
+          process.exit(1);
+        }
+        if (!isSupported(opts.to)) {
+          console.error(`Unsupported language code: "${opts.to}". Run \`tl config status\` to see supported codes.`);
+          process.exit(1);
+        }
         const entry = withStore((store) =>
           store.add({
             sourceTerm: opts.source,
@@ -133,6 +142,8 @@ export function makeGlossaryCommand(): Command {
           for (const line of lines) {
             const [sourceTerm, targetTerm, sourceLang, targetLang, domain, note] = parseCsvLine(line).map((s) => s.trim());
             if (!sourceTerm || !targetTerm || !sourceLang || !targetLang) continue;
+            // Skip header rows (e.g. "source,target,from,to,..." or "source,target,source_lang,...")
+            if (sourceTerm === "source" && targetTerm === "target") continue;
             store.add({ sourceTerm, targetTerm, sourceLang, targetLang, domain: domain || undefined, note: note || undefined });
             added++;
           }

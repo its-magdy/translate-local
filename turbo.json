@@ -6,7 +6,8 @@
       "outputs": ["dist/**"]
     },
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "env": ["TEST_INTEGRATION", "TEST_ADAPTER"]
     },
     "lint": {},
     "dev": {

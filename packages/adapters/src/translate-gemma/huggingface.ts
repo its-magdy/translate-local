@@ -37,7 +37,7 @@ export class TranslateGemmaHFAdapter implements Adapter {
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
     const start = Date.now();
-    const prompt = buildStructuredPrompt(request);
+    const { prompt } = buildStructuredPrompt(request);
 
     if (!this.resolvedToken) {
       throw new TlError(
@@ -86,10 +86,8 @@ export class TranslateGemmaHFAdapter implements Adapter {
     const data = (await response.json()) as HFTextGenerationResponse[];
     const raw = data[0]?.generated_text ?? "";
 
-    // HF returns the full prompt + completion; extract just the translation
-    const marker = "Translation:";
-    const markerIdx = raw.lastIndexOf(marker);
-    const translated = (markerIdx >= 0 ? raw.slice(markerIdx + marker.length) : raw).trim();
+    // HF returns the full prompt + completion; strip the prompt prefix
+    const translated = raw.startsWith(prompt) ? raw.slice(prompt.length).trim() : raw.trim();
 
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(
       request.glossaryHits ?? [],

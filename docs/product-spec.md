@@ -7,7 +7,7 @@
 ## Goals (v1)
 
 1. Ship a usable CLI for interactive translation with glossary control
-2. Provide an optional TUI for review/edit/compare workflows
+2. Provide an optional TUI for review/edit workflows
 3. Support a model adapter interface with TranslateGemma as default and mock adapter for tests
 4. Allow local resources (glossaries, style guides, domain docs) to be indexed and injected as context
 5. Keep a clean path to add APIs/web later without rework
@@ -82,12 +82,6 @@ tl
 # Side-by-side source/target view
 # Glossary status panel
 # Edit translations inline
-```
-
-### 6. Compare Models
-```bash
-tl --compare
-# See output from multiple adapters side by side
 ```
 
 ## CLI Commands

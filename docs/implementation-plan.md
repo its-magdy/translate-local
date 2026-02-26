@@ -65,8 +65,7 @@ t/
             ├── index.ts
             └── views/
                 ├── translate.ts      # Side-by-side view
-                ├── glossary.ts       # Glossary manager
-                └── compare.ts        # Multi-model compare
+                └── glossary.ts       # Glossary manager
 ```
 
 ## Translation Pipeline Flow
@@ -178,7 +177,7 @@ Behavior:
 20. `packages/core/src/context/provider.ts` — add/remove/retrieve
 
 ### Phase 6: TUI
-21. `apps/tui` — side-by-side translate, glossary manager, compare mode (launched by `tl` with no args)
+21. `apps/tui` — side-by-side translate, glossary manager (launched by `tl` with no args)
 
 ## Testing Strategy
 

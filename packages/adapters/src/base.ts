@@ -1,27 +1,44 @@
 import type { TranslationRequest } from "@tl/shared/types";
+import { LANG_NAMES } from "@tl/shared/constants";
+
+function langLabel(code: string): string {
+  const name = LANG_NAMES[code.toLowerCase()];
+  return name ? `${name} (${code})` : code;
+}
 
 /**
- * Builds a structured prompt for TranslateGemma models.
- * Uses source_lang/target_lang fields + XML glossary tags.
+ * Builds a prompt using the official TranslateGemma template format.
+ * All instructions go in the prompt itself (model ignores system field for translation).
  */
-export function buildStructuredPrompt(request: TranslationRequest): string {
-  const lines: string[] = [];
+export function buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string } {
+  const src = langLabel(request.sourceLang);
+  const tgt = langLabel(request.targetLang);
+  const srcName = LANG_NAMES[request.sourceLang.toLowerCase()] ?? request.sourceLang;
+  const tgtName = LANG_NAMES[request.targetLang.toLowerCase()] ?? request.targetLang;
 
-  lines.push(`Translate the following from ${request.sourceLang} to ${request.targetLang}.`);
+  const lines: string[] = [
+    `You are a professional ${src} to ${tgt} translator. Your goal is to accurately convey the meaning and nuances of the original ${srcName} text while adhering to ${tgtName} grammar, vocabulary, and cultural sensitivities.`,
+    `Produce only the ${tgtName} translation, without any additional explanations or commentary.`,
+  ];
 
+  if (request.glossaryHits && request.glossaryHits.length > 0) {
+    lines.push(`When you encounter <term translation="X">word</term> in the text, replace that word with exactly X — use the exact form provided, without adding articles, inflections, or diacritics. Never output the XML tags themselves.`);
+  }
 
+  lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
+  lines.push(""); // blank line
+  lines.push(""); // second blank line (required by model)
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
-    lines.push("\nContext:");
     for (const snippet of request.contextSnippets) {
       lines.push(snippet);
     }
+    lines.push("");
   }
 
-  lines.push(`\nSource: ${request.source}`);
-  lines.push("Translation:");
+  lines.push(request.source);
 
-  return lines.join("\n");
+  return { prompt: lines.join("\n") };
 }
 
 /**
@@ -33,7 +50,7 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
   lines.push(
     `You are a professional translator. Translate the following text from ${request.sourceLang} to ${request.targetLang}.`
   );
-  lines.push("Output only the translation, nothing else.");
+  lines.push("Output only the translation, nothing else. Preserve the line breaks and paragraph structure of the source text.");
 
   if (request.glossaryHits && request.glossaryHits.length > 0) {
     lines.push("\nUse these specific translations for the following terms:");

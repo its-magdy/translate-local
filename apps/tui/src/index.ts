@@ -1,6 +1,7 @@
 import {
   createCliRenderer,
   BoxRenderable,
+  TextRenderable,
   TabSelectRenderable,
   TabSelectRenderableEvents,
   type CliRenderer,
@@ -13,7 +14,7 @@ import type { CoreConfig } from "@tl/core/config";
 import { TlError } from "@tl/shared/errors";
 import { makeTranslateView } from "./views/translate";
 import { makeGlossaryView } from "./views/glossary";
-import { makeCompareView } from "./views/compare";
+import { C } from "./theme";
 
 export interface AppState {
   config: CoreConfig;
@@ -63,18 +64,39 @@ const root = new BoxRenderable(renderer, {
 });
 renderer.root.add(root);
 
+// Header bar: wordmark + tabs
+const headerBar = new BoxRenderable(renderer, {
+  id: "header-bar",
+  flexDirection: "row",
+  width: "100%",
+  height: 3,
+});
+root.add(headerBar);
+
+// Wordmark
+headerBar.add(new TextRenderable(renderer, {
+  id: "wordmark",
+  content: " tl ",
+  fg: C.accent,
+}));
+headerBar.add(new TextRenderable(renderer, {
+  id: "wordmark-sep",
+  content: "│ ",
+  fg: C.textMuted,
+}));
+
 // Tab bar
 const tabs = new TabSelectRenderable(renderer, {
   id: "tabs",
-  width: renderer.width,
-  tabWidth: Math.floor(renderer.width / 3),
+  width: renderer.width - 6,
+  tabWidth: Math.floor((renderer.width - 6) / 2),
   options: [
-    { name: "Translate", description: "Translate text" },
-    { name: "Glossary", description: "Manage glossary" },
-    { name: "Compare", description: "Compare adapters" },
+    { name: "⇄  Translate", description: "" },
+    { name: "⌥  Glossary",  description: "" },
   ],
+  wrapSelection: true,
 });
-root.add(tabs);
+headerBar.add(tabs);
 tabs.focus();
 
 // Content area
@@ -88,23 +110,27 @@ root.add(content);
 // Mount views
 const translateView = makeTranslateView(state, content);
 const glossaryView = makeGlossaryView(state, content);
-const compareView = makeCompareView(state, content);
 
 glossaryView.container.visible = false;
-compareView.container.visible = false;
 
 let activeIdx = 0;
-const views = [translateView, glossaryView, compareView];
+const views = [translateView, glossaryView];
 
-tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, (idx: number) => {
+function switchToTab(idx: number) {
   views[activeIdx].container.visible = false;
   activeIdx = idx;
   views[activeIdx].container.visible = true;
   views[activeIdx].focus();
-});
+}
+
+tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, switchToTab);
+tabs.on(TabSelectRenderableEvents.SELECTION_CHANGED, switchToTab);
 
 // Global keyboard
 renderer.keyInput.on("keypress", (key) => {
-  if (key.ctrl && key.name === "c") teardown();
-  if (key.name === "tab" && !key.shift) tabs.focus();
+  if (key.ctrl && (key.name === "c" || key.name === "q")) teardown();
+  if (key.name === "tab" && !key.shift) {
+    tabs.moveRight();
+    tabs.selectCurrent();
+  }
 });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -80,6 +80,17 @@ describe("stripGlossaryTags", () => {
     const input = '<term translation="a">line one\nline two</term>';
     expect(stripGlossaryTags(input)).toBe("line one\nline two");
   });
+
+  test("uses translation attribute for unclosed tags", () => {
+    const input = 'prefix <term translation="مرحبا">hello';
+    expect(stripGlossaryTags(input)).toBe("prefix مرحبا");
+  });
+
+  test("handles multiple unclosed tags", () => {
+    // Space after "machine learning" is consumed as part of the source content — normalizeWhitespace handles the rest
+    const input = '<term translation="تعلم الآلة">machine learning<term translation="شبكة عصبية">neural network';
+    expect(stripGlossaryTags(input)).toBe("تعلم الآلةشبكة عصبية");
+  });
 });
 
 describe("normalizeWhitespace", () => {
@@ -91,7 +102,43 @@ describe("normalizeWhitespace", () => {
     expect(normalizeWhitespace("  hello  ")).toBe("hello");
   });
 
-  test("collapses newlines", () => {
-    expect(normalizeWhitespace("hello\n\nworld")).toBe("hello world");
+  test("preserves newlines", () => {
+    expect(normalizeWhitespace("hello\n\nworld")).toBe("hello\n\nworld");
+  });
+});
+
+describe("computeGlossaryCoverage", () => {
+  test("returns full coverage when no hits", () => {
+    expect(computeGlossaryCoverage([], "anything")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when target term is present exactly", () => {
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "مرحبا")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when translated has combining diacritics (Arabic fathatan)", () => {
+    // Glossary stores "مرحبا" (plain), model outputs "مرحبًا" (with fathatan U+064B)
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "مرحبًا")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when translated has combining diacritics (Latin accents)", () => {
+    // Glossary stores "resume" (plain), model outputs "résumé" (with accents)
+    const hit = makeHit("resume", "résumé", 0);
+    expect(computeGlossaryCoverage([hit], "résumé")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("reports missing term when target is absent", () => {
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "شكرا")).toEqual({ glossaryCoverage: 0, missingTerms: ["hello"] });
+  });
+
+  test("computes partial coverage with multiple hits", () => {
+    const hits = [makeHit("hello", "مرحبا", 0), makeHit("cloud", "سحابة", 6)];
+    const result = computeGlossaryCoverage(hits, "مرحبًا والسحاب");
+    // "مرحبا" matches via diacritic normalization, "سحابة" is absent
+    expect(result.glossaryCoverage).toBeCloseTo(0.5);
+    expect(result.missingTerms).toEqual(["cloud"]);
   });
 });

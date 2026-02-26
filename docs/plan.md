@@ -74,7 +74,6 @@ Format: `<term translation="واجهة برمجة">API</term>` (TranslateGemma's
 ### Phase 6: TUI
 - `apps/tui/src/views/translate.ts` — side-by-side source/target, language selector dropdown
 - `apps/tui/src/views/glossary.ts` — table view with CRUD
-- `apps/tui/src/views/compare.ts` — multi-model parallel comparison
 - `apps/tui/src/index.ts` — cleanup handlers (dispose adapter on exit)
 
 ### Phase 7: Documentation

@@ -48,7 +48,7 @@
 - [x] Create `apps/tui/` with package.json and tsconfig
 - [x] Implement translate view — side-by-side source/target with language selector
 - [x] Implement glossary view — table with CRUD operations
-- [x] Implement compare view — multi-model parallel comparison
+- [-] ~~Implement compare view~~ — removed; no real value until a second real adapter is available
 - [x] Implement entry point with cleanup handlers (dispose adapter on SIGINT/SIGTERM)
 
 ## Phase 7: Documentation
