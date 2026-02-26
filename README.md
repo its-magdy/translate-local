@@ -155,7 +155,7 @@ tl glossary list --from en --to ar
 tl glossary import ./terms.csv
 ```
 
-CSV format: `source,target,source_lang,target_lang,domain,notes`
+CSV format: `source,target,from,to,domain,note`
 
 **Export:**
 

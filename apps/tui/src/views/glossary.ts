@@ -74,7 +74,11 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   function refreshList() {
     listContainer.destroyRecursively();
-    entries = glossaryStore.list();
+    try {
+      entries = glossaryStore.list();
+    } catch {
+      entries = [];
+    }
     if (entries.length === 0) {
       listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: "#666" }));
       return;
