@@ -32,11 +32,12 @@ describe("buildStructuredPrompt", () => {
     expect(prompt).toContain("The API is ready.");
   });
 
-  test("does not include glossary instruction (deferred to preprocessor)", () => {
-    // XML tag injection is handled by the Phase 3 preprocessor, not the prompt builder
+  test("does not inject XML tags itself (tag injection is handled by preprocessor)", () => {
+    // The prompt builder adds a <term> instruction line but never injects <term>...</term> XML nodes.
+    // Actual tag injection (e.g. <term translation="x">source</term>) is done upstream by injectGlossaryTags.
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
     const prompt = buildStructuredPrompt(req);
-    expect(prompt).not.toContain("<term>");
+    expect(prompt).not.toContain('translation="');
   });
 
   test("includes context snippets when provided", () => {

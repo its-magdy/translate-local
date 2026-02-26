@@ -1,7 +1,9 @@
 // BCP-47 base codes for the 50 unique target languages in the WMT24++ benchmark
 // (WMT24++ has 55 pairs; ar, fr, sw, pt, zh each have two regional variants)
 // Source: https://huggingface.co/datasets/google/wmt24pp
+// "en" is included as the primary source language for TranslateGemma.
 export const SUPPORTED_LANGUAGES: readonly string[] = [
+  "en",
   "ar", "bg", "bn", "ca", "cs", "da", "de", "el", "es", "et",
   "fa", "fi", "fil", "fr", "gu", "he", "hi", "hr", "hu", "id",
   "is", "it", "ja", "kn", "ko", "lt", "lv", "ml", "mr", "nl",
