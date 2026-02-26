@@ -13,7 +13,6 @@ import type { CoreConfig } from "@tl/core/config";
 import { TlError } from "@tl/shared/errors";
 import { makeTranslateView } from "./views/translate";
 import { makeGlossaryView } from "./views/glossary";
-import { makeCompareView } from "./views/compare";
 
 export interface AppState {
   config: CoreConfig;
@@ -67,11 +66,10 @@ renderer.root.add(root);
 const tabs = new TabSelectRenderable(renderer, {
   id: "tabs",
   width: renderer.width,
-  tabWidth: Math.floor(renderer.width / 3),
+  tabWidth: Math.floor(renderer.width / 2),
   options: [
     { name: "Translate", description: "Translate text" },
     { name: "Glossary", description: "Manage glossary" },
-    { name: "Compare", description: "Compare adapters" },
   ],
   wrapSelection: true,
 });
@@ -89,13 +87,11 @@ root.add(content);
 // Mount views
 const translateView = makeTranslateView(state, content);
 const glossaryView = makeGlossaryView(state, content);
-const compareView = makeCompareView(state, content);
 
 glossaryView.container.visible = false;
-compareView.container.visible = false;
 
 let activeIdx = 0;
-const views = [translateView, glossaryView, compareView];
+const views = [translateView, glossaryView];
 
 function switchToTab(idx: number) {
   views[activeIdx].container.visible = false;
