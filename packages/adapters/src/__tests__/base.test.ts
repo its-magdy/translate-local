@@ -21,10 +21,10 @@ const makeHit = (sourceTerm: string, targetTerm: string): GlossaryHit => ({
 });
 
 describe("buildStructuredPrompt", () => {
-  test("includes source and target lang", () => {
+  test("includes source and target lang in prompt", () => {
     const { prompt } = buildStructuredPrompt(baseRequest);
-    expect(prompt).toContain("en");
-    expect(prompt).toContain("ar");
+    expect(prompt).toContain("English");
+    expect(prompt).toContain("Arabic");
   });
 
   test("includes source text", () => {
@@ -56,14 +56,13 @@ describe("buildStructuredPrompt", () => {
     expect(prompt.trimEnd()).toEndWith("The API is ready.");
   });
 
-  test("puts term tag instruction in system field (not prompt) to prevent model echo", () => {
+  test("includes glossary tag instruction in prompt when glossary hits present", () => {
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
-    const { prompt, system } = buildStructuredPrompt(req);
-    expect(prompt).not.toContain("Preserve terms");
-    expect(system).toContain("Preserve terms");
+    const { prompt } = buildStructuredPrompt(req);
+    expect(prompt).toContain("<term>");
   });
 
-  test("system is undefined when no glossary hits", () => {
+  test("system is undefined (all instructions go in prompt for TranslateGemma)", () => {
     const { system } = buildStructuredPrompt(baseRequest);
     expect(system).toBeUndefined();
   });

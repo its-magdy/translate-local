@@ -1,31 +1,58 @@
 import type { TranslationRequest } from "@tl/shared/types";
 
+// BCP-47 code → display name mapping for TranslateGemma prompt template
+const LANG_NAMES: Record<string, string> = {
+  en: "English", ar: "Arabic", bg: "Bulgarian", bn: "Bengali", ca: "Catalan",
+  cs: "Czech", da: "Danish", de: "German", el: "Greek", es: "Spanish",
+  et: "Estonian", fa: "Persian", fi: "Finnish", fil: "Filipino", fr: "French",
+  gu: "Gujarati", he: "Hebrew", hi: "Hindi", hr: "Croatian", hu: "Hungarian",
+  id: "Indonesian", is: "Icelandic", it: "Italian", ja: "Japanese", kn: "Kannada",
+  ko: "Korean", lt: "Lithuanian", lv: "Latvian", ml: "Malayalam", mr: "Marathi",
+  nl: "Dutch", no: "Norwegian", pa: "Punjabi", pl: "Polish", pt: "Portuguese",
+  ro: "Romanian", ru: "Russian", sk: "Slovak", sl: "Slovenian", sr: "Serbian",
+  sv: "Swedish", sw: "Swahili", ta: "Tamil", te: "Telugu", th: "Thai",
+  tr: "Turkish", uk: "Ukrainian", ur: "Urdu", vi: "Vietnamese", zh: "Chinese",
+  zu: "Zulu",
+};
+
+function langLabel(code: string): string {
+  const name = LANG_NAMES[code.toLowerCase()];
+  return name ? `${name} (${code})` : code;
+}
+
 /**
- * Builds a structured prompt for TranslateGemma models.
- * Returns { prompt, system } where system carries glossary instructions
- * so the model doesn't echo them as part of the translation.
+ * Builds a prompt using the official TranslateGemma template format.
+ * All instructions go in the prompt itself (model ignores system field for translation).
  */
 export function buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string } {
-  const lines: string[] = [];
+  const src = langLabel(request.sourceLang);
+  const tgt = langLabel(request.targetLang);
+  const srcName = LANG_NAMES[request.sourceLang.toLowerCase()] ?? request.sourceLang;
+  const tgtName = LANG_NAMES[request.targetLang.toLowerCase()] ?? request.targetLang;
 
-  lines.push(`Translate the following text from ${request.sourceLang} to ${request.targetLang}.`);
-  lines.push("Preserve the line breaks and paragraph structure of the source text.");
+  const lines: string[] = [
+    `You are a professional ${src} to ${tgt} translator. Your goal is to accurately convey the meaning and nuances of the original ${srcName} text while adhering to ${tgtName} grammar, vocabulary, and cultural sensitivities.`,
+    `Produce only the ${tgtName} translation, without any additional explanations or commentary.`,
+  ];
+
+  if (request.glossaryHits && request.glossaryHits.length > 0) {
+    lines.push("For terms marked with <term> tags, use the translation attribute value and do not output the XML tags.");
+  }
+
+  lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
+  lines.push(""); // blank line
+  lines.push(""); // second blank line (required by model)
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
-    lines.push("\nContext:");
     for (const snippet of request.contextSnippets) {
       lines.push(snippet);
     }
+    lines.push("");
   }
 
   lines.push(request.source);
 
-  const system =
-    request.glossaryHits && request.glossaryHits.length > 0
-      ? "Preserve terms marked with <term> tags and use their specified translations."
-      : undefined;
-
-  return { prompt: lines.join("\n"), system };
+  return { prompt: lines.join("\n") };
 }
 
 /**
