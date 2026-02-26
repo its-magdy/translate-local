@@ -76,6 +76,8 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     width: "100%",
     flexGrow: 1,
     placeholder: "Enter text to translate...",
+    keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
+    onSubmit: () => triggerTranslate(),
   });
   leftPane.add(sourceTextarea);
 
@@ -114,14 +116,12 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     }
   }
 
-  updateStatus("[Ctrl+Enter] translate · [Tab] switch tabs");
+  updateStatus("[Ctrl+Enter] translate · [Tab] switch tabs · [Ctrl+Q] quit");
 
   let loading = false;
 
-  renderer.keyInput.on("keypress", (key) => {
-    if (!key.ctrl || key.name !== "return") return;
-    if (loading) return;
-    if (!container.visible) return;
+  function triggerTranslate() {
+    if (loading || !container.visible) return;
 
     const text = sourceTextarea.plainText.trim();
     if (!text) return;
@@ -147,7 +147,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
       .finally(() => {
         loading = false;
       });
-  });
+  }
 
   return {
     container,

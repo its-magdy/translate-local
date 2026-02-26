@@ -105,6 +105,6 @@ tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, (idx: number) => {
 
 // Global keyboard
 renderer.keyInput.on("keypress", (key) => {
-  if (key.ctrl && key.name === "c") teardown();
+  if (key.ctrl && (key.name === "c" || key.name === "q")) teardown();
   if (key.name === "tab" && !key.shift) tabs.focus();
 });
