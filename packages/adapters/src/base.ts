@@ -2,16 +2,13 @@ import type { TranslationRequest } from "@tl/shared/types";
 
 /**
  * Builds a structured prompt for TranslateGemma models.
- * Uses source_lang/target_lang fields + XML glossary tags.
+ * Returns { prompt, system } where system carries glossary instructions
+ * so the model doesn't echo them as part of the translation.
  */
-export function buildStructuredPrompt(request: TranslationRequest): string {
+export function buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string } {
   const lines: string[] = [];
 
   lines.push(`Translate the following text from ${request.sourceLang} to ${request.targetLang}.`);
-
-  if (request.glossaryHits && request.glossaryHits.length > 0) {
-    lines.push("Preserve terms marked with <term> tags and use their specified translations.");
-  }
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
     lines.push("\nContext:");
@@ -22,7 +19,12 @@ export function buildStructuredPrompt(request: TranslationRequest): string {
 
   lines.push(request.source);
 
-  return lines.join("\n");
+  const system =
+    request.glossaryHits && request.glossaryHits.length > 0
+      ? "Preserve terms marked with <term> tags and use their specified translations."
+      : undefined;
+
+  return { prompt: lines.join("\n"), system };
 }
 
 /**

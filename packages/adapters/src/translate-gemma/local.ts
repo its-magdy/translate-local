@@ -7,6 +7,7 @@ interface OllamaGenerateRequest {
   model: string;
   prompt: string;
   stream: boolean;
+  system?: string;
   keep_alive?: number;
 }
 
@@ -24,7 +25,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
     const start = Date.now();
-    const prompt = buildStructuredPrompt(request);
+    const { prompt, system } = buildStructuredPrompt(request);
 
     let response: Response;
     try {
@@ -35,6 +36,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           model: this.model,
           prompt,
           stream: false,
+          ...(system ? { system } : {}),
         } satisfies OllamaGenerateRequest),
       });
     } catch (err) {

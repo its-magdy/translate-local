@@ -22,50 +22,50 @@ const makeHit = (sourceTerm: string, targetTerm: string): GlossaryHit => ({
 
 describe("buildStructuredPrompt", () => {
   test("includes source and target lang", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
+    const { prompt } = buildStructuredPrompt(baseRequest);
     expect(prompt).toContain("en");
     expect(prompt).toContain("ar");
   });
 
   test("includes source text", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
+    const { prompt } = buildStructuredPrompt(baseRequest);
     expect(prompt).toContain("The API is ready.");
   });
 
   test("does not inject XML tags itself (tag injection is handled by preprocessor)", () => {
-    // The prompt builder adds a <term> instruction line but never injects <term>...</term> XML nodes.
     // Actual tag injection (e.g. <term translation="x">source</term>) is done upstream by injectGlossaryTags.
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
-    const prompt = buildStructuredPrompt(req);
+    const { prompt } = buildStructuredPrompt(req);
     expect(prompt).not.toContain('translation="');
   });
 
   test("includes context snippets when provided", () => {
     const req = { ...baseRequest, contextSnippets: ["This is a software project."] };
-    const prompt = buildStructuredPrompt(req);
+    const { prompt } = buildStructuredPrompt(req);
     expect(prompt).toContain("This is a software project.");
   });
 
   test("does not include Source: or Translation: labels (BUG-006)", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
+    const { prompt } = buildStructuredPrompt(baseRequest);
     expect(prompt).not.toContain("Source:");
     expect(prompt).not.toContain("Translation:");
   });
 
   test("ends with source text as last line (BUG-006)", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
+    const { prompt } = buildStructuredPrompt(baseRequest);
     expect(prompt.trimEnd()).toEndWith("The API is ready.");
   });
 
-  test("includes term tag instruction when glossary hits provided (BUG-007)", () => {
+  test("puts term tag instruction in system field (not prompt) to prevent model echo", () => {
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
-    const prompt = buildStructuredPrompt(req);
-    expect(prompt).toContain("Preserve terms marked with <term> tags");
+    const { prompt, system } = buildStructuredPrompt(req);
+    expect(prompt).not.toContain("Preserve terms");
+    expect(system).toContain("Preserve terms");
   });
 
-  test("does not include term tag instruction when no glossary hits", () => {
-    const prompt = buildStructuredPrompt(baseRequest);
-    expect(prompt).not.toContain("Preserve terms");
+  test("system is undefined when no glossary hits", () => {
+    const { system } = buildStructuredPrompt(baseRequest);
+    expect(system).toBeUndefined();
   });
 });
 

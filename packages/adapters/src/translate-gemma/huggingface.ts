@@ -37,7 +37,7 @@ export class TranslateGemmaHFAdapter implements Adapter {
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
     const start = Date.now();
-    const prompt = buildStructuredPrompt(request);
+    const { prompt } = buildStructuredPrompt(request);
 
     if (!this.resolvedToken) {
       throw new TlError(
