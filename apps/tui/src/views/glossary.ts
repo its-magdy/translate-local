@@ -9,6 +9,7 @@ import type { GlossaryEntry } from "@tl/shared/types";
 import type { AppState } from "../index";
 import type { View } from "./translate";
 import { makeLangPicker } from "./widgets";
+import { C } from "../theme";
 
 export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   const { renderer, glossaryStore } = state;
@@ -20,6 +21,19 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     width: "100%",
   });
   parent.add(container);
+
+  // Table header
+  const tableHeader = new BoxRenderable(renderer, {
+    id: "glossary-table-header",
+    flexDirection: "row",
+    height: 1,
+    width: "100%",
+  });
+  container.add(tableHeader);
+  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID      ",  fg: C.textMuted, width: 10 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM         ", fg: C.textMuted, width: 20 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION         ", fg: C.textMuted, width: 20 }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR        ",        fg: C.textMuted, width: 12 }));
 
   // List area
   const listContainer = new BoxRenderable(renderer, {
@@ -41,29 +55,31 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   const termRow = new BoxRenderable(renderer, { id: "glossary-term-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(termRow);
-  termRow.add(new TextRenderable(renderer, { id: "src-label", content: "Src: " }));
+  termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textMuted }));
   const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: 20, placeholder: "source term" });
   termRow.add(srcInput);
-  termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  Tgt: " }));
+  termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
   const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 20, placeholder: "target term" });
   termRow.add(tgtInput);
 
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 4, width: "100%" });
   formContainer.add(langRow);
-  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "From " }));
+  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
   const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false);
   langRow.add(fromPicker.renderable);
-  langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "  To " }));
+  langRow.add(new TextRenderable(renderer, { id: "arrow-g", content: "  →  ", fg: C.accent }));
+  langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textMuted }));
   const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false);
   langRow.add(toPicker.renderable);
+  langRow.add(new TextRenderable(renderer, { id: "add-hint", content: "  [Enter] + Add", fg: C.accent }));
 
   // Footer
   const footer = new BoxRenderable(renderer, { id: "glossary-footer", height: 1, width: "100%" });
   container.add(footer);
   footer.add(new TextRenderable(renderer, {
     id: "glossary-footer-text",
-    content: "[↑↓] navigate · [d] delete · [Tab] focus form · [Enter] add",
-    fg: "#666",
+    content: "↑↓ navigate  ·  d delete  ·  Tab focus form  ·  Ctrl+Q quit",
+    fg: C.textMuted,
   }));
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
@@ -91,22 +107,23 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       entries = [];
     }
     if (entries.length === 0) {
-      listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: "#666" }));
+      listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: C.textMuted }));
       return;
     }
     if (selectedIdx >= entries.length) selectedIdx = entries.length - 1;
     entries.forEach((e, idx) => {
+      const selected = idx === selectedIdx;
       const row = new BoxRenderable(renderer, {
         id: `row-${e.id}`,
         flexDirection: "row",
-        backgroundColor: idx === selectedIdx ? "#1e3a5f" : undefined,
+        backgroundColor: selected ? C.selectionBg : undefined,
       });
-      row.add(new TextRenderable(renderer, { id: `id-${e.id}`, content: e.id.slice(0, 8), width: 10 }));
-      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20 }));
+      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: 10, fg: C.textMuted }));
+      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20, fg: C.textPrimary }));
       const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
       const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;
-      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20 }));
-      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `${e.sourceLang}→${e.targetLang}`, width: 12 }));
+      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20, fg: C.textPrimary }));
+      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `[${e.sourceLang}→${e.targetLang}]`, width: 12, fg: C.textSecondary }));
       listContainer.add(row);
     });
   }

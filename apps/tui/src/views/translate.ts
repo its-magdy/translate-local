@@ -8,6 +8,7 @@ import { runPipeline } from "@tl/core/pipeline";
 import { TlError } from "@tl/shared/errors";
 import type { AppState } from "../index";
 import { makeLangPicker } from "./widgets";
+import { C } from "../theme";
 
 export interface View {
   container: BoxRenderable;
@@ -34,15 +35,16 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   container.add(langRow);
 
-  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "From " }));
+  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
   const fromPicker = makeLangPicker(renderer, "translate-from-select", config.defaults?.sourceLang ?? "auto", true);
   langRow.add(fromPicker.renderable);
 
-  langRow.add(new TextRenderable(renderer, { id: "to-label", content: "  To " }));
+  langRow.add(new TextRenderable(renderer, { id: "arrow-label", content: "  →  ", fg: C.accent }));
+  langRow.add(new TextRenderable(renderer, { id: "to-label", content: "TO ", fg: C.textMuted }));
   const toPicker = makeLangPicker(renderer, "translate-to-select", config.defaults?.targetLang ?? "fr", false);
   langRow.add(toPicker.renderable);
 
-  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  [Ctrl+Enter] Translate", fg: "#666" }));
+  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textMuted }));
 
   // Split row
   const splitRow = new BoxRenderable(renderer, {
@@ -60,7 +62,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     flexGrow: 1,
   });
   splitRow.add(leftPane);
-  leftPane.add(new TextRenderable(renderer, { id: "source-label", content: "Source", fg: "#aaa" }));
+  leftPane.add(new TextRenderable(renderer, { id: "source-label", content: "SOURCE", fg: C.textSecondary }));
   const sourceTextarea = new TextareaRenderable(renderer, {
     width: "100%",
     flexGrow: 1,
@@ -77,7 +79,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     flexGrow: 1,
   });
   splitRow.add(rightPane);
-  rightPane.add(new TextRenderable(renderer, { id: "output-label", content: "Translation", fg: "#aaa" }));
+  rightPane.add(new TextRenderable(renderer, { id: "output-label", content: "TRANSLATION", fg: C.textSecondary }));
   const outputContainer = new BoxRenderable(renderer, {
     id: "translate-output-container",
     flexGrow: 1,
@@ -93,9 +95,13 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   container.add(statusContainer);
 
-  function updateStatus(text: string, color = "#888") {
+  function updateStatus(dot: string, dotColor: string, text: string) {
+    statusContainer.remove("status-dot");
     statusContainer.remove("status-text");
-    statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text, fg: color }));
+    statusContainer.remove("status-shortcuts");
+    statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
+    statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text, fg: C.textSecondary }));
+    statusContainer.add(new TextRenderable(renderer, { id: "status-shortcuts", content: "  ⌨  Ctrl+Enter  Tab  Ctrl+Q", fg: C.textMuted }));
   }
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
@@ -120,7 +126,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     }
   }
 
-  updateStatus("[Ctrl+Enter] translate · [Tab] switch tabs · [Ctrl+Q] quit");
+  updateStatus("●", C.textMuted, "Ready");
 
   let loading = false;
 
@@ -134,19 +140,17 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     const targetLang = toPicker.getValue();
 
     loading = true;
-    updateStatus("Translating...");
+    updateStatus("●", C.amber, "Translating…");
     updateOutput("");
 
     runPipeline(text, sourceLang, targetLang, adapter, glossaryStore)
       .then((result) => {
         updateOutput(result.translated);
-        updateStatus(
-          `Coverage: ${Math.round(result.glossaryCoverage * 100)}% · ${result.metadata.durationMs}ms  [Ctrl+Enter] translate · [Tab] switch tabs · [Ctrl+Q] quit`
-        );
+        updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
       })
       .catch((err: unknown) => {
         const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
-        updateStatus(`Error: ${msg}`, "#f87171");
+        updateStatus("●", C.red, `Error: ${msg}`);
       })
       .finally(() => {
         loading = false;

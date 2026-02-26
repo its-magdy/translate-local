@@ -1,6 +1,7 @@
 import {
   createCliRenderer,
   BoxRenderable,
+  TextRenderable,
   TabSelectRenderable,
   TabSelectRenderableEvents,
   type CliRenderer,
@@ -13,6 +14,7 @@ import type { CoreConfig } from "@tl/core/config";
 import { TlError } from "@tl/shared/errors";
 import { makeTranslateView } from "./views/translate";
 import { makeGlossaryView } from "./views/glossary";
+import { C } from "./theme";
 
 export interface AppState {
   config: CoreConfig;
@@ -62,18 +64,39 @@ const root = new BoxRenderable(renderer, {
 });
 renderer.root.add(root);
 
+// Header bar: wordmark + tabs
+const headerBar = new BoxRenderable(renderer, {
+  id: "header-bar",
+  flexDirection: "row",
+  width: "100%",
+  height: 3,
+});
+root.add(headerBar);
+
+// Wordmark
+headerBar.add(new TextRenderable(renderer, {
+  id: "wordmark",
+  content: " tl ",
+  fg: C.accent,
+}));
+headerBar.add(new TextRenderable(renderer, {
+  id: "wordmark-sep",
+  content: "│ ",
+  fg: C.textMuted,
+}));
+
 // Tab bar
 const tabs = new TabSelectRenderable(renderer, {
   id: "tabs",
-  width: renderer.width,
-  tabWidth: Math.floor(renderer.width / 2),
+  width: renderer.width - 6,
+  tabWidth: Math.floor((renderer.width - 6) / 2),
   options: [
-    { name: "Translate", description: "Translate text" },
-    { name: "Glossary", description: "Manage glossary" },
+    { name: "⇄  Translate", description: "Translate text" },
+    { name: "⌥  Glossary",  description: "Manage glossary" },
   ],
   wrapSelection: true,
 });
-root.add(tabs);
+headerBar.add(tabs);
 tabs.focus();
 
 // Content area
