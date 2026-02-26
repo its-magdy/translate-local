@@ -73,6 +73,7 @@ const tabs = new TabSelectRenderable(renderer, {
     { name: "Glossary", description: "Manage glossary" },
     { name: "Compare", description: "Compare adapters" },
   ],
+  wrapSelection: true,
 });
 root.add(tabs);
 tabs.focus();
@@ -96,12 +97,15 @@ compareView.container.visible = false;
 let activeIdx = 0;
 const views = [translateView, glossaryView, compareView];
 
-tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, (idx: number) => {
+function switchToTab(idx: number) {
   views[activeIdx].container.visible = false;
   activeIdx = idx;
   views[activeIdx].container.visible = true;
   views[activeIdx].focus();
-});
+}
+
+tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, switchToTab);
+tabs.on(TabSelectRenderableEvents.SELECTION_CHANGED, switchToTab);
 
 // Global keyboard
 renderer.keyInput.on("keypress", (key) => {
