@@ -2,9 +2,9 @@ import {
   BoxRenderable,
   TextRenderable,
   TextareaRenderable,
-  InputRenderable,
   type CliRenderer,
 } from "@opentui/core";
+import { makeLangPicker } from "./widgets";
 import { runPipeline } from "@tl/core/pipeline";
 import { MockAdapter } from "@tl/adapters/mock";
 import { TlError } from "@tl/shared/errors";
@@ -27,21 +27,19 @@ export function makeCompareView(state: AppState, parent: BoxRenderable): View {
   const topArea = new BoxRenderable(renderer, {
     id: "compare-top",
     flexDirection: "column",
-    height: 6,
+    height: 7,
     width: "100%",
   });
   container.add(topArea);
 
-  const langRow = new BoxRenderable(renderer, { id: "compare-lang-row", flexDirection: "row", height: 3, width: "100%" });
+  const langRow = new BoxRenderable(renderer, { id: "compare-lang-row", flexDirection: "row", height: 4, width: "100%" });
   topArea.add(langRow);
-  langRow.add(new TextRenderable(renderer, { id: "c-from-label", content: "From: " }));
-  const fromInput = new InputRenderable(renderer, { id: "c-from-input", width: 10, placeholder: "en" });
-  fromInput.value = "en";
-  langRow.add(fromInput);
-  langRow.add(new TextRenderable(renderer, { id: "c-to-label", content: "  To: " }));
-  const toInput = new InputRenderable(renderer, { id: "c-to-input", width: 10, placeholder: "fr" });
-  toInput.value = "fr";
-  langRow.add(toInput);
+  langRow.add(new TextRenderable(renderer, { id: "c-from-label", content: "From " }));
+  const fromPicker = makeLangPicker(renderer, "c-from-picker", "en", false);
+  langRow.add(fromPicker.renderable);
+  langRow.add(new TextRenderable(renderer, { id: "c-to-label", content: "  To " }));
+  const toPicker = makeLangPicker(renderer, "c-to-picker", "fr", false);
+  langRow.add(toPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "c-hint", content: "  [Ctrl+Enter] Compare", fg: "#666" }));
 
   const sourceTextarea = new TextareaRenderable(renderer, {
@@ -100,8 +98,8 @@ export function makeCompareView(state: AppState, parent: BoxRenderable): View {
     const text = sourceTextarea.plainText.trim();
     if (!text) return;
 
-    const sourceLang = fromInput.value.trim() || "en";
-    const targetLang = toInput.value.trim() || "fr";
+    const sourceLang = fromPicker.getValue();
+    const targetLang = toPicker.getValue();
 
     loading = true;
     updateStatus("Comparing...");
