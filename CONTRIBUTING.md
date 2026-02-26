@@ -4,8 +4,8 @@
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-org/tl.git
-cd tl
+git clone https://github.com/its-magdy/Translate-Local.git
+cd Translate-Local
 
 # 2. Install dependencies (Bun is required)
 bun install

@@ -59,9 +59,7 @@ The pipeline calls `ContextStore.retrieve(sourceText, limit)` which:
 
 1. Tokenizes the source text into 3+ character alphanumeric tokens
 2. Queries the index for files matching those tokens, ranked by sum of TF-IDF scores
-3. Returns up to `context.maxSnippets` snippets (default: 3)
-
-Snippets with a relevance score below `context.minRelevance` (default: 0.3) are filtered out.
+3. Returns up to `limit` results (default: 5; the pipeline passes `context.maxSnippets` from config)
 
 The retrieved snippets are passed to the adapter as `contextSnippets` in `TranslationRequest`.
 
@@ -71,8 +69,7 @@ The retrieved snippets are passed to the adapter as `contextSnippets` in `Transl
 {
   "context": {
     "dbPath": "~/.config/tl/context.db",  // SQLite database location
-    "maxSnippets": 3,                       // Max snippets per translation
-    "minRelevance": 0.3                     // Minimum TF-IDF score threshold (0–1)
+    "maxSnippets": 3                        // Max snippets per translation
   }
 }
 ```

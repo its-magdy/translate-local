@@ -32,8 +32,8 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/tl.git
-cd tl
+git clone https://github.com/its-magdy/Translate-Local.git
+cd Translate-Local
 bun install
 ```
 
@@ -42,7 +42,7 @@ No build step is needed. Bun runs TypeScript sources directly.
 To use the `tl` shorthand, link the CLI entry point:
 
 ```bash
-bun link apps/cli
+cd apps/cli && bun link
 ```
 
 ## Setup
@@ -295,4 +295,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, branch strategy, and the p
 
 ## License
 
-MIT
+MIT — license file forthcoming.

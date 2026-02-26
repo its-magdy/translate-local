@@ -38,7 +38,7 @@ Use `strict` for legal, medical, or technical content where term accuracy is non
 ## CSV Import Format
 
 ```
-source,target,source_lang,target_lang,domain,notes
+source,target,from,to,domain,note
 machine learning,تعلم الآلة,en,ar,tech,
 neural network,شبكة عصبية,en,ar,tech,
 bonjour,hello,fr,en,,informal greeting
@@ -47,10 +47,10 @@ bonjour,hello,fr,en,,informal greeting
 Columns:
 - `source` — source term (required)
 - `target` — target translation (required)
-- `source_lang` — BCP-47 source language code (required)
-- `target_lang` — BCP-47 target language code (required)
+- `from` — BCP-47 source language code (required)
+- `to` — BCP-47 target language code (required)
 - `domain` — optional domain label
-- `notes` — optional free-text note
+- `note` — optional free-text note
 
 Import:
 

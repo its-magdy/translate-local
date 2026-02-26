@@ -57,7 +57,7 @@ Called when the adapter is no longer needed. Use it to release resources (close 
 `packages/adapters/src/base.ts` exports two prompt-building helpers:
 
 ```typescript
-// For TranslateGemma models (structured format with XML tags)
+// For TranslateGemma models (source/target lang header + context snippets, no XML tags)
 buildStructuredPrompt(request: TranslationRequest): string
 
 // For generic LLMs (natural language instructions)
@@ -74,13 +74,16 @@ buildNaturalPrompt(request: TranslationRequest): string
 
 ```typescript
 export function createAdapter(config: AdapterConfig): Adapter {
-  switch (config.backend) {
+  const { backend, model = DEFAULT_MODEL } = config;
+
+  switch (backend) {
     case "ollama":
-      return new TranslateGemmaLocalAdapter(config.model, config.ollamaUrl);
+      return new TranslateGemmaLocalAdapter(model, config.ollamaUrl ?? DEFAULT_OLLAMA_URL);
     case "huggingface":
-      return new TranslateGemmaHFAdapter(config.model, config.hfToken);
+      if (!config.hfToken) throw new TlError("ADAPTER_UNAVAILABLE", "hfToken is required", "...");
+      return new TranslateGemmaHFAdapter(model, config.hfToken);
     default:
-      throw new TlError("CONFIG_INVALID", `Unknown backend: ${config.backend}`, ...);
+      throw new TlError("CONFIG_INVALID", `Unknown backend: ${backend}`, "Valid backends are: ollama, huggingface");
   }
 }
 ```
