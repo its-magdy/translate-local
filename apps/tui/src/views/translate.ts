@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  ScrollBoxRenderable,
   TextRenderable,
   TextareaRenderable,
   type CliRenderer,
@@ -26,7 +27,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   parent.add(container);
 
-  // Lang row — compact, height 1
+  // ── Lang row ────────────────────────────────────────────────────────────────
   const langRow = new BoxRenderable(renderer, {
     id: "translate-lang-row",
     flexDirection: "row",
@@ -46,7 +47,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textMuted }));
 
-  // Split row
+  // ── Split row ────────────────────────────────────────────────────────────────
   const splitRow = new BoxRenderable(renderer, {
     id: "translate-split",
     flexDirection: "row",
@@ -55,16 +56,22 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   container.add(splitRow);
 
-  // Left pane (source)
+  // Left pane — source input
   const leftPane = new BoxRenderable(renderer, {
     id: "translate-left",
     flexDirection: "column",
     flexGrow: 1,
+    width: "50%",
+    border: true,
+    borderStyle: "single",
+    borderColor: C.borderMuted,
+    title: " SOURCE ",
+    titleAlignment: "left",
   });
   splitRow.add(leftPane);
-  leftPane.add(new TextRenderable(renderer, { id: "source-label", content: "SOURCE", fg: C.textSecondary }));
-  leftPane.add(new TextRenderable(renderer, { id: "source-sep", content: "─".repeat(60), fg: C.borderMuted }));
+
   const sourceTextarea = new TextareaRenderable(renderer, {
+    id: "translate-source",
     width: "100%",
     flexGrow: 1,
     placeholder: "Enter text to translate...",
@@ -73,27 +80,37 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   leftPane.add(sourceTextarea);
 
-  // Right pane (output)
+  // Right pane — translation output
   const rightPane = new BoxRenderable(renderer, {
     id: "translate-right",
     flexDirection: "column",
     flexGrow: 1,
+    width: "50%",
+    border: true,
+    borderStyle: "single",
+    borderColor: C.borderMuted,
+    title: " TRANSLATION ",
+    titleAlignment: "left",
   });
   splitRow.add(rightPane);
-  rightPane.add(new TextRenderable(renderer, { id: "output-label", content: "TRANSLATION", fg: C.textSecondary }));
-  rightPane.add(new TextRenderable(renderer, { id: "output-sep", content: "─".repeat(60), fg: C.borderMuted }));
-  const outputContainer = new BoxRenderable(renderer, {
-    id: "translate-output-container",
+
+  const outputScroll = new ScrollBoxRenderable(renderer, {
+    id: "translate-output-scroll",
     flexGrow: 1,
     width: "100%",
+    scrollY: true,
+    scrollX: false,
+    stickyScroll: true,
+    stickyStart: "top",
   });
-  rightPane.add(outputContainer);
+  rightPane.add(outputScroll);
 
-  // Status line
+  // ── Status line ──────────────────────────────────────────────────────────────
   const statusContainer = new BoxRenderable(renderer, {
     id: "translate-status-container",
     height: 1,
     width: "100%",
+    flexDirection: "row",
   });
   container.add(statusContainer);
 
@@ -107,30 +124,61 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   function updateStatus(dot: string, dotColor: string, text: string) {
     statusContainer.remove("status-dot");
     statusContainer.remove("status-text");
-    // prepend dot + text before shortcuts
     statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
 
+  function paneWidth(): number {
+    return Math.floor(renderer.width / 2) - 4; // subtract borders + padding
+  }
+
+  function wrapText(text: string, width: number): string {
+    if (width <= 0) return text;
+    const lines: string[] = [];
+    for (const paragraph of text.split("\n")) {
+      if (paragraph.length <= width) {
+        lines.push(paragraph);
+        continue;
+      }
+      const words = paragraph.split(" ");
+      let current = "";
+      for (const word of words) {
+        const chunk = word.length > width ? word.slice(0, width) : word;
+        if (current.length === 0) {
+          current = chunk;
+        } else if (current.length + 1 + chunk.length <= width) {
+          current += " " + chunk;
+        } else {
+          lines.push(current);
+          current = chunk;
+        }
+      }
+      if (current) lines.push(current);
+    }
+    return lines.join("\n");
+  }
+
   function rtlAlign(text: string): string {
-    const paneWidth = Math.floor(renderer.width / 2) - 1;
+    const w = paneWidth();
+    // OpenTUI renders left-to-right so Arabic must be character-reversed per
+    // word to appear correctly, matching what the glossary view does.
     return text.split("\n").map((line) => {
-      // Reverse chars: OpenTUI uses explicit LTR cursor positioning, bypassing the
-      // terminal's bidi engine. Reversing gives correct visual RTL order.
-      const reversed = [...line].reverse().join("");
-      const pad = Math.max(0, paneWidth - line.length);
+      const reversed = line.split(" ").map((w) => [...w].reverse().join("")).reverse().join(" ");
+      const pad = Math.max(0, w - reversed.length);
       return " ".repeat(pad) + reversed;
     }).join("\n");
   }
 
   function updateOutput(text: string) {
-    outputContainer.remove("output-text");
+    outputScroll.content.remove("output-text");
     if (text) {
       const targetLang = toPicker.getValue().toLowerCase().split("-")[0];
-      const content = RTL_LANGS.has(targetLang) ? rtlAlign(text) : text;
-      outputContainer.add(new TextRenderable(renderer, { id: "output-text", content }));
+      const isRtl = RTL_LANGS.has(targetLang);
+      const wrapped = wrapText(text, paneWidth());
+      const content = isRtl ? rtlAlign(wrapped) : wrapped;
+      outputScroll.content.add(new TextRenderable(renderer, { id: "output-text", content }));
     }
   }
 
