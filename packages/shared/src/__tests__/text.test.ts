@@ -102,7 +102,7 @@ describe("normalizeWhitespace", () => {
     expect(normalizeWhitespace("  hello  ")).toBe("hello");
   });
 
-  test("collapses newlines", () => {
-    expect(normalizeWhitespace("hello\n\nworld")).toBe("hello world");
+  test("preserves newlines", () => {
+    expect(normalizeWhitespace("hello\n\nworld")).toBe("hello\n\nworld");
   });
 });

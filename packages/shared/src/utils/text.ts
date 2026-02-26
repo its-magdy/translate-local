@@ -54,10 +54,14 @@ export function stripGlossaryTags(text: string): string {
 }
 
 /**
- * Normalize whitespace: collapse multiple spaces/newlines to single space, trim.
+ * Normalize whitespace: collapse multiple spaces within lines, preserve newlines, trim.
  */
 export function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text
+    .split("\n")
+    .map((line) => line.replace(/ +/g, " ").trim())
+    .join("\n")
+    .trim();
 }
 
 /**
