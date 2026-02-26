@@ -9,6 +9,7 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   const lines: string[] = [];
 
   lines.push(`Translate the following text from ${request.sourceLang} to ${request.targetLang}.`);
+  lines.push("Preserve the line breaks and paragraph structure of the source text.");
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
     lines.push("\nContext:");
@@ -36,7 +37,7 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
   lines.push(
     `You are a professional translator. Translate the following text from ${request.sourceLang} to ${request.targetLang}.`
   );
-  lines.push("Output only the translation, nothing else.");
+  lines.push("Output only the translation, nothing else. Preserve the line breaks and paragraph structure of the source text.");
 
   if (request.glossaryHits && request.glossaryHits.length > 0) {
     lines.push("\nUse these specific translations for the following terms:");
