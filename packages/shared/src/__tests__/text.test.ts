@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -104,5 +104,41 @@ describe("normalizeWhitespace", () => {
 
   test("preserves newlines", () => {
     expect(normalizeWhitespace("hello\n\nworld")).toBe("hello\n\nworld");
+  });
+});
+
+describe("computeGlossaryCoverage", () => {
+  test("returns full coverage when no hits", () => {
+    expect(computeGlossaryCoverage([], "anything")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when target term is present exactly", () => {
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "مرحبا")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when translated has combining diacritics (Arabic fathatan)", () => {
+    // Glossary stores "مرحبا" (plain), model outputs "مرحبًا" (with fathatan U+064B)
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "مرحبًا")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("returns full coverage when translated has combining diacritics (Latin accents)", () => {
+    // Glossary stores "resume" (plain), model outputs "résumé" (with accents)
+    const hit = makeHit("resume", "résumé", 0);
+    expect(computeGlossaryCoverage([hit], "résumé")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("reports missing term when target is absent", () => {
+    const hit = makeHit("hello", "مرحبا", 0);
+    expect(computeGlossaryCoverage([hit], "شكرا")).toEqual({ glossaryCoverage: 0, missingTerms: ["hello"] });
+  });
+
+  test("computes partial coverage with multiple hits", () => {
+    const hits = [makeHit("hello", "مرحبا", 0), makeHit("cloud", "سحابة", 6)];
+    const result = computeGlossaryCoverage(hits, "مرحبًا والسحاب");
+    // "مرحبا" matches via diacritic normalization, "سحابة" is absent
+    expect(result.glossaryCoverage).toBeCloseTo(0.5);
+    expect(result.missingTerms).toEqual(["cloud"]);
   });
 });

@@ -64,6 +64,10 @@ export function normalizeWhitespace(text: string): string {
     .trim();
 }
 
+function stripCombiningMarks(s: string): string {
+  return s.normalize("NFD").replace(/\p{Mn}/gu, "").normalize("NFC");
+}
+
 /**
  * Compute glossary coverage ratio and list of missing source terms.
  * Returns { glossaryCoverage: 1, missingTerms: [] } when there are no hits.
@@ -73,11 +77,14 @@ export function computeGlossaryCoverage(
   translated: string
 ): { glossaryCoverage: number; missingTerms: string[] } {
   if (hits.length === 0) return { glossaryCoverage: 1, missingTerms: [] };
-  const missingTerms = hits
-    .filter((h) => !translated.includes(h.entry.targetTerm))
-    .map((h) => h.entry.sourceTerm);
+  const normalizedTranslated = stripCombiningMarks(translated);
+  const uniqueTerms = [...new Set(hits.map((h) => h.entry.sourceTerm))];
+  const missingTerms = uniqueTerms.filter((sourceTerm) => {
+    const targetTerm = hits.find((h) => h.entry.sourceTerm === sourceTerm)!.entry.targetTerm;
+    return !normalizedTranslated.includes(stripCombiningMarks(targetTerm));
+  });
   return {
-    glossaryCoverage: (hits.length - missingTerms.length) / hits.length,
+    glossaryCoverage: (uniqueTerms.length - missingTerms.length) / uniqueTerms.length,
     missingTerms,
   };
 }

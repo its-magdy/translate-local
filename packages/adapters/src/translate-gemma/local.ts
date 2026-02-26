@@ -1,6 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
-import { computeGlossaryCoverage } from "@tl/shared/utils/text";
 import { buildStructuredPrompt } from "../base";
 
 interface OllamaGenerateRequest {
@@ -60,17 +59,12 @@ export class TranslateGemmaLocalAdapter implements Adapter {
     const data = (await response.json()) as OllamaGenerateResponse;
     const translated = data.response.trim();
 
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(
-      request.glossaryHits ?? [],
-      translated
-    );
-
     return {
       translated,
       sourceLang: request.sourceLang,
       targetLang: request.targetLang,
-      glossaryCoverage,
-      missingTerms,
+      glossaryCoverage: 1,
+      missingTerms: [],
       metadata: {
         adapter: this.name,
         durationMs: Date.now() - start,

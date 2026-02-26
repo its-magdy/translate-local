@@ -70,6 +70,8 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   splitRow.add(leftPane);
 
+  const RTL_RE = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+
   const sourceTextarea = new TextareaRenderable(renderer, {
     id: "translate-source",
     width: "100%",
@@ -79,6 +81,25 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     onSubmit: () => triggerTranslate(),
   });
   leftPane.add(sourceTextarea);
+
+  const srcRtlPreview = new TextRenderable(renderer, {
+    id: "translate-src-rtl-preview",
+    content: "",
+    fg: C.textMuted,
+    height: 1,
+    width: "100%",
+  });
+  leftPane.add(srcRtlPreview);
+
+  sourceTextarea.onContentChange = () => {
+    const text = sourceTextarea.plainText;
+    const lastLine = text.split("\n").filter(Boolean).at(-1) ?? "";
+    if (lastLine && RTL_RE.test(lastLine)) {
+      srcRtlPreview.content = `→ ${lastLine}`;
+    } else {
+      srcRtlPreview.content = "";
+    }
+  };
 
   // Right pane — translation output
   const rightPane = new BoxRenderable(renderer, {

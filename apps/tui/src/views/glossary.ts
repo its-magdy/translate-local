@@ -63,6 +63,8 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textMuted }));
   const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: 20, placeholder: "source term" });
   termRow.add(srcInput);
+  const srcRtlPreview = new TextRenderable(renderer, { id: "g-src-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  termRow.add(srcRtlPreview);
   termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
   const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 20, placeholder: "target term" });
   termRow.add(tgtInput);
@@ -104,14 +106,19 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     input.on("blur",  () => { listFocused = true; });
   });
 
-  tgtInput.on(InputRenderableEvents.CHANGE, () => {
-    const lang = toPicker.getValue().toLowerCase().split("-")[0];
-    if (RTL_LANGS.has(lang) && tgtInput.value) {
-      rtlPreview.content = `→ ${rtlReverse(tgtInput.value)}`;
-    } else {
-      rtlPreview.content = "";
-    }
-  });
+  function hasRtlChars(text: string): boolean {
+    return /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/.test(text);
+  }
+
+  srcInput.onContentChange = () => {
+    const val = srcInput.value;
+    srcRtlPreview.content = val && hasRtlChars(val) ? `→ ${val}` : "";
+  };
+
+  tgtInput.onContentChange = () => {
+    const val = tgtInput.value;
+    rtlPreview.content = val && hasRtlChars(val) ? `→ ${val}` : "";
+  };
 
   function refreshList() {
     for (const child of [...listContainer.getChildren()]) {
@@ -182,6 +189,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     glossaryStore.add({ sourceTerm: src, targetTerm: tgt, sourceLang: from, targetLang: to });
     srcInput.value = "";
     tgtInput.value = "";
+    srcRtlPreview.content = "";
     rtlPreview.content = "";
     refreshList();
   });

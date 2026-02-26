@@ -36,7 +36,7 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   ];
 
   if (request.glossaryHits && request.glossaryHits.length > 0) {
-    lines.push("For terms marked with <term> tags, use the translation attribute value and do not output the XML tags.");
+    lines.push(`When you encounter <term translation="X">word</term> in the text, replace that word with exactly X — use the exact form provided, without adding articles, inflections, or diacritics. Never output the XML tags themselves.`);
   }
 
   lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
