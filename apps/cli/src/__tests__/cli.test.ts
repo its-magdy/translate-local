@@ -103,6 +103,37 @@ describe("tl CLI", () => {
       expect(r.exitCode).toBe(0);
       expect(() => JSON.parse(r.stdout)).not.toThrow();
     });
+
+    // BUG-001/002: CSV import should skip the header row
+    it("imports CSV and skips header row (BUG-001/002)", () => {
+      const csvFile = join(tmpDir, "terms.csv");
+      writeFileSync(csvFile, "source,target,from,to,domain,note\nhello,مرحبا,en,ar,,\n");
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      // Must report 1, not 2
+      expect(r.stdout).toContain("Imported 1");
+    });
+
+    it("imports CSV with source_lang header variant and skips it (BUG-001)", () => {
+      const csvFile = join(tmpDir, "terms2.csv");
+      writeFileSync(csvFile, "source,target,source_lang,target_lang,domain,notes\nhello,مرحبا,en,ar,,\n");
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Imported 1");
+    });
+
+    // BUG-004: invalid language codes should be rejected
+    it("rejects invalid --to language in glossary add (BUG-004)", () => {
+      const r = run(["glossary", "add", "--source", "test", "--target", "test", "--from", "en", "--to", "xyz"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("xyz");
+    });
+
+    it("rejects invalid --from language in glossary add (BUG-004)", () => {
+      const r = run(["glossary", "add", "--source", "test", "--target", "test", "--from", "zzz", "--to", "ar"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("zzz");
+    });
   });
 
   describe("context", () => {
@@ -119,6 +150,28 @@ describe("tl CLI", () => {
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("--to");
       expect(r.stdout).toContain("--glossary");
+    });
+  });
+
+  describe("translate validation (BUG-004/005)", () => {
+    it("rejects invalid --to language code (BUG-004)", () => {
+      const r = run(["translate", "hello", "--to", "xyz"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("xyz");
+    });
+
+    it("rejects invalid --from language code (BUG-004)", () => {
+      const r = run(["translate", "hello", "--from", "zzz", "--to", "ar"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("zzz");
+    });
+
+    it("outputs JSON error when --json and invalid lang (BUG-005/004)", () => {
+      const r = run(["translate", "hello", "--to", "xyz", "--json"]);
+      expect(r.exitCode).toBe(1);
+      const parsed = JSON.parse(r.stderr);
+      expect(parsed).toHaveProperty("error");
+      expect(parsed).toHaveProperty("message");
     });
   });
 });
