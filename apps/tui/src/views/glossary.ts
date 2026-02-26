@@ -66,6 +66,12 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     fg: "#666",
   }));
 
+  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
+
+  function rtlReverse(text: string): string {
+    return [...text].reverse().join("");
+  }
+
   let selectedIdx = 0;
   let entries: GlossaryEntry[] = [];
   let listFocused = true;
@@ -97,7 +103,9 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       });
       row.add(new TextRenderable(renderer, { id: `id-${e.id}`, content: e.id.slice(0, 8), width: 10 }));
       row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20 }));
-      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: e.targetTerm, width: 20 }));
+      const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
+      const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;
+      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20 }));
       row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `${e.sourceLang}→${e.targetLang}`, width: 12 }));
       listContainer.add(row);
     });
