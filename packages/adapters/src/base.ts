@@ -1,19 +1,5 @@
 import type { TranslationRequest } from "@tl/shared/types";
-
-// BCP-47 code → display name mapping for TranslateGemma prompt template
-const LANG_NAMES: Record<string, string> = {
-  en: "English", ar: "Arabic", bg: "Bulgarian", bn: "Bengali", ca: "Catalan",
-  cs: "Czech", da: "Danish", de: "German", el: "Greek", es: "Spanish",
-  et: "Estonian", fa: "Persian", fi: "Finnish", fil: "Filipino", fr: "French",
-  gu: "Gujarati", he: "Hebrew", hi: "Hindi", hr: "Croatian", hu: "Hungarian",
-  id: "Indonesian", is: "Icelandic", it: "Italian", ja: "Japanese", kn: "Kannada",
-  ko: "Korean", lt: "Lithuanian", lv: "Latvian", ml: "Malayalam", mr: "Marathi",
-  nl: "Dutch", no: "Norwegian", pa: "Punjabi", pl: "Polish", pt: "Portuguese",
-  ro: "Romanian", ru: "Russian", sk: "Slovak", sl: "Slovenian", sr: "Serbian",
-  sv: "Swedish", sw: "Swahili", ta: "Tamil", te: "Telugu", th: "Thai",
-  tr: "Turkish", uk: "Ukrainian", ur: "Urdu", vi: "Vietnamese", zh: "Chinese",
-  zu: "Zulu",
-};
+import { LANG_NAMES } from "@tl/shared/constants";
 
 function langLabel(code: string): string {
   const name = LANG_NAMES[code.toLowerCase()];

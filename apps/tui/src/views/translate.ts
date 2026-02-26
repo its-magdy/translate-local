@@ -166,14 +166,20 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
       const words = paragraph.split(" ");
       let current = "";
       for (const word of words) {
-        const chunk = word.length > width ? word.slice(0, width) : word;
+        if (word.length > width) {
+          if (current) { lines.push(current); current = ""; }
+          for (let i = 0; i < word.length; i += width) {
+            lines.push(word.slice(i, i + width));
+          }
+          continue;
+        }
         if (current.length === 0) {
-          current = chunk;
-        } else if (current.length + 1 + chunk.length <= width) {
-          current += " " + chunk;
+          current = word;
+        } else if (current.length + 1 + word.length <= width) {
+          current += " " + word;
         } else {
           lines.push(current);
-          current = chunk;
+          current = word;
         }
       }
       if (current) lines.push(current);
@@ -186,7 +192,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     // OpenTUI renders left-to-right so Arabic must be character-reversed per
     // word to appear correctly, matching what the glossary view does.
     return text.split("\n").map((line) => {
-      const reversed = line.split(" ").map((w) => [...w].reverse().join("")).reverse().join(" ");
+      const reversed = line.split(" ").map((word) => [...word].reverse().join("")).reverse().join(" ");
       const pad = Math.max(0, w - reversed.length);
       return " ".repeat(pad) + reversed;
     }).join("\n");

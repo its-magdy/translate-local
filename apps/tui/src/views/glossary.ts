@@ -159,15 +159,26 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   refreshList();
 
+  function updateSelection(newIdx: number) {
+    const oldIdx = selectedIdx;
+    selectedIdx = newIdx;
+    // Only update background colors — no DB query, no DOM rebuild
+    const children = listContainer.getChildren() as BoxRenderable[];
+    const oldRow = children.find(c => c.id === `row-${entries[oldIdx]?.id}`);
+    const newRow = children.find(c => c.id === `row-${entries[newIdx]?.id}`);
+    if (oldRow) oldRow.backgroundColor = undefined;
+    if (newRow) newRow.backgroundColor = C.selectionBg;
+  }
+
   // List navigation keyboard
   renderer.keyInput.on("keypress", (key) => {
     if (!container.visible) return;
     if (key.name === "up") {
-      if (selectedIdx > 0) { selectedIdx--; refreshList(); }
+      if (selectedIdx > 0) updateSelection(selectedIdx - 1);
       return;
     }
     if (key.name === "down") {
-      if (selectedIdx < entries.length - 1) { selectedIdx++; refreshList(); }
+      if (selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
       return;
     }
     if (key.name === "d" && !key.ctrl && listFocused) {
