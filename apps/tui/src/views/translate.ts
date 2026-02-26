@@ -109,10 +109,14 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text, fg: color }));
   }
 
+  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
+
   function updateOutput(text: string) {
     outputContainer.remove("output-text");
     if (text) {
-      outputContainer.add(new TextRenderable(renderer, { id: "output-text", content: text }));
+      const targetLang = toInput.value.trim().toLowerCase().split("-")[0];
+      const content = RTL_LANGS.has(targetLang) ? "\u200F" + text : text;
+      outputContainer.add(new TextRenderable(renderer, { id: "output-text", content }));
     }
   }
 
@@ -137,7 +141,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
       .then((result) => {
         updateOutput(result.translated);
         updateStatus(
-          `Coverage: ${Math.round(result.glossaryCoverage * 100)}% · ${result.metadata.durationMs}ms`
+          `Coverage: ${Math.round(result.glossaryCoverage * 100)}% · ${result.metadata.durationMs}ms  [Ctrl+Enter] translate · [Tab] switch tabs · [Ctrl+Q] quit`
         );
       })
       .catch((err: unknown) => {
