@@ -66,6 +66,8 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
   const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 20, placeholder: "target term" });
   termRow.add(tgtInput);
+  const rtlPreview = new TextRenderable(renderer, { id: "g-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  termRow.add(rtlPreview);
 
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(langRow);
@@ -100,6 +102,15 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   [srcInput, tgtInput].forEach(input => {
     input.on("focus", () => { listFocused = false; });
     input.on("blur",  () => { listFocused = true; });
+  });
+
+  tgtInput.on(InputRenderableEvents.CHANGE, () => {
+    const lang = toPicker.getValue().toLowerCase().split("-")[0];
+    if (RTL_LANGS.has(lang) && tgtInput.value) {
+      rtlPreview.content = `→ ${rtlReverse(tgtInput.value)}`;
+    } else {
+      rtlPreview.content = "";
+    }
   });
 
   function refreshList() {
@@ -171,6 +182,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     glossaryStore.add({ sourceTerm: src, targetTerm: tgt, sourceLang: from, targetLang: to });
     srcInput.value = "";
     tgtInput.value = "";
+    rtlPreview.content = "";
     refreshList();
   });
 
