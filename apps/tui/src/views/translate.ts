@@ -26,11 +26,11 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   parent.add(container);
 
-  // Lang row — compact, height 4
+  // Lang row — compact, height 1
   const langRow = new BoxRenderable(renderer, {
     id: "translate-lang-row",
     flexDirection: "row",
-    height: 4,
+    height: 1,
     width: "100%",
   });
   container.add(langRow);
@@ -63,6 +63,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   splitRow.add(leftPane);
   leftPane.add(new TextRenderable(renderer, { id: "source-label", content: "SOURCE", fg: C.textSecondary }));
+  leftPane.add(new TextRenderable(renderer, { id: "source-sep", content: "─".repeat(60), fg: C.borderMuted }));
   const sourceTextarea = new TextareaRenderable(renderer, {
     width: "100%",
     flexGrow: 1,
@@ -80,6 +81,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   splitRow.add(rightPane);
   rightPane.add(new TextRenderable(renderer, { id: "output-label", content: "TRANSLATION", fg: C.textSecondary }));
+  rightPane.add(new TextRenderable(renderer, { id: "output-sep", content: "─".repeat(60), fg: C.borderMuted }));
   const outputContainer = new BoxRenderable(renderer, {
     id: "translate-output-container",
     flexGrow: 1,
@@ -95,13 +97,19 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   container.add(statusContainer);
 
+  const shortcuts = new TextRenderable(renderer, {
+    id: "status-shortcuts",
+    content: " Ctrl+Enter translate · Tab switch · Ctrl+Q quit",
+    fg: C.textMuted,
+  });
+  statusContainer.add(shortcuts);
+
   function updateStatus(dot: string, dotColor: string, text: string) {
     statusContainer.remove("status-dot");
     statusContainer.remove("status-text");
-    statusContainer.remove("status-shortcuts");
+    // prepend dot + text before shortcuts
     statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
-    statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text, fg: C.textSecondary }));
-    statusContainer.add(new TextRenderable(renderer, { id: "status-shortcuts", content: "  ⌨  Ctrl+Enter  Tab  Ctrl+Q", fg: C.textMuted }));
+    statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);

@@ -116,7 +116,7 @@ export function makeLangPicker(
   const renderable = new SelectRenderable(renderer, {
     id,
     width: 22,
-    height: 4,
+    height: 1,
     options,
     showDescription: false,
     wrapSelection: true,

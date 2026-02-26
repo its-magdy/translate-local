@@ -91,8 +91,8 @@ const tabs = new TabSelectRenderable(renderer, {
   width: renderer.width - 6,
   tabWidth: Math.floor((renderer.width - 6) / 2),
   options: [
-    { name: "⇄  Translate", description: "Translate text" },
-    { name: "⌥  Glossary",  description: "Manage glossary" },
+    { name: "⇄  Translate", description: "" },
+    { name: "⌥  Glossary",  description: "" },
   ],
   wrapSelection: true,
 });
