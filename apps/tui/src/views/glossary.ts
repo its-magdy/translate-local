@@ -73,7 +73,9 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   });
 
   function refreshList() {
-    listContainer.destroyRecursively();
+    for (const child of [...listContainer.getChildren()]) {
+      listContainer.remove(child.id);
+    }
     try {
       entries = glossaryStore.list();
     } catch {
