@@ -38,10 +38,19 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
 }
 
 /**
- * Strip all <term ...>...</term> tags from text, keeping only the inner content.
+ * Strip all <term ...>...</term> tags from text.
+ * - Complete tags: keep inner content (the model should have replaced source with target).
+ * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
+ * - Any remaining bare <term ...> opening tags: remove.
  */
 export function stripGlossaryTags(text: string): string {
-  return text.replace(/<term[^>]*>(.*?)<\/term>/gs, "$1");
+  // Complete tags: <term ...>content</term> → content
+  let result = text.replace(/<term[^>]*>(.*?)<\/term>/gs, "$1");
+  // Unclosed tags: <term translation="X">... → X (use translation attribute)
+  result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1");
+  // Any remaining bare opening tags
+  result = result.replace(/<term[^>]*>/g, "");
+  return result;
 }
 
 /**

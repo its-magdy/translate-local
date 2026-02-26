@@ -80,6 +80,17 @@ describe("stripGlossaryTags", () => {
     const input = '<term translation="a">line one\nline two</term>';
     expect(stripGlossaryTags(input)).toBe("line one\nline two");
   });
+
+  test("uses translation attribute for unclosed tags", () => {
+    const input = 'prefix <term translation="مرحبا">hello';
+    expect(stripGlossaryTags(input)).toBe("prefix مرحبا");
+  });
+
+  test("handles multiple unclosed tags", () => {
+    // Space after "machine learning" is consumed as part of the source content — normalizeWhitespace handles the rest
+    const input = '<term translation="تعلم الآلة">machine learning<term translation="شبكة عصبية">neural network';
+    expect(stripGlossaryTags(input)).toBe("تعلم الآلةشبكة عصبية");
+  });
 });
 
 describe("normalizeWhitespace", () => {
