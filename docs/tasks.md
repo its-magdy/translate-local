@@ -52,9 +52,9 @@
 - [x] Implement entry point with cleanup handlers (dispose adapter on SIGINT/SIGTERM)
 
 ## Phase 7: Documentation
-- [ ] Write `README.md` — quickstart, features, installation
-- [ ] Write `docs/cli-reference.md` — all commands, flags, exit codes, env vars
-- [ ] Write `docs/adapter-development.md` — guide for adding new adapters
-- [ ] Write `docs/glossary-guide.md` — usage, CSV format, strict vs prefer
-- [ ] Write `docs/context-guide.md` — what it does, supported file types
-- [ ] Write `CONTRIBUTING.md` — dev setup, testing, PR requirements
+- [x] Write `README.md` — quickstart, features, installation
+- [x] Write `docs/cli-reference.md` — all commands, flags, exit codes, env vars
+- [x] Write `docs/adapter-development.md` — guide for adding new adapters
+- [x] Write `docs/glossary-guide.md` — usage, CSV format, strict vs prefer
+- [x] Write `docs/context-guide.md` — what it does, supported file types
+- [x] Write `CONTRIBUTING.md` — dev setup, testing, PR requirements
