@@ -295,4 +295,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, branch strategy, and the p
 
 ## License
 
-MIT — license file forthcoming.
+MIT — see [LICENSE](LICENSE).
