@@ -2,8 +2,8 @@ import {
   BoxRenderable,
   TextRenderable,
   TextareaRenderable,
-  InputRenderable,
-  InputRenderableEvents,
+  SelectRenderable,
+  SelectRenderableEvents,
   type CliRenderer,
 } from "@opentui/core";
 import { runPipeline } from "@tl/core/pipeline";
@@ -111,11 +111,19 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
 
+  function rtlAlign(text: string): string {
+    const paneWidth = Math.floor(renderer.width / 2) - 1;
+    return text.split("\n").map((line) => {
+      const pad = Math.max(0, paneWidth - line.length);
+      return " ".repeat(pad) + line;
+    }).join("\n");
+  }
+
   function updateOutput(text: string) {
     outputContainer.remove("output-text");
     if (text) {
       const targetLang = toInput.value.trim().toLowerCase().split("-")[0];
-      const content = RTL_LANGS.has(targetLang) ? "\u200F" + text : text;
+      const content = RTL_LANGS.has(targetLang) ? rtlAlign(text) : text;
       outputContainer.add(new TextRenderable(renderer, { id: "output-text", content }));
     }
   }
