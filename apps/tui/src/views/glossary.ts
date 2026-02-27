@@ -87,7 +87,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   container.add(footer);
   footer.add(new TextRenderable(renderer, {
     id: "glossary-footer-text",
-    content: "↑↓ navigate  ·  d delete  ·  Tab focus form  ·  Ctrl+Q quit  ",
+    content: "↑↓ navigate  ·  d delete  ·  i add entry  ·  Esc back to list  ·  Tab switch view  ·  Ctrl+Q quit  ",
     fg: C.textMuted,
   }));
 
@@ -174,11 +174,21 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   renderer.keyInput.on("keypress", (key) => {
     if (!container.visible) return;
     if (key.name === "up") {
-      if (selectedIdx > 0) updateSelection(selectedIdx - 1);
+      if (listFocused && selectedIdx > 0) updateSelection(selectedIdx - 1);
       return;
     }
     if (key.name === "down") {
-      if (selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
+      if (listFocused && selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
+      return;
+    }
+    if (key.name === "i" && listFocused) {
+      srcInput.focus();
+      return;
+    }
+    if (key.name === "escape" && !listFocused) {
+      srcInput.blur();
+      tgtInput.blur();
+      listFocused = true;
       return;
     }
     if (key.name === "d" && !key.ctrl && listFocused) {
@@ -202,13 +212,15 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     tgtInput.value = "";
     srcRtlPreview.content = "";
     rtlPreview.content = "";
+    tgtInput.blur();
     refreshList();
   });
 
   return {
     container,
     focus() {
-      srcInput.focus();
+      // Default to list focus so navigation keys (↑↓d) work immediately
+      listFocused = true;
     },
   };
 }
