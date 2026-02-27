@@ -87,7 +87,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   container.add(footer);
   footer.add(new TextRenderable(renderer, {
     id: "glossary-footer-text",
-    content: "↑↓ navigate  ·  d delete  ·  i add entry  ·  Esc back to list  ·  Tab switch view  ·  Ctrl+Q quit  ",
+    content: "↑↓ navigate  ·  Ctrl+D delete  ·  Tab switch view  ·  Ctrl+Q quit  ",
     fg: C.textMuted,
   }));
 
@@ -181,17 +181,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       if (listFocused && selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
       return;
     }
-    if (key.name === "i" && listFocused) {
-      srcInput.focus();
-      return;
-    }
-    if (key.name === "escape" && !listFocused) {
-      srcInput.blur();
-      tgtInput.blur();
-      listFocused = true;
-      return;
-    }
-    if (key.name === "d" && !key.ctrl && listFocused) {
+    if (key.name === "d" && key.ctrl) {
       if (entries[selectedIdx]) {
         glossaryStore.remove(entries[selectedIdx].id);
         refreshList();
@@ -219,8 +209,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   return {
     container,
     focus() {
-      // Default to list focus so navigation keys (↑↓d) work immediately
-      listFocused = true;
+      srcInput.focus();
     },
   };
 }
