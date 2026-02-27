@@ -34,9 +34,10 @@ describe("buildStructuredPrompt", () => {
 
   test("does not inject XML tags itself (tag injection is handled by preprocessor)", () => {
     // Actual tag injection (e.g. <term translation="x">source</term>) is done upstream by injectGlossaryTags.
+    // The prompt may mention the tag format as an instruction, but should not wrap the actual source text in tags.
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
     const { prompt } = buildStructuredPrompt(req);
-    expect(prompt).not.toContain('translation="');
+    expect(prompt).not.toContain('translation="واجهة برمجة"');
   });
 
   test("includes context snippets when provided", () => {
@@ -59,7 +60,7 @@ describe("buildStructuredPrompt", () => {
   test("includes glossary tag instruction in prompt when glossary hits present", () => {
     const req = { ...baseRequest, glossaryHits: [makeHit("API", "واجهة برمجة")] };
     const { prompt } = buildStructuredPrompt(req);
-    expect(prompt).toContain("<term>");
+    expect(prompt).toContain('<term translation=');
   });
 
   test("system is undefined (all instructions go in prompt for TranslateGemma)", () => {

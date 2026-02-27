@@ -30,6 +30,13 @@ export function makeTranslateCommand(): Command {
         const targetLang = opts.to ?? config.defaults.targetLang;
         const glossaryMode = opts.glossary as "prefer" | "strict";
 
+        if (glossaryMode !== "prefer" && glossaryMode !== "strict") {
+          const msg = `Invalid glossary mode: "${opts.glossary}". Use "prefer" or "strict".`;
+          if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
+          else { console.error(msg); }
+          process.exit(1);
+        }
+
         // BUG-004: validate language codes
         if (sourceLang !== "auto" && !isSupported(sourceLang)) {
           const msg = `Unsupported source language: "${sourceLang}"`;

@@ -21,7 +21,7 @@ export const LANG_NAMES: Record<string, string> = {
   ta: "Tamil", te: "Telugu", th: "Thai", tl: "Filipino", tr: "Turkish",
   ug: "Uyghur", uk: "Ukrainian", ur: "Urdu", uz: "Uzbek",
   vi: "Vietnamese", yi: "Yiddish", yo: "Yoruba",
-  zh: "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)", zu: "Zulu",
+  zh: "Chinese (Simplified)", "zh-tw": "Chinese (Traditional)", zu: "Zulu",
 };
 
 export const SUPPORTED_LANGUAGES: readonly string[] = Object.keys(LANG_NAMES);

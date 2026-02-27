@@ -68,17 +68,19 @@ export class ContextStore {
       throw new TlError("CONTEXT_DB_ERROR", `Invalid path: ${err.message}`, `Provide a readable directory path`, err);
     }
 
-    // Clean up existing row if present
-    const existing = this.db.query(`SELECT id FROM context_sources WHERE path = ?`).get(path) as { id: string } | null;
-    if (existing) {
-      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [existing.id]);
-      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [existing.id]);
-      this.db.run(`DELETE FROM context_sources WHERE id = ?`, [existing.id]);
-    }
-
     const id = randomUUID();
     const addedAt = new Date().toISOString();
-    this.db.run(`INSERT INTO context_sources (id, path, added_at) VALUES (?, ?, ?)`, [id, path, addedAt]);
+
+    // Clean up existing row if present, then insert — all in one transaction
+    this.db.transaction(() => {
+      const existing = this.db.query(`SELECT id FROM context_sources WHERE path = ?`).get(path) as { id: string } | null;
+      if (existing) {
+        this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [existing.id]);
+        this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [existing.id]);
+        this.db.run(`DELETE FROM context_sources WHERE id = ?`, [existing.id]);
+      }
+      this.db.run(`INSERT INTO context_sources (id, path, added_at) VALUES (?, ?, ?)`, [id, path, addedAt]);
+    })();
     this._indexSource(id, path);
 
     const row = this.db.query(`SELECT id, path, added_at, indexed_at, file_count FROM context_sources WHERE id = ?`).get(id) as any;

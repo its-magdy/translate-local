@@ -49,11 +49,10 @@ export function formatGlossaryList(entries: GlossaryEntry[], json: boolean): str
 
 export function formatError(err: unknown): string {
   if (err && typeof err === "object" && "tag" in err) {
-    const e = err as { tag: string; message: string; hint: string };
-    return [
-      color(`Error [${e.tag}]: ${e.message}`, RED),
-      color(`Hint: ${e.hint}`, YELLOW),
-    ].join("\n");
+    const e = err as { tag: string; message: string; hint?: string };
+    const lines = [color(`Error [${e.tag}]: ${e.message}`, RED)];
+    if (e.hint) lines.push(color(`Hint: ${e.hint}`, YELLOW));
+    return lines.join("\n");
   }
   return color(`Error: ${String(err)}`, RED);
 }

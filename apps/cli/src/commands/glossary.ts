@@ -144,6 +144,10 @@ export function makeGlossaryCommand(): Command {
             if (!sourceTerm || !targetTerm || !sourceLang || !targetLang) continue;
             // Skip header rows (e.g. "source,target,from,to,..." or "source,target,source_lang,...")
             if (sourceTerm === "source" && targetTerm === "target") continue;
+            if (!isSupported(sourceLang) || !isSupported(targetLang)) {
+              console.error(`Skipping row with unsupported language: "${sourceLang}" → "${targetLang}"`);
+              continue;
+            }
             store.add({ sourceTerm, targetTerm, sourceLang, targetLang, domain: domain || undefined, note: note || undefined });
             added++;
           }

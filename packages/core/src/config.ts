@@ -119,11 +119,11 @@ export function loadConfig(configPath?: string): CoreConfig {
     );
   }
 
-  raw = resolveEnvVars(raw);
-
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsoncComments(raw));
+    raw = stripJsoncComments(raw);
+    raw = resolveEnvVars(raw);
+    parsed = JSON.parse(raw);
   } catch (err: any) {
     throw new TlError(
       "CONFIG_INVALID",
@@ -146,7 +146,7 @@ export function loadConfig(configPath?: string): CoreConfig {
 }
 
 export function saveConfig(config: CoreConfig, configPath?: string): void {
-  const p = expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+  const p = getConfigPath(configPath);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
 }
