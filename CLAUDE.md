@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Guidelines for the `tl` translation CLI tool. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -23,6 +25,40 @@ Violations of these three rules are not acceptable. Past agents have failed on a
 ## Project Overview
 
 `tl` is an open-source CLI-first translation tool with optional TUI. Default model: TranslateGemma via Ollama (local). Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
+
+## Commands
+
+```bash
+# Install dependencies
+bun install
+
+# Run all tests (all packages via Turborepo)
+bun run test
+
+# Run tests for a single package
+bun test --cwd packages/core
+bun test --cwd packages/shared
+bun test --cwd packages/adapters
+
+# Run a single test file
+bun test packages/core/src/__tests__/pipeline.test.ts
+
+# Integration tests (requires SQLite, no Ollama)
+TEST_INTEGRATION=1 bun run test
+
+# Real adapter tests (requires running Ollama)
+TEST_ADAPTER=1 bun run test
+
+# Build all packages
+bun run build
+
+# Run the CLI directly (no build needed)
+bun run apps/cli/src/index.ts "hello" --to ar
+
+# Use the `tl` shorthand (one-time setup)
+cd apps/cli && bun link
+tl "hello" --to ar
+```
 
 ## Tech Stack
 
@@ -72,6 +108,8 @@ t/
 - **Image mode**: Pass `imageBase64` in `PipelineOptions` to trigger image translation. In this mode: glossary tag injection is skipped, `source` is set to `""`, and `imageBase64` is forwarded to the adapter unchanged. Context retrieval is also skipped when `queryText` is empty (image-only invocation).
 - **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB. Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
 - **Memory management**: Adapters call `dispose()` to unload models from VRAM. CLI calls it after each translation; TUI on exit.
+- **MockAdapter**: Available via `createMockAdapter()` from `@tl/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
+- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models.
 
 ## Testing
 
