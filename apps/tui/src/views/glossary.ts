@@ -22,6 +22,14 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   });
   parent.add(container);
 
+  // Column widths derived from terminal width
+  function colWidths(w: number) {
+    const pair = 12;
+    const id = 10;
+    const term = Math.max(10, Math.floor((w - id - pair) / 2));
+    return { id, term, pair };
+  }
+
   // Table header
   const tableHeader = new BoxRenderable(renderer, {
     id: "glossary-table-header",
@@ -30,15 +38,17 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     width: "100%",
   });
   container.add(tableHeader);
-  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID      ",  fg: C.textMuted, width: 10 }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM         ", fg: C.textMuted, width: 20 }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION         ", fg: C.textMuted, width: 20 }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR        ",        fg: C.textMuted, width: 12 }));
+  let cols = colWidths(renderer.width);
+  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID",          fg: C.textMuted, width: cols.id }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM", fg: C.textMuted, width: cols.term }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION", fg: C.textMuted, width: cols.term }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR",        fg: C.textMuted, width: cols.pair }));
 
   // Header separator
   const headerSep = new BoxRenderable(renderer, { id: "glossary-header-sep", height: 1, width: "100%" });
   container.add(headerSep);
-  headerSep.add(new TextRenderable(renderer, { id: "header-sep-line", content: "─".repeat(120), fg: C.borderSubtle }));
+  const sepLine = new TextRenderable(renderer, { id: "header-sep-line", content: "─".repeat(renderer.width), fg: C.borderSubtle });
+  headerSep.add(sepLine);
 
   // List area
   const listContainer = new BoxRenderable(renderer, {
@@ -61,14 +71,15 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   const termRow = new BoxRenderable(renderer, { id: "glossary-term-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(termRow);
   termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textMuted }));
-  const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: 20, placeholder: "source term" });
+  function inputWidth(w: number) { return Math.max(10, Math.floor((w - 16) / 2)); }
+  const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: inputWidth(renderer.width), placeholder: "source term" });
   termRow.add(srcInput);
-  const srcRtlPreview = new TextRenderable(renderer, { id: "g-src-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  const srcRtlPreview = new TextRenderable(renderer, { id: "g-src-rtl-preview", content: "", fg: C.textMuted });
   termRow.add(srcRtlPreview);
   termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
-  const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: 20, placeholder: "target term" });
+  const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: inputWidth(renderer.width), placeholder: "target term" });
   termRow.add(tgtInput);
-  const rtlPreview = new TextRenderable(renderer, { id: "g-rtl-preview", content: "", fg: C.textMuted, width: 22 });
+  const rtlPreview = new TextRenderable(renderer, { id: "g-rtl-preview", content: "", fg: C.textMuted });
   termRow.add(rtlPreview);
 
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
@@ -140,6 +151,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       return;
     }
     if (selectedIdx >= entries.length) selectedIdx = entries.length - 1;
+    const c = colWidths(renderer.width);
     entries.forEach((e, idx) => {
       const selected = idx === selectedIdx;
       const row = new BoxRenderable(renderer, {
@@ -147,12 +159,12 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
         flexDirection: "row",
         backgroundColor: selected ? C.selectionBg : undefined,
       });
-      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: 10, fg: C.textMuted }));
-      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20, fg: C.textPrimary }));
+      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: c.id,   fg: C.textMuted }));
+      row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm,      width: c.term, fg: C.textPrimary }));
       const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
       const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;
-      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20, fg: C.textPrimary }));
-      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `[${e.sourceLang}→${e.targetLang}]`, width: 12, fg: C.textSecondary }));
+      row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay,        width: c.term, fg: C.textPrimary }));
+      row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `[${e.sourceLang}→${e.targetLang}]`, width: c.pair, fg: C.textSecondary }));
       listContainer.add(row);
     });
   }
@@ -203,6 +215,26 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     srcRtlPreview.content = "";
     rtlPreview.content = "";
     tgtInput.blur();
+    refreshList();
+  });
+
+  renderer.on("resize", (w: number) => {
+    // Update separator
+    sepLine.content = "─".repeat(w);
+    // Update header column widths
+    cols = colWidths(w);
+    (tableHeader.getChildren() as TextRenderable[]).forEach((c, i) => {
+      c.width = [cols.id, cols.term, cols.term, cols.pair][i] ?? c.width;
+    });
+    // Update inputs
+    const iw = inputWidth(w);
+    srcInput.width = iw;
+    tgtInput.width = iw;
+    // Update lang picker widths
+    const pickerWidth = Math.max(10, Math.floor((w - 28) / 2));
+    fromPicker.renderable.width = pickerWidth;
+    toPicker.renderable.width = pickerWidth;
+    // Rebuild list rows with new column widths
     refreshList();
   });
 

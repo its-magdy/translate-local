@@ -60,11 +60,11 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   const leftPane = new BoxRenderable(renderer, {
     id: "translate-left",
     flexDirection: "column",
-    flexGrow: 1,
+    flexShrink: 1,
     width: "50%",
     border: true,
     borderStyle: "single",
-    borderColor: C.borderMuted,
+    borderColor: C.textSecondary,
     title: " SOURCE ",
     titleAlignment: "left",
   });
@@ -76,7 +76,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     id: "translate-source",
     width: "100%",
     flexGrow: 1,
-    placeholder: "Enter text… paste an image or path to translate",
+    placeholder: "Enter text, or paste an image or path to translate",
     keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
@@ -105,11 +105,11 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   const rightPane = new BoxRenderable(renderer, {
     id: "translate-right",
     flexDirection: "column",
-    flexGrow: 1,
+    flexShrink: 1,
     width: "50%",
     border: true,
     borderStyle: "single",
-    borderColor: C.borderMuted,
+    borderColor: C.textSecondary,
     title: " TRANSLATION ",
     titleAlignment: "left",
   });
@@ -145,7 +145,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   function updateStatus(dot: string, dotColor: string, text: string) {
     statusContainer.remove("status-dot");
     statusContainer.remove("status-text");
-    statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
+    statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `  ● `, fg: dotColor }));
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
 
@@ -311,6 +311,13 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         });
     })();
   }
+
+  // Update picker widths on terminal resize
+  renderer.on("resize", (w: number) => {
+    const pickerWidth = Math.max(20, Math.floor((w - 29) / 2));
+    fromPicker.renderable.width = pickerWidth;
+    toPicker.renderable.width = pickerWidth;
+  });
 
   return {
     container,

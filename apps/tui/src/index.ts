@@ -92,6 +92,8 @@ const tabs = new TabSelectRenderable(renderer, {
     { name: "⌥  Glossary",  description: "" },
   ],
   wrapSelection: true,
+  selectedBackgroundColor: "transparent",
+  focusedBackgroundColor: "transparent",
 });
 headerBar.add(tabs);
 tabs.focus();
@@ -122,6 +124,12 @@ function switchToTab(idx: number) {
 
 tabs.on(TabSelectRenderableEvents.ITEM_SELECTED, switchToTab);
 tabs.on(TabSelectRenderableEvents.SELECTION_CHANGED, switchToTab);
+
+// Update tab bar width on terminal resize
+renderer.on("resize", (w: number) => {
+  tabs.width = w - 6;
+  tabs.tabWidth = Math.floor((w - 6) / 2);
+});
 
 // Global keyboard
 renderer.keyInput.on("keypress", (key) => {
