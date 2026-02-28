@@ -8,7 +8,7 @@ import {
 import { runPipeline } from "@tl/core/pipeline";
 import { TlError } from "@tl/shared/errors";
 import type { AppState } from "../index";
-import { makeLangPicker } from "./widgets";
+import { makeSearchableLangPicker } from "./widgets";
 import { C } from "../theme";
 
 export interface View {
@@ -38,12 +38,12 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   container.add(langRow);
 
   langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textSecondary }));
-  const fromPicker = makeLangPicker(renderer, "translate-from-select", config.defaults?.sourceLang ?? "auto", true);
+  const fromPicker = makeSearchableLangPicker(renderer, "translate-from-select", config.defaults?.sourceLang ?? "auto", true);
   langRow.add(fromPicker.renderable);
 
   langRow.add(new TextRenderable(renderer, { id: "arrow-label", content: "  →  ", fg: C.accent }));
   langRow.add(new TextRenderable(renderer, { id: "to-label", content: "TO ", fg: C.textSecondary }));
-  const toPicker = makeLangPicker(renderer, "translate-to-select", config.defaults?.targetLang ?? "fr", false);
+  const toPicker = makeSearchableLangPicker(renderer, "translate-to-select", config.defaults?.targetLang ?? "fr", false);
   langRow.add(toPicker.renderable);
 
   langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textSecondary }));
@@ -142,6 +142,28 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     fg: C.textSecondary,
   });
   statusContainer.add(shortcuts);
+
+  function updatePickerHint() {
+    const activePicker = fromPicker.renderable.focused ? fromPicker
+      : toPicker.renderable.focused ? toPicker
+      : null;
+    if (activePicker) {
+      const q = activePicker.getSearchQuery();
+      shortcuts.content = q
+        ? ` ↕ select  ·  type to filter  /  ${q}_`
+        : " ↕ select  ·  type to filter  ·  Esc clear";
+    } else {
+      shortcuts.content = " Ctrl+Enter translate · Tab switch · Ctrl+Q quit";
+    }
+  }
+
+  [fromPicker.renderable, toPicker.renderable].forEach(p => {
+    p.on("focused", updatePickerHint);
+    p.on("blurred", updatePickerHint);
+  });
+  renderer.keyInput.on("keypress", () => {
+    if (fromPicker.renderable.focused || toPicker.renderable.focused) updatePickerHint();
+  });
 
   function updateStatus(dot: string, dotColor: string, text: string) {
     statusContainer.remove("status-dot");

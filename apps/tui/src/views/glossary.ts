@@ -8,7 +8,7 @@ import {
 import type { GlossaryEntry } from "@tl/shared/types";
 import type { AppState } from "../index";
 import type { View } from "./translate";
-import { makeLangPicker } from "./widgets";
+import { makeSearchableLangPicker } from "./widgets";
 import { C } from "../theme";
 
 export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
@@ -85,11 +85,11 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(langRow);
   langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textSecondary }));
-  const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false, 28);
+  const fromPicker = makeSearchableLangPicker(renderer, "g-from-picker", "en", false, 28);
   langRow.add(fromPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "arrow-g", content: "  →  ", fg: C.accent }));
   langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textSecondary }));
-  const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false, 28);
+  const toPicker = makeSearchableLangPicker(renderer, "g-to-picker", "fr", false, 28);
   langRow.add(toPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "add-hint", content: "  [Enter] + Add", fg: C.accent }));
 
@@ -119,9 +119,17 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   }
 
   function updateFooterHint() {
-    footerText.content = isAnyFormActive()
-      ? "Tab next field  ·  Shift+Tab prev  ·  Esc cancel  ·  Enter add  ·  Ctrl+Q quit  "
-      : "↑↓ navigate  ·  Ctrl+D delete  ·  Tab switch view  ·  Ctrl+Q quit  ";
+    if (fromPicker.renderable.focused || toPicker.renderable.focused) {
+      const activePicker = fromPicker.renderable.focused ? fromPicker : toPicker;
+      const q = activePicker.getSearchQuery();
+      footerText.content = q
+        ? `Tab next field  ·  type to filter  /  ${q}_  ·  Esc clear  ·  Ctrl+Q quit  `
+        : "Tab next field  ·  type to filter  ·  Esc cancel  ·  Ctrl+Q quit  ";
+    } else if (isAnyFormActive()) {
+      footerText.content = "Tab next field  ·  Shift+Tab prev  ·  Esc cancel  ·  Enter add  ·  Ctrl+Q quit  ";
+    } else {
+      footerText.content = "↑↓ navigate  ·  Ctrl+D delete  ·  Tab switch view  ·  Ctrl+Q quit  ";
+    }
   }
 
   [srcInput, tgtInput].forEach(input => {
@@ -201,6 +209,12 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   // List navigation keyboard
   renderer.keyInput.on("keypress", (key) => {
     if (!container.visible) return;
+
+    // Refresh footer hint while typing in a picker
+    if (fromPicker.renderable.focused || toPicker.renderable.focused) {
+      // Defer to next microtask so searchQuery has been updated by makeSearchableLangPicker
+      Promise.resolve().then(updateFooterHint);
+    }
 
     // Form-active: Tab cycles all fields, Escape exits form
     if (isAnyFormActive()) {
