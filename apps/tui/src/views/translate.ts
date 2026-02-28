@@ -224,23 +224,27 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
-    const isImagePath = raw.split("\n").length === 1 && IMAGE_EXTS.test(raw);
+    // Normalize macOS-pasted paths: strip surrounding quotes or unescape backslash-spaces
+    const stripped = raw.startsWith("'") && raw.endsWith("'")
+      ? raw.slice(1, -1)
+      : raw.replace(/\\ /g, " ");
+    const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXTS.test(stripped);
 
     loading = true;
     updateOutput("");
 
     (async () => {
       let imageBase64: string | undefined;
-      let textToTranslate = raw;
+      let textToTranslate = stripped;
 
       if (isImagePath) {
         updateStatus("●", C.amber, "Translating image…");
         try {
-          const buf = await Bun.file(raw).arrayBuffer();
+          const buf = await Bun.file(stripped).arrayBuffer();
           imageBase64 = Buffer.from(buf).toString("base64");
           textToTranslate = "";
-        } catch {
-          updateStatus("●", C.red, `Image not found: ${raw}`);
+        } catch (err) {
+          updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
           loading = false;
           return;
         }
