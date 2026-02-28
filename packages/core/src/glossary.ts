@@ -80,8 +80,9 @@ export class GlossaryStore {
         // Duplicate entry — return the existing row
         const existing = this.db.query(
           `SELECT id FROM glossary WHERE source_term = ? AND target_term = ? AND source_lang = ? AND target_lang = ?`,
-        ).get(entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang) as { id: string };
-        return { id: existing.id, ...entry };
+        ).get(entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang) as { id: string } | null;
+        if (existing) return { id: existing.id, ...entry };
+        // Row vanished between INSERT OR IGNORE and SELECT — fall through to return the new id
       }
     } catch (err: any) {
       throw new TlError("GLOSSARY_DB_ERROR", `Failed to add glossary entry: ${err.message}`, "Check for db corruption", err);
