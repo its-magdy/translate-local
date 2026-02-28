@@ -76,6 +76,31 @@ describe("runPipeline", () => {
     expect(result.missingTerms).toContain("API");
   });
 
+  it("image mode: skips glossary tag injection and passes imageBase64 to adapter", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    let capturedRequest: any;
+    const capturingAdapter = {
+      name: "capturing",
+      async translate(req: any) {
+        capturedRequest = req;
+        return {
+          translated: "[image] result",
+          sourceLang: req.sourceLang,
+          targetLang: req.targetLang,
+          glossaryCoverage: 1,
+          missingTerms: [],
+          metadata: { adapter: "capturing", durationMs: 0, retries: 0 },
+        };
+      },
+      async dispose() {},
+    };
+    const imageBase64 = "dGVzdA=="; // base64 for "test"
+    const result = await runPipeline("", "en", "ar", capturingAdapter as any, store, { imageBase64 });
+    expect(capturedRequest.imageBase64).toBe(imageBase64);
+    expect(capturedRequest.glossaryHits).toHaveLength(0); // no tag injection for images
+    expect(result.translated).toBe("[image] result");
+  });
+
   it("strict mode throws after max retries when terms are missing", async () => {
     // Use a glossary term that MockAdapter won't include in output (not in source text)
     // Since matchTerms checks source text, if the term isn't in source, there are no hits

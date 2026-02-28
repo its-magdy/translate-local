@@ -67,11 +67,20 @@ export function makeTranslateCommand(): Command {
         const contextStore = new ContextStore(config.context.dbPath);
 
         try {
+          const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
+          const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MB
+
           let imageBase64: string | undefined;
           if (opts.image) {
+            if (!IMAGE_EXTS.test(opts.image)) {
+              throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
+            }
             const file = Bun.file(opts.image);
             if (!(await file.exists())) {
               throw new TlError("IMAGE_NOT_FOUND", `Image not found: ${opts.image}`, "Check the file path and try again.");
+            }
+            if (file.size > IMAGE_SIZE_LIMIT) {
+              throw new TlError("IMAGE_TOO_LARGE", `Image exceeds 10 MB: ${opts.image}`, "Use a smaller image file.");
             }
             try {
               const buf = await file.arrayBuffer();
@@ -83,7 +92,7 @@ export function makeTranslateCommand(): Command {
 
           // BUG-008: retrieve context snippets before running the pipeline
           const queryText = text ?? "";
-          const snippets = contextStore.retrieve(queryText, config.context.maxSnippets);
+          const snippets = queryText ? contextStore.retrieve(queryText, config.context.maxSnippets) : [];
           const contextSnippets = snippets
             .filter((s) => s.score >= config.context.minRelevance)
             .map((s) => s.content);

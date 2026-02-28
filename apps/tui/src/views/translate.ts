@@ -244,7 +244,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
     (async () => {
       let imageBase64: string | undefined;
-      let textToTranslate: string;
+      let textToTranslate = "";
 
       const embeddedMatch = raw.match(IMAGE_TOKEN_RE);
 
@@ -254,7 +254,13 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         textToTranslate = raw.replace(IMAGE_TOKEN_RE, "").trim();
         updateStatus("●", C.amber, "Translating image…");
         try {
-          const buf = await Bun.file(imagePath).arrayBuffer();
+          const file = Bun.file(imagePath);
+          if (!(await file.exists())) {
+            updateStatus("●", C.red, `Image not found: ${imagePath}`);
+            loading = false;
+            return;
+          }
+          const buf = await file.arrayBuffer();
           imageBase64 = Buffer.from(buf).toString("base64");
         } catch (err) {
           updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
@@ -271,7 +277,13 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         if (isImagePath) {
           updateStatus("●", C.amber, "Translating image…");
           try {
-            const buf = await Bun.file(stripped).arrayBuffer();
+            const file = Bun.file(stripped);
+            if (!(await file.exists())) {
+              updateStatus("●", C.red, `Image not found: ${stripped}`);
+              loading = false;
+              return;
+            }
+            const buf = await file.arrayBuffer();
             imageBase64 = Buffer.from(buf).toString("base64");
             textToTranslate = "";
           } catch (err) {

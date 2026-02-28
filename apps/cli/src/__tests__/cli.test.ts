@@ -195,6 +195,12 @@ describe("tl CLI", () => {
       expect(parsed.error).toBe("IMAGE_NOT_FOUND");
     });
 
+    it("errors with IMAGE_INVALID_TYPE for unsupported extension", () => {
+      const r = run(["translate", "--image", "/some/file.pdf", "--to", "ar"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("IMAGE_INVALID_TYPE");
+    });
+
     it("shows --image in translate help", () => {
       const r = run(["translate", "--help"]);
       expect(r.exitCode).toBe(0);
