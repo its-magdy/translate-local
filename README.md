@@ -15,6 +15,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
   - [Context sources](#context-sources)
   - [Config](#config)
   - [Interactive TUI](#interactive-tui)
+- [Supported languages](docs/supported-languages.md)
 - [Command reference](#command-reference)
 - [Running tests](#running-tests)
 - [Contributing](#contributing)
@@ -84,6 +85,8 @@ tl translate --image /path/to/sign.jpg --to ar
 tl translate --image /path/to/menu.png --from en --to es --glossary strict
 tl translate --image /path/to/doc.jpg --to fr --json
 ```
+
+See [supported languages](docs/supported-languages.md) for a full list of BCP-47 codes.
 
 Get machine-readable output:
 

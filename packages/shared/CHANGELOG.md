@@ -5,6 +5,14 @@ All notable changes to `@tl/shared` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-28
+
+### Added
+
+- `LANG_NAMES` expanded from ~80 to ~155 BCP-47 base language codes, synced to the full TranslateGemma model language list. New codes include: `aa`, `ab`, `ak`, `an`, `as`, `ba`, `bm`, `bo`, `br`, `ce`, `co`, `cv`, `dv`, `dz`, `ee`, `eo`, `ff`, `fo`, `fy`, `gd`, `gn`, `gv`, `ht`, `ia`, `ie`, `ii`, `ik`, `io`, `iu`, `jv`, `ki`, `kl`, `ks`, `ku`, `kw`, `ky`, `la`, `lb`, `lg`, `ln`, `lu`, `mg`, `mi`, `nb`, `nd`, `nr`, `nv`, `ny`, `oc`, `om`, `os`, `qu`, `rm`, `rn`, `rw`, `sa`, `sc`, `se`, `sg`, `sn`, `ss`, `st`, `su`, `tg`, `ti`, `tk`, `tn`, `to`, `ts`, `tt`, `ve`, `vo`, `wa`, `wo`, `xh`, `za`. All existing codes are preserved; no breaking changes.
+
+---
+
 ## [0.1.1] - 2026-02-23
 
 ### Fixed
