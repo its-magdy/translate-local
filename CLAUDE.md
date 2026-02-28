@@ -22,7 +22,7 @@ Violations of these three rules are not acceptable. Past agents have failed on a
 
 ## Project Overview
 
-`tl` is an open-source CLI-first translation tool with optional TUI. Default model: TranslateGemma via Ollama (local) or HuggingFace API. Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
+`tl` is an open-source CLI-first translation tool with optional TUI. Default model: TranslateGemma via Ollama (local). Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
 
 ## Tech Stack
 
@@ -42,7 +42,7 @@ Violations of these three rules are not acceptable. Past agents have failed on a
 t/
 ├── packages/shared/     # Types, errors, constants, utils
 ├── packages/core/       # Config, glossary, pipeline, context
-├── packages/adapters/   # TranslateGemma (local/HF), mock
+├── packages/adapters/   # TranslateGemma (local), mock
 ├── apps/cli/            # Commander.js CLI (`tl` command)
 └── apps/tui/            # Interactive terminal UI
 ```
