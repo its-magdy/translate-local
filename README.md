@@ -217,7 +217,9 @@ Run `tl` with no arguments:
 tl
 ```
 
-The terminal UI opens with a translation pane, glossary browser, and context source manager.
+The terminal UI opens with a **Translate** tab (side-by-side source/target panes) and a **Glossary** tab for managing term pairs. It supports image translation via drag-and-drop or pasting an image path into the source pane.
+
+See [docs/tui-guide.md](docs/tui-guide.md) for the full reference.
 
 ---
 
