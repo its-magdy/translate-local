@@ -20,6 +20,7 @@ export interface TranslationRequest {
   source: string;           // Text to translate (may include XML glossary tags)
   sourceLang: string;       // BCP-47 source language, e.g. "en"
   targetLang: string;       // BCP-47 target language, e.g. "ar"
+  imageBase64?: string;     // Base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
   options?: {
@@ -57,10 +58,11 @@ Called when the adapter is no longer needed. Use it to release resources (close 
 `packages/adapters/src/base.ts` exports two prompt-building helpers:
 
 ```typescript
-// For TranslateGemma models (source/target lang header + context snippets, no XML tags)
-buildStructuredPrompt(request: TranslationRequest): string
+// For TranslateGemma models — returns { prompt, system? }
+// Handles image mode automatically when request.imageBase64 is set
+buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string }
 
-// For generic LLMs (natural language instructions)
+// For generic LLMs (natural language instructions) — returns a string
 buildNaturalPrompt(request: TranslationRequest): string
 ```
 
