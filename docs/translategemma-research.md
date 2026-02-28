@@ -12,7 +12,7 @@ TranslateGemma is Google's open-source translation model family built on Gemma 3
 - **12B** — balanced quality and speed (recommended default)
 - **27B** — highest quality, needs more compute
 
-All available on: HuggingFace, Kaggle, Vertex AI (Google Cloud)
+All available on: Kaggle, Vertex AI (Google Cloud), and via Ollama locally
 
 ## Language Support
 
@@ -25,13 +25,6 @@ All available on: HuggingFace, Kaggle, Vertex AI (Google Cloud)
 ### Local (Ollama)
 ```bash
 ollama run translate-gemma-12b
-```
-
-### HuggingFace Inference API
-```python
-from huggingface_hub import InferenceClient
-client = InferenceClient(model="google/translategemma-12b-it", token="hf_...")
-result = client.text_generation(prompt)
 ```
 
 ### Vertex AI (Google Cloud)
@@ -60,6 +53,5 @@ Source: The <term translation="واجهة برمجة">API</term> is ready for us
 
 ## Key Links
 
-- HuggingFace: https://huggingface.co/google/translategemma-4b-it
 - Blog: https://blog.google/innovation-and-ai/technology/developers-tools/translategemma/
 - WaveSpeed explainer: https://wavespeed.ai/blog/posts/what-is-translategemma/

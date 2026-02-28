@@ -46,8 +46,7 @@ t/
 │           ├── factory.ts            # createAdapter(config)
 │           ├── base.ts               # Shared adapter logic
 │           ├── translate-gemma/
-│           │   ├── local.ts          # Ollama subprocess
-│           │   └── huggingface.ts    # HF Inference API
+│           │   └── local.ts          # Ollama subprocess
 │           └── mock.ts               # Deterministic mock
 └── apps/
     ├── cli/                  # CLI application
@@ -110,10 +109,6 @@ Location: `~/.config/tl/config.jsonc`
       "endpoint": "http://localhost:11434",
       "keepAlive": false
     },
-    "huggingface": {
-      "model": "google/translategemma-12b-it",
-      "token": "${HF_TOKEN}"
-    }
   },
   "glossary": {
     "mode": "prefer",
@@ -136,7 +131,6 @@ Location: `~/.config/tl/config.jsonc`
 
 Every adapter implements `dispose()` for cleanup:
 - **TranslateGemma local (Ollama)**: sends `POST /api/generate` with `keep_alive: 0` to unload model from VRAM
-- **TranslateGemma HuggingFace**: no-op
 - **Mock**: no-op
 
 Behavior:
@@ -155,7 +149,6 @@ Behavior:
 4. `packages/adapters/src/mock.ts` — mock adapter (canned translations)
 5. `packages/adapters/src/factory.ts` + `base.ts`
 6. `packages/adapters/src/translate-gemma/local.ts` — Ollama
-7. `packages/adapters/src/translate-gemma/huggingface.ts` — HF API
 
 ### Phase 3: Core Pipeline
 8. `packages/core/src/glossary/store.ts` — SQLite CRUD

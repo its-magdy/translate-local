@@ -79,11 +79,8 @@ export function createAdapter(config: AdapterConfig): Adapter {
   switch (backend) {
     case "ollama":
       return new TranslateGemmaLocalAdapter(model, config.ollamaUrl ?? DEFAULT_OLLAMA_URL);
-    case "huggingface":
-      if (!config.hfToken) throw new TlError("ADAPTER_UNAVAILABLE", "hfToken is required", "...");
-      return new TranslateGemmaHFAdapter(model, config.hfToken);
     default:
-      throw new TlError("CONFIG_INVALID", `Unknown backend: ${backend}`, "Valid backends are: ollama, huggingface");
+      throw new TlError("CONFIG_INVALID", `Unknown backend: ${backend}`, "Valid backends are: ollama");
   }
 }
 ```
@@ -139,7 +136,7 @@ export class MyServiceAdapter implements Adapter {
 In `packages/shared/src/types.ts`, extend `AdapterBackend`:
 
 ```typescript
-export type AdapterBackend = "ollama" | "huggingface" | "my-service";
+export type AdapterBackend = "ollama" | "my-service";
 ```
 
 And add any config fields to `AdapterConfig`:
@@ -149,7 +146,6 @@ export interface AdapterConfig {
   backend: AdapterBackend;
   model: string;
   ollamaUrl?: string;
-  hfToken?: string;
   myServiceApiKey?: string;   // new field
 }
 ```
@@ -163,7 +159,6 @@ import { MyServiceAdapter } from "./my-service";
 export function createAdapter(config: AdapterConfig): Adapter {
   switch (config.backend) {
     case "ollama": ...
-    case "huggingface": ...
     case "my-service":
       if (!config.myServiceApiKey) {
         throw new TlError("ADAPTER_UNAVAILABLE", "myServiceApiKey is required", "Set MY_SERVICE_API_KEY");

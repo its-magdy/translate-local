@@ -2,7 +2,7 @@
 
 ## Summary
 
-`tl` is an open-source translation tool with a CLI-first workflow, optional TUI for interactive translation and glossary management, and a pluggable model adapter layer. Default model is TranslateGemma via Ollama (local) or HuggingFace API. The system emphasizes glossary enforcement, contextual translation from local resources, and automatic memory management (model unloading after use).
+`tl` is an open-source translation tool with a CLI-first workflow, optional TUI for interactive translation and glossary management, and a pluggable model adapter layer. Default model is TranslateGemma via Ollama (local). The system emphasizes glossary enforcement, contextual translation from local resources, and automatic memory management (model unloading after use).
 
 ## Goals (v1)
 
@@ -151,8 +151,7 @@ tl
 ## Supported Adapters (v1)
 
 1. **TranslateGemma (local)** — via Ollama subprocess
-2. **TranslateGemma (HuggingFace)** — via HF Inference API
-3. **Mock** — deterministic output for tests
+2. **Mock** — deterministic output for tests
 
 Future: any OpenAI-compatible API, Anthropic, Google Vertex, etc.
 
