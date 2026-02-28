@@ -76,7 +76,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     id: "translate-source",
     width: "100%",
     flexGrow: 1,
-    placeholder: "Enter text or an image path to translate...",
+    placeholder: "Enter text to translate… or paste an image path as 'photo.png' inline",
     keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
@@ -212,6 +212,8 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   updateStatus("●", C.textMuted, "Ready");
 
   const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
+  // Matches a single-quoted image path anywhere in the text, e.g. '/path/to/photo.png'
+  const IMAGE_TOKEN_RE = /'([^'\n]+\.(png|jpg|jpeg|webp|gif|bmp))'/i;
 
   let loading = false;
 
@@ -224,32 +226,50 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
-    // Normalize macOS-pasted paths: strip surrounding quotes or unescape backslash-spaces
-    const stripped = raw.startsWith("'") && raw.endsWith("'")
-      ? raw.slice(1, -1)
-      : raw.replace(/\\ /g, " ");
-    const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXTS.test(stripped);
-
     loading = true;
     updateOutput("");
 
     (async () => {
       let imageBase64: string | undefined;
-      let textToTranslate = stripped;
+      let textToTranslate: string;
 
-      if (isImagePath) {
+      const embeddedMatch = raw.match(IMAGE_TOKEN_RE);
+
+      if (embeddedMatch) {
+        // Image token embedded in text: Translate this: 'photo.png' what does it say?
+        const imagePath = embeddedMatch[1].replace(/\\ /g, " ");
+        textToTranslate = raw.replace(IMAGE_TOKEN_RE, "").trim();
         updateStatus("●", C.amber, "Translating image…");
         try {
-          const buf = await Bun.file(stripped).arrayBuffer();
+          const buf = await Bun.file(imagePath).arrayBuffer();
           imageBase64 = Buffer.from(buf).toString("base64");
-          textToTranslate = "";
         } catch (err) {
           updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
           loading = false;
           return;
         }
       } else {
-        updateStatus("●", C.amber, "Translating…");
+        // Legacy: entire input is a bare or macOS-quoted single-line image path
+        const stripped = raw.startsWith("'") && raw.endsWith("'")
+          ? raw.slice(1, -1)
+          : raw.replace(/\\ /g, " ");
+        const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXTS.test(stripped);
+
+        if (isImagePath) {
+          updateStatus("●", C.amber, "Translating image…");
+          try {
+            const buf = await Bun.file(stripped).arrayBuffer();
+            imageBase64 = Buffer.from(buf).toString("base64");
+            textToTranslate = "";
+          } catch (err) {
+            updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
+            loading = false;
+            return;
+          }
+        } else {
+          textToTranslate = stripped;
+          updateStatus("●", C.amber, "Translating…");
+        }
       }
 
       runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, { imageBase64 })
