@@ -28,13 +28,16 @@ export function makeLangPicker(
   id: string,
   defaultCode: string,
   includeAuto: boolean,
+  /** Fixed chars consumed by labels/arrows/hints in the same row (excluding the two pickers). */
+  rowOverhead = 29,
 ): LangPicker {
   const options = includeAuto ? LANG_OPTIONS_WITH_AUTO : LANG_OPTIONS_NO_AUTO;
   const idx = options.findIndex(o => o.value === defaultCode);
   const initialIndex = idx >= 0 ? idx : 0;
+  const width = Math.max(20, Math.floor((renderer.width - rowOverhead) / 2));
   const renderable = new SelectRenderable(renderer, {
     id,
-    width: 22,
+    width,
     height: 1,
     options,
     showDescription: false,

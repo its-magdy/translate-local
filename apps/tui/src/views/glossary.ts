@@ -74,11 +74,11 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(langRow);
   langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
-  const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false);
+  const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false, 28);
   langRow.add(fromPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "arrow-g", content: "  →  ", fg: C.accent }));
   langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textMuted }));
-  const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false);
+  const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false, 28);
   langRow.add(toPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "add-hint", content: "  [Enter] + Add", fg: C.accent }));
 
