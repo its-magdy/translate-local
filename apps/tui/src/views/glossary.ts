@@ -39,10 +39,10 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   });
   container.add(tableHeader);
   let cols = colWidths(renderer.width);
-  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID",          fg: C.textMuted, width: cols.id }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM", fg: C.textMuted, width: cols.term }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION", fg: C.textMuted, width: cols.term }));
-  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR",        fg: C.textMuted, width: cols.pair }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-id",  content: "ID",          fg: C.textSecondary, width: cols.id }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-src", content: "SOURCE TERM", fg: C.textSecondary, width: cols.term }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-tgt", content: "TRANSLATION", fg: C.textSecondary, width: cols.term }));
+  tableHeader.add(new TextRenderable(renderer, { id: "th-lng", content: "PAIR",        fg: C.textSecondary, width: cols.pair }));
 
   // Header separator
   const headerSep = new BoxRenderable(renderer, { id: "glossary-header-sep", height: 1, width: "100%" });
@@ -70,13 +70,13 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   const termRow = new BoxRenderable(renderer, { id: "glossary-term-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(termRow);
-  termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textMuted }));
+  termRow.add(new TextRenderable(renderer, { id: "src-label", content: "SRC ", fg: C.textSecondary }));
   function inputWidth(w: number) { return Math.max(10, Math.floor((w - 16) / 2)); }
   const srcInput = new InputRenderable(renderer, { id: "g-src-input", width: inputWidth(renderer.width), placeholder: "source term" });
   termRow.add(srcInput);
   const srcRtlPreview = new TextRenderable(renderer, { id: "g-src-rtl-preview", content: "", fg: C.textMuted });
   termRow.add(srcRtlPreview);
-  termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textMuted }));
+  termRow.add(new TextRenderable(renderer, { id: "tgt-label", content: "  TGT ", fg: C.textSecondary }));
   const tgtInput = new InputRenderable(renderer, { id: "g-tgt-input", width: inputWidth(renderer.width), placeholder: "target term" });
   termRow.add(tgtInput);
   const rtlPreview = new TextRenderable(renderer, { id: "g-rtl-preview", content: "", fg: C.textMuted });
@@ -84,11 +84,11 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   const langRow = new BoxRenderable(renderer, { id: "glossary-lang-row", flexDirection: "row", height: 1, width: "100%" });
   formContainer.add(langRow);
-  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textSecondary }));
   const fromPicker = makeLangPicker(renderer, "g-from-picker", "en", false, 28);
   langRow.add(fromPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "arrow-g", content: "  →  ", fg: C.accent }));
-  langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "to-label-g", content: "TO ", fg: C.textSecondary }));
   const toPicker = makeLangPicker(renderer, "g-to-picker", "fr", false, 28);
   langRow.add(toPicker.renderable);
   langRow.add(new TextRenderable(renderer, { id: "add-hint", content: "  [Enter] + Add", fg: C.accent }));
@@ -99,7 +99,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   footer.add(new TextRenderable(renderer, {
     id: "glossary-footer-text",
     content: "↑↓ navigate  ·  Ctrl+D delete  ·  Tab switch view  ·  Ctrl+Q quit  ",
-    fg: C.textMuted,
+    fg: C.textSecondary,
   }));
 
   const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
@@ -160,7 +160,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     footer.add(new TextRenderable(renderer, {
       id: "glossary-entry-count",
       content: `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`,
-      fg: C.textMuted,
+      fg: C.textSecondary,
     }));
     if (entries.length === 0) {
       listContainer.add(new TextRenderable(renderer, { id: "empty-msg", content: "No glossary entries. Add one below.", fg: C.textMuted }));
@@ -175,7 +175,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
         flexDirection: "row",
         backgroundColor: selected ? C.selectionBg : undefined,
       });
-      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: c.id,   fg: C.textMuted }));
+      row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: c.id,   fg: C.textSecondary }));
       row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm,      width: c.term, fg: C.textPrimary }));
       const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
       const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;

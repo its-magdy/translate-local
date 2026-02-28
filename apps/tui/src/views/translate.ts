@@ -37,16 +37,16 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   container.add(langRow);
 
-  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "from-label", content: "FROM ", fg: C.textSecondary }));
   const fromPicker = makeLangPicker(renderer, "translate-from-select", config.defaults?.sourceLang ?? "auto", true);
   langRow.add(fromPicker.renderable);
 
   langRow.add(new TextRenderable(renderer, { id: "arrow-label", content: "  →  ", fg: C.accent }));
-  langRow.add(new TextRenderable(renderer, { id: "to-label", content: "TO ", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "to-label", content: "TO ", fg: C.textSecondary }));
   const toPicker = makeLangPicker(renderer, "translate-to-select", config.defaults?.targetLang ?? "fr", false);
   langRow.add(toPicker.renderable);
 
-  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textSecondary }));
 
   // ── Split row ────────────────────────────────────────────────────────────────
   const splitRow = new BoxRenderable(renderer, {
@@ -139,7 +139,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   const shortcuts = new TextRenderable(renderer, {
     id: "status-shortcuts",
     content: " Ctrl+Enter translate · Tab switch · Ctrl+Q quit",
-    fg: C.textMuted,
+    fg: C.textSecondary,
   });
   statusContainer.add(shortcuts);
 
