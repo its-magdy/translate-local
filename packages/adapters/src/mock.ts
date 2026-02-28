@@ -12,7 +12,9 @@ export class MockAdapter implements Adapter {
   async translate(request: TranslationRequest): Promise<TranslationResult> {
     const start = Date.now();
 
-    let translated = `[${request.targetLang}] ${request.source}`;
+    let translated = request.imageBase64
+      ? `[image] ${request.source}`
+      : `[${request.targetLang}] ${request.source}`;
 
     // Substitute glossary terms so tests can verify glossary enforcement
     const hits = request.glossaryHits ?? [];

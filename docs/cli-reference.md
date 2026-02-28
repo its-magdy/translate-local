@@ -27,6 +27,7 @@ Translate a string.
 | `--from <lang>` | string | `auto` | Source language (BCP-47 tag, e.g. `en`, `fr`) or `auto` |
 | `--to <lang>` | string | `ar` | Target language (BCP-47 tag) |
 | `--glossary <mode>` | `prefer\|strict` | `prefer` | Glossary enforcement mode |
+| `--image <path>` | string | — | Path to an image file; extracts and translates the text in it |
 | `--json` | flag | off | Output result as JSON |
 
 **Examples:**
@@ -35,6 +36,7 @@ Translate a string.
 tl "good morning" --from en --to ar
 tl translate "bonjour" --from fr --to en --glossary strict
 tl "hello" --to de --json
+tl translate --image screenshot.png --to ar
 ```
 
 **JSON output shape:**

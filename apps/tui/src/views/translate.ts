@@ -76,7 +76,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     id: "translate-source",
     width: "100%",
     flexGrow: 1,
-    placeholder: "Enter text to translate...",
+    placeholder: "Enter text… paste an image or path to translate",
     keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
@@ -211,33 +211,105 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   updateStatus("●", C.textMuted, "Ready");
 
+  const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
+  // Matches a single-quoted image path anywhere in the text, e.g. '/path/to/photo.png'
+  const IMAGE_TOKEN_RE = /'([^'\n]+\.(png|jpg|jpeg|webp|gif|bmp))'/i;
+
+  // Auto-wrap image paths pasted into the textarea (e.g. drag-drop from Finder)
+  renderer.keyInput.on("paste", (event) => {
+    if (!sourceTextarea.focused) return;
+    const text = event.text.trim();
+    const unquoted = text.startsWith("'") && text.endsWith("'")
+      ? text.slice(1, -1)
+      : text.replace(/\\ /g, " ");
+    if (unquoted.split("\n").length === 1 && IMAGE_EXTS.test(unquoted)) {
+      event.preventDefault();
+      sourceTextarea.insertText(`'${unquoted}' `);
+    }
+  });
+
   let loading = false;
 
   function triggerTranslate() {
     if (loading || !container.visible) return;
 
-    const text = sourceTextarea.plainText.trim();
-    if (!text) return;
+    const raw = sourceTextarea.plainText.trim();
+    if (!raw) return;
 
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
     loading = true;
-    updateStatus("●", C.amber, "Translating…");
     updateOutput("");
 
-    runPipeline(text, sourceLang, targetLang, adapter, glossaryStore)
-      .then((result) => {
-        updateOutput(result.translated);
-        updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
-        updateStatus("●", C.red, `Error: ${msg}`);
-      })
-      .finally(() => {
-        loading = false;
-      });
+    (async () => {
+      let imageBase64: string | undefined;
+      let textToTranslate = "";
+
+      const embeddedMatch = raw.match(IMAGE_TOKEN_RE);
+
+      if (embeddedMatch) {
+        // Image token embedded in text: Translate this: 'photo.png' what does it say?
+        const imagePath = embeddedMatch[1].replace(/\\ /g, " ");
+        textToTranslate = raw.replace(IMAGE_TOKEN_RE, "").trim();
+        updateStatus("●", C.amber, "Translating image…");
+        try {
+          const file = Bun.file(imagePath);
+          if (!(await file.exists())) {
+            updateStatus("●", C.red, `Image not found: ${imagePath}`);
+            loading = false;
+            return;
+          }
+          const buf = await file.arrayBuffer();
+          imageBase64 = Buffer.from(buf).toString("base64");
+        } catch (err) {
+          updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
+          loading = false;
+          return;
+        }
+      } else {
+        // Legacy: entire input is a bare or macOS-quoted single-line image path
+        const stripped = raw.startsWith("'") && raw.endsWith("'")
+          ? raw.slice(1, -1)
+          : raw.replace(/\\ /g, " ");
+        const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXTS.test(stripped);
+
+        if (isImagePath) {
+          updateStatus("●", C.amber, "Translating image…");
+          try {
+            const file = Bun.file(stripped);
+            if (!(await file.exists())) {
+              updateStatus("●", C.red, `Image not found: ${stripped}`);
+              loading = false;
+              return;
+            }
+            const buf = await file.arrayBuffer();
+            imageBase64 = Buffer.from(buf).toString("base64");
+            textToTranslate = "";
+          } catch (err) {
+            updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
+            loading = false;
+            return;
+          }
+        } else {
+          textToTranslate = stripped;
+          updateStatus("●", C.amber, "Translating…");
+        }
+      }
+
+      runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, { imageBase64 })
+        .then((result) => {
+          updateOutput(result.translated);
+          updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
+          updateStatus("●", C.red, `Error: ${msg}`);
+        })
+        .finally(() => {
+          loading = false;
+        });
+    })();
   }
 
   return {

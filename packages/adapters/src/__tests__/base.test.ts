@@ -67,6 +67,19 @@ describe("buildStructuredPrompt", () => {
     const { system } = buildStructuredPrompt(baseRequest);
     expect(system).toBeUndefined();
   });
+
+  test("image mode: uses vision preamble and does not append source text", () => {
+    const req: TranslationRequest = { ...baseRequest, imageBase64: "abc123" };
+    const { prompt } = buildStructuredPrompt(req);
+    expect(prompt).toContain("Extract all text from the image");
+    expect(prompt).not.toContain("The API is ready.");
+  });
+
+  test("image mode: does not include XML tag instruction", () => {
+    const req: TranslationRequest = { ...baseRequest, imageBase64: "abc123", glossaryHits: [makeHit("API", "واجهة برمجة")] };
+    const { prompt } = buildStructuredPrompt(req);
+    expect(prompt).not.toContain('<term translation=');
+  });
 });
 
 describe("buildNaturalPrompt", () => {

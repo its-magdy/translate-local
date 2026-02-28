@@ -8,6 +8,7 @@ interface OllamaGenerateRequest {
   prompt: string;
   stream: boolean;
   system?: string;
+  images?: string[];
   keep_alive?: number;
 }
 
@@ -37,6 +38,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           prompt,
           stream: false,
           ...(system ? { system } : {}),
+          ...(request.imageBase64 ? { images: [request.imageBase64] } : {}),
         } satisfies OllamaGenerateRequest),
       });
     } catch (err) {

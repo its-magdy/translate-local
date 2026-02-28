@@ -49,6 +49,12 @@ describe("MockAdapter", () => {
     expect(result.missingTerms).toHaveLength(0);
   });
 
+  test("returns [image] prefix when imageBase64 is set", async () => {
+    const adapter = new MockAdapter();
+    const result = await adapter.translate(makeRequest({ imageBase64: "abc123", source: "label" }));
+    expect(result.translated).toBe("[image] label");
+  });
+
   test("dispose resolves without error", async () => {
     const adapter = new MockAdapter();
     await expect(adapter.dispose()).resolves.toBeUndefined();

@@ -4,6 +4,7 @@ export interface TranslationRequest {
   source: string;
   sourceLang: string;
   targetLang: string;
+  imageBase64?: string;   // base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];
   contextSnippets?: string[];
   options?: {

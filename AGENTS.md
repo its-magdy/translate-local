@@ -23,8 +23,9 @@ Guidelines for agent-based workflows on the `tl` translation CLI project.
 - **Bun, not Node.** Use `bun` for all commands (`bun install`, `bun run test`, `bun run build`). Never use `npm` or `yarn`.
 - **bun:sqlite for storage.** Glossary and context use SQLite via `bun:sqlite`. No external DB dependencies.
 - **Adapter pattern.** New model backends must implement the `ModelAdapter` interface (`translate()` + `dispose()`). Register in factory.
-- **TaggedError.** All user-facing errors must use `TlError` with a `tag` and `hint`. No raw `throw new Error()`.
+- **TaggedError.** All user-facing errors must use `TlError` with a `tag` and `hint`. No raw `throw new Error()`. New tags must be added to the `ErrorTag` union in `packages/shared/src/errors.ts`.
 - **Glossary XML format.** `<term translation="target">source</term>` — this is TranslateGemma's format. Preserve it.
+- **Image mode.** When `imageBase64` is present in `PipelineOptions`, the pipeline skips glossary tag injection and passes `source: ""` to the adapter. Always validate image inputs before reading: extension must be in `.png/.jpg/.jpeg/.webp/.gif/.bmp`, size must be ≤ 10 MB. Use `file.exists()` before `arrayBuffer()` in both CLI and TUI.
 - **Test gates.** Unit tests always run. Integration tests behind `TEST_INTEGRATION=1`. Adapter tests behind `TEST_ADAPTER=1`. Don't skip gates.
 
 ## Implementation Phases
