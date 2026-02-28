@@ -256,7 +256,7 @@ bun run test
 # Integration tests (pipeline + SQLite)
 TEST_INTEGRATION=1 bun run test
 
-# Adapter tests (requires Ollama or HF token)
+# Adapter tests (requires Ollama)
 TEST_ADAPTER=1 bun run test
 ```
 

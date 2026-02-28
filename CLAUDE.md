@@ -75,7 +75,7 @@ t/
 
 - Unit tests always run: `bun run test`
 - Integration tests (pipeline + SQLite): `TEST_INTEGRATION=1 bun run test`
-- Adapter tests (real Ollama/HF): `TEST_ADAPTER=1 bun run test`
+- Adapter tests (real Ollama): `TEST_ADAPTER=1 bun run test`
 - CLI tests: spawn binary, assert stdout/exit codes
 
 ## Reference Docs

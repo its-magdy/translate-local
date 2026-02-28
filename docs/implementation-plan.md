@@ -178,7 +178,7 @@ Behavior:
 |-------|-------|------|
 | Unit | Glossary matcher, tag injection/stripping, config validation | Always runs |
 | Integration | Full pipeline with mock adapter + SQLite | `TEST_INTEGRATION=1` |
-| Adapter | Real Ollama/HF calls | `TEST_ADAPTER=1` |
+| Adapter | Real Ollama calls | `TEST_ADAPTER=1` |
 | CLI | Spawn binary, assert stdout/exit codes | Always runs |
 
 Key test cases:

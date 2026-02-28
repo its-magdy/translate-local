@@ -14,7 +14,7 @@ Bun + Turborepo + TypeScript monorepo (as specified in `docs/implementation-plan
 t/
 ├── packages/shared/     # Types, errors, constants, utils
 ├── packages/core/       # Config, glossary, pipeline, context
-├── packages/adapters/   # TranslateGemma (local/HF), mock, future LLMs
+├── packages/adapters/   # TranslateGemma (local), mock, future LLMs
 ├── apps/cli/            # Commander.js CLI (`tl` command)
 └── apps/tui/            # Interactive terminal UI
 ```

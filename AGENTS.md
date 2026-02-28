@@ -31,7 +31,7 @@ Guidelines for agent-based workflows on the `tl` translation CLI project.
 
 Work follows the phases in `docs/plan.md`:
 1. Foundation (shared types, errors, utils)
-2. Adapters (mock, TranslateGemma local/HF)
+2. Adapters (mock, TranslateGemma local)
 3. Core Pipeline (config, glossary, pipeline)
 4. CLI (commands, formatters)
 5. Context System (TF-IDF indexer)
