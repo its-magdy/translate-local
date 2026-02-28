@@ -7,7 +7,9 @@ export type ErrorTag =
   | "GLOSSARY_DB_ERROR"
   | "CONTEXT_DB_ERROR"
   | "INVALID_LANGUAGE"
-  | "INVALID_INPUT";
+  | "INVALID_INPUT"
+  | "IMAGE_NOT_FOUND"
+  | "IMAGE_READ_FAILED";
 
 export class TlError extends Error {
   readonly tag: ErrorTag;

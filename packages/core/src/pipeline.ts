@@ -7,6 +7,7 @@ export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
   maxRetries?: number;
   contextSnippets?: string[];
+  imageBase64?: string;
 }
 
 export async function runPipeline(
@@ -17,21 +18,23 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [] } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64 } = options;
+  const isImageMode = !!imageBase64;
 
-  // Preprocess: find glossary hits and inject tags
-  const hits = glossaryStore.findMatches(text, sourceLang, targetLang);
+  // Preprocess: skip glossary tag injection for images (can't tag pixels)
+  const hits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
   let retries = 0;
   let missingHint: string | undefined;
 
   while (true) {
-    const source = missingHint ? `${taggedSource}\n\n[Note: ${missingHint}]` : taggedSource;
+    const source = isImageMode ? "" : (missingHint ? `${taggedSource}\n\n[Note: ${missingHint}]` : taggedSource);
     const request: TranslationRequest = {
       source,
       sourceLang,
       targetLang,
+      imageBase64,
       glossaryHits: hits,
       contextSnippets,
       options: { glossaryMode },

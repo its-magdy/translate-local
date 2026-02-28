@@ -5,6 +5,7 @@ import { ContextStore } from "@tl/core/context";
 import { runPipeline } from "@tl/core/pipeline";
 import { createAdapter } from "@tl/adapters/factory";
 import type { AdapterConfig } from "@tl/shared/types";
+import { TlError } from "@tl/shared/errors";
 import { isSupported } from "@tl/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 
@@ -13,13 +14,14 @@ export function makeTranslateCommand(): Command {
 
   cmd
     .name("translate")
-    .description("Translate text")
-    .argument("<text>", "Text to translate")
+    .description("Translate text or an image")
+    .argument("[text]", "Text to translate")
     .option("--from <lang>", "Source language (BCP-47 or auto)")
     .option("--to <lang>", "Target language (BCP-47)")
+    .option("--image <path>", "Path to an image file to translate")
     .option("--glossary <mode>", "Glossary mode: prefer | strict", "prefer")
     .option("--json", "Output JSON")
-    .action(async (text: string, opts: { from?: string; to?: string; glossary: string; json?: boolean }) => {
+    .action(async (text: string | undefined, opts: { from?: string; to?: string; image?: string; glossary: string; json?: boolean }) => {
       try {
         const config = loadConfig();
         const sourceLang = opts.from ?? config.defaults.sourceLang;
@@ -28,6 +30,13 @@ export function makeTranslateCommand(): Command {
 
         if (glossaryMode !== "prefer" && glossaryMode !== "strict") {
           const msg = `Invalid glossary mode: "${opts.glossary}". Use "prefer" or "strict".`;
+          if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
+          else { console.error(msg); }
+          process.exit(1);
+        }
+
+        if (!text && !opts.image) {
+          const msg = "Provide text to translate or use --image <path>.";
           if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
           else { console.error(msg); }
           process.exit(1);
@@ -58,16 +67,32 @@ export function makeTranslateCommand(): Command {
         const contextStore = new ContextStore(config.context.dbPath);
 
         try {
+          let imageBase64: string | undefined;
+          if (opts.image) {
+            const file = Bun.file(opts.image);
+            if (!(await file.exists())) {
+              throw new TlError("IMAGE_NOT_FOUND", `Image not found: ${opts.image}`, "Check the file path and try again.");
+            }
+            try {
+              const buf = await file.arrayBuffer();
+              imageBase64 = Buffer.from(buf).toString("base64");
+            } catch (err) {
+              throw new TlError("IMAGE_READ_FAILED", `Failed to read image: ${opts.image}`, "Ensure the file is readable.", err);
+            }
+          }
+
           // BUG-008: retrieve context snippets before running the pipeline
-          const snippets = contextStore.retrieve(text, config.context.maxSnippets);
+          const queryText = text ?? "";
+          const snippets = contextStore.retrieve(queryText, config.context.maxSnippets);
           const contextSnippets = snippets
             .filter((s) => s.score >= config.context.minRelevance)
             .map((s) => s.content);
 
-          const result = await runPipeline(text, sourceLang, targetLang, adapter, glossaryStore, {
+          const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
+            imageBase64,
           });
           console.log(formatTranslationResult(result, opts.json ?? false));
         } finally {

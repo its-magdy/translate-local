@@ -76,7 +76,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     id: "translate-source",
     width: "100%",
     flexGrow: 1,
-    placeholder: "Enter text to translate...",
+    placeholder: "Enter text or an image path to translate...",
     keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
@@ -211,33 +211,56 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   updateStatus("●", C.textMuted, "Ready");
 
+  const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
+
   let loading = false;
 
   function triggerTranslate() {
     if (loading || !container.visible) return;
 
-    const text = sourceTextarea.plainText.trim();
-    if (!text) return;
+    const raw = sourceTextarea.plainText.trim();
+    if (!raw) return;
 
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
+    const isImagePath = raw.split("\n").length === 1 && IMAGE_EXTS.test(raw);
+
     loading = true;
-    updateStatus("●", C.amber, "Translating…");
     updateOutput("");
 
-    runPipeline(text, sourceLang, targetLang, adapter, glossaryStore)
-      .then((result) => {
-        updateOutput(result.translated);
-        updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
-        updateStatus("●", C.red, `Error: ${msg}`);
-      })
-      .finally(() => {
-        loading = false;
-      });
+    (async () => {
+      let imageBase64: string | undefined;
+      let textToTranslate = raw;
+
+      if (isImagePath) {
+        updateStatus("●", C.amber, "Translating image…");
+        try {
+          const buf = await Bun.file(raw).arrayBuffer();
+          imageBase64 = Buffer.from(buf).toString("base64");
+          textToTranslate = "";
+        } catch {
+          updateStatus("●", C.red, `Image not found: ${raw}`);
+          loading = false;
+          return;
+        }
+      } else {
+        updateStatus("●", C.amber, "Translating…");
+      }
+
+      runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, { imageBase64 })
+        .then((result) => {
+          updateOutput(result.translated);
+          updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
+          updateStatus("●", C.red, `Error: ${msg}`);
+        })
+        .finally(() => {
+          loading = false;
+        });
+    })();
   }
 
   return {
