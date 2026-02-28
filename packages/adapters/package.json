@@ -1,14 +1,13 @@
 {
   "name": "@tl/adapters",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./mock": "./src/mock.ts",
     "./factory": "./src/factory.ts",
     "./base": "./src/base.ts",
-    "./translate-gemma/local": "./src/translate-gemma/local.ts",
-    "./translate-gemma/huggingface": "./src/translate-gemma/huggingface.ts"
+    "./translate-gemma/local": "./src/translate-gemma/local.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

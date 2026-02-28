@@ -51,12 +51,11 @@ describe("loadConfig", () => {
     const dir = join(tmpdir(), `tl-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
     const p = join(dir, "config.jsonc");
-    process.env.TEST_TL_TOKEN = "test-token-123";
-    // Use a literal placeholder string so resolveEnvVars actually processes it
-    writeFileSync(p, '{ "adapter": { "huggingface": { "token": "${TEST_TL_TOKEN}" } } }');
+    process.env.TEST_TL_ENDPOINT = "http://myhost:11434";
+    writeFileSync(p, '{ "adapter": { "local": { "endpoint": "${TEST_TL_ENDPOINT}" } } }');
     const cfg = loadConfig(p);
-    expect(cfg.adapter.huggingface.token).toBe("test-token-123");
-    delete process.env.TEST_TL_TOKEN;
+    expect(cfg.adapter.local.endpoint).toBe("http://myhost:11434");
+    delete process.env.TEST_TL_ENDPOINT;
     rmSync(dir, { recursive: true });
   });
 
@@ -65,7 +64,7 @@ describe("loadConfig", () => {
     mkdirSync(dir, { recursive: true });
     const p = join(dir, "config.jsonc");
     delete process.env.UNSET_TL_VAR;
-    writeFileSync(p, '{ "adapter": { "huggingface": { "token": "${UNSET_TL_VAR}" } } }');
+    writeFileSync(p, '{ "adapter": { "local": { "endpoint": "${UNSET_TL_VAR}" } } }');
     let err: any;
     try { loadConfig(p); } catch (e) { err = e; }
     expect(err?.tag).toBe("CONFIG_INVALID");

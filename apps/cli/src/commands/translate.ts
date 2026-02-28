@@ -8,10 +8,6 @@ import type { AdapterConfig } from "@tl/shared/types";
 import { isSupported } from "@tl/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 
-function coreBackendToAdapterBackend(backend: "local" | "huggingface"): "ollama" | "huggingface" {
-  return backend === "local" ? "ollama" : "huggingface";
-}
-
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
 
@@ -52,12 +48,9 @@ export function makeTranslateCommand(): Command {
         }
 
         const adapterCfg: AdapterConfig = {
-          backend: coreBackendToAdapterBackend(config.adapter.backend),
-          model: config.adapter.backend === "local"
-            ? config.adapter.local.model
-            : config.adapter.huggingface.model,
+          backend: "ollama",
+          model: config.adapter.local.model,
           ollamaUrl: config.adapter.local.endpoint,
-          hfToken: config.adapter.huggingface.token,
         };
 
         const adapter = createAdapter(adapterCfg);

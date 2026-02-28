@@ -1,5 +1,12 @@
 # Changelog — @tl/adapters
 
+## [0.2.0] - 2026-02-28
+
+### Removed
+- `TranslateGemmaHFAdapter` — HuggingFace backend removed (TranslateGemma is not available on HF serverless inference API)
+- `huggingface` backend option from `AdapterConfig` and `createAdapter` factory
+- Subpath export `./translate-gemma/huggingface`
+
 ## [0.1.1] - 2026-02-23
 
 ### Added
