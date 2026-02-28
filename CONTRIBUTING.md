@@ -39,7 +39,7 @@ bun run test
 # Integration tests (pipeline + SQLite)
 TEST_INTEGRATION=1 bun run test
 
-# Adapter tests (real Ollama or HF API — requires a running service)
+# Adapter tests (real Ollama — requires a running service)
 TEST_ADAPTER=1 bun run test
 ```
 

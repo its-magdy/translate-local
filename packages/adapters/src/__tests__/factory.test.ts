@@ -2,8 +2,6 @@ import { describe, test, expect } from "bun:test";
 import { createAdapter, createMockAdapter } from "../factory";
 import { MockAdapter } from "../mock";
 import { TranslateGemmaLocalAdapter } from "../translate-gemma/local";
-import { TranslateGemmaHFAdapter } from "../translate-gemma/huggingface";
-import { TlError } from "@tl/shared/errors";
 import type { AdapterConfig } from "@tl/shared/types";
 
 describe("createAdapter", () => {
@@ -11,27 +9,6 @@ describe("createAdapter", () => {
     const config: AdapterConfig = { backend: "ollama", model: "translate-gemma-12b" };
     const adapter = createAdapter(config);
     expect(adapter).toBeInstanceOf(TranslateGemmaLocalAdapter);
-  });
-
-  test("creates huggingface adapter with token", () => {
-    const config: AdapterConfig = {
-      backend: "huggingface",
-      model: "google/translategemma-12b-it",
-      hfToken: "hf_test",
-    };
-    const adapter = createAdapter(config);
-    expect(adapter).toBeInstanceOf(TranslateGemmaHFAdapter);
-  });
-
-  test("throws TlError when huggingface token is missing", () => {
-    const config: AdapterConfig = { backend: "huggingface", model: "google/translategemma-12b-it" };
-    expect(() => createAdapter(config)).toThrow(TlError);
-    try {
-      createAdapter(config);
-    } catch (err) {
-      expect(err).toBeInstanceOf(TlError);
-      expect((err as TlError).tag).toBe("ADAPTER_UNAVAILABLE");
-    }
   });
 
   test("uses default model when model not specified", () => {
@@ -45,35 +22,5 @@ describe("createMockAdapter", () => {
   test("returns a MockAdapter", () => {
     const adapter = createMockAdapter();
     expect(adapter).toBeInstanceOf(MockAdapter);
-  });
-});
-
-describe("resolveToken (via createAdapter)", () => {
-  test("resolves ${ENV_VAR} from environment", () => {
-    process.env.TEST_HF_TOKEN = "hf_resolved";
-    const config: AdapterConfig = {
-      backend: "huggingface",
-      model: "google/translategemma-12b-it",
-      hfToken: "${TEST_HF_TOKEN}",
-    };
-    const adapter = createAdapter(config);
-    expect(adapter).toBeInstanceOf(TranslateGemmaHFAdapter);
-    delete process.env.TEST_HF_TOKEN;
-  });
-
-  test("throws TlError with variable name when env var is unset", () => {
-    delete process.env.MISSING_HF_TOKEN;
-    const config: AdapterConfig = {
-      backend: "huggingface",
-      model: "google/translategemma-12b-it",
-      hfToken: "${MISSING_HF_TOKEN}",
-    };
-    expect(() => createAdapter(config)).toThrow(TlError);
-    try {
-      createAdapter(config);
-    } catch (err) {
-      expect(err).toBeInstanceOf(TlError);
-      expect((err as TlError).message).toContain("MISSING_HF_TOKEN");
-    }
   });
 });

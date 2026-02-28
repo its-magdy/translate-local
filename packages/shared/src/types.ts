@@ -67,13 +67,12 @@ export interface ContextSnippet {
 
 // Config types
 
-export type AdapterBackend = "ollama" | "huggingface";
+export type AdapterBackend = "ollama";
 
 export interface AdapterConfig {
   backend: AdapterBackend;
   model: string;
   ollamaUrl?: string;
-  hfToken?: string;
 }
 
 export interface TlConfig {

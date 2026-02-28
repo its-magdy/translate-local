@@ -63,22 +63,17 @@ function stripJsoncComments(src: string): string {
 export const configSchema = z.object({
   adapter: z.object({
     type: z.literal("translate-gemma").default("translate-gemma"),
-    backend: z.enum(["local", "huggingface"]).default("local"),
+    backend: z.literal("local").default("local"),
     local: z.object({
       command: z.string().default("ollama"),
       model: z.string().default("translate-gemma-12b"),
       endpoint: z.string().default("http://localhost:11434"),
       keepAlive: z.boolean().default(false),
     }).default({ command: "ollama", model: "translate-gemma-12b", endpoint: "http://localhost:11434", keepAlive: false }),
-    huggingface: z.object({
-      model: z.string().default("google/translategemma-12b-it"),
-      token: z.string().optional(),
-    }).default({ model: "google/translategemma-12b-it" }),
   }).default({
     type: "translate-gemma",
     backend: "local",
     local: { command: "ollama", model: "translate-gemma-12b", endpoint: "http://localhost:11434", keepAlive: false },
-    huggingface: { model: "google/translategemma-12b-it" },
   }),
   glossary: z.object({
     mode: z.enum(["strict", "prefer"]).default("prefer"),
@@ -119,11 +114,11 @@ export function loadConfig(configPath?: string): CoreConfig {
     );
   }
 
-  raw = resolveEnvVars(raw);
-
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsoncComments(raw));
+    raw = stripJsoncComments(raw);
+    raw = resolveEnvVars(raw);
+    parsed = JSON.parse(raw);
   } catch (err: any) {
     throw new TlError(
       "CONFIG_INVALID",
@@ -146,7 +141,7 @@ export function loadConfig(configPath?: string): CoreConfig {
 }
 
 export function saveConfig(config: CoreConfig, configPath?: string): void {
-  const p = expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+  const p = getConfigPath(configPath);
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
 }

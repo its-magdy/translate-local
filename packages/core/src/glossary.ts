@@ -71,11 +71,19 @@ export class GlossaryStore {
   add(entry: Omit<GlossaryEntry, "id">): GlossaryEntry {
     const id = randomUUID();
     try {
-      this.db.run(
+      const result = this.db.run(
         `INSERT OR IGNORE INTO glossary (id, source_term, target_term, source_lang, target_lang, domain, note)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang, entry.domain ?? null, entry.note ?? null],
       );
+      if (result.changes === 0) {
+        // Duplicate entry — return the existing row
+        const existing = this.db.query(
+          `SELECT id FROM glossary WHERE source_term = ? AND target_term = ? AND source_lang = ? AND target_lang = ?`,
+        ).get(entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang) as { id: string } | null;
+        if (existing) return { id: existing.id, ...entry };
+        // Row vanished between INSERT OR IGNORE and SELECT — fall through to return the new id
+      }
     } catch (err: any) {
       throw new TlError("GLOSSARY_DB_ERROR", `Failed to add glossary entry: ${err.message}`, "Check for db corruption", err);
     }

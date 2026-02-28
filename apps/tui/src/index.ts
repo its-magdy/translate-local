@@ -27,12 +27,9 @@ let config: CoreConfig, adapter: Adapter, glossaryStore: GlossaryStore, renderer
 try {
   config = loadConfig();
   const adapterCfg: AdapterConfig = {
-    backend: config.adapter.backend === "local" ? "ollama" : "huggingface",
-    model: config.adapter.backend === "local"
-      ? config.adapter.local.model
-      : config.adapter.huggingface.model,
+    backend: "ollama",
+    model: config.adapter.local.model,
     ollamaUrl: config.adapter.local.endpoint,
-    hfToken: config.adapter.huggingface.token,
   };
   adapter = createAdapter(adapterCfg);
   glossaryStore = new GlossaryStore(config.glossary.dbPath);

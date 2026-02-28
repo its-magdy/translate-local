@@ -177,14 +177,12 @@ Configure the adapter backend.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--backend <type>` | `local` | `local` (Ollama) or `huggingface` |
+| `--backend <type>` | `local` | `local` (Ollama) |
 | `--model <name>` | `translate-gemma-12b` | Model name |
-| `--endpoint <url>` | `http://localhost:11434` | Ollama API URL (local only) |
-| `--hf-token <token>` | — | HuggingFace API token |
+| `--endpoint <url>` | `http://localhost:11434` | Ollama API URL |
 
 ```bash
 tl config connect --backend local --model translate-gemma-12b
-tl config connect --backend huggingface --hf-token $HF_TOKEN
 ```
 
 #### `tl config status`
@@ -210,20 +208,7 @@ tl config path
 
 | Variable | Description |
 |----------|-------------|
-| `HF_TOKEN` | HuggingFace API token. Used when `adapter.backend` is `huggingface`. Overrides `adapter.huggingface.token` in config. |
 | `TL_CONFIG` | Path to a custom config file. Overrides the default `~/.config/tl/config.jsonc`. |
-
-Config values can also reference env vars directly:
-
-```jsonc
-{
-  "adapter": {
-    "huggingface": {
-      "token": "${HF_TOKEN}"
-    }
-  }
-}
-```
 
 ---
 

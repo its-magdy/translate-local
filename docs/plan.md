@@ -14,7 +14,7 @@ Bun + Turborepo + TypeScript monorepo (as specified in `docs/implementation-plan
 t/
 ├── packages/shared/     # Types, errors, constants, utils
 ├── packages/core/       # Config, glossary, pipeline, context
-├── packages/adapters/   # TranslateGemma (local/HF), mock, future LLMs
+├── packages/adapters/   # TranslateGemma (local), mock, future LLMs
 ├── apps/cli/            # Commander.js CLI (`tl` command)
 └── apps/tui/            # Interactive terminal UI
 ```
@@ -46,8 +46,7 @@ Format: `<term translation="واجهة برمجة">API</term>` (TranslateGemma's
 - `packages/adapters/src/base.ts` — shared prompt builders (structured + natural)
 - `packages/adapters/src/factory.ts` — `createAdapter(config)`
 - `packages/adapters/src/translate-gemma/local.ts` — Ollama HTTP API, `dispose()` unloads model
-- `packages/adapters/src/translate-gemma/huggingface.ts` — HF Inference API with token resolution
-- Tests: mock, factory, prompt format; gated: real Ollama/HF calls
+- Tests: mock, factory, prompt format; gated: real Ollama calls
 
 ### Phase 3: Core Pipeline
 - `packages/core/src/config/schema.ts` — Zod schema for config.jsonc

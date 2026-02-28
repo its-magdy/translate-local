@@ -1,8 +1,8 @@
 # tl
 
-> A CLI-first translation tool that enforces glossary terms, pulls context from local files, and runs on a local model or HuggingFace — no translation API required.
+> A CLI-first translation tool that enforces glossary terms, pulls context from local files, and runs on a local model — no translation API required.
 
-Most translation tools are black boxes: you send text, you get text back, and you hope your domain-specific terminology survived. `tl` is different. It lets you define term pairs that the model must respect, index your own documents as context, and choose between local inference (Ollama) or cloud inference (HuggingFace) — without changing how you use the CLI.
+Most translation tools are black boxes: you send text, you get text back, and you hope your domain-specific terminology survived. `tl` is different. It lets you define term pairs that the model must respect, index your own documents as context, and run everything locally via Ollama — without sending your text to any external service.
 
 ---
 
@@ -25,9 +25,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 ## Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.3
-- One of:
-  - [Ollama](https://ollama.com) with `translate-gemma-12b` pulled — for local inference
-  - A HuggingFace API token with access to `google/translategemma-12b-it` — for cloud inference
+- [Ollama](https://ollama.com) with `translate-gemma-12b` pulled
 
 ## Installation
 
@@ -47,31 +45,9 @@ cd apps/cli && bun link
 
 ## Setup
 
-### Local (Ollama)
-
 ```bash
 ollama pull translate-gemma-12b
-tl config connect --backend local --model translate-gemma-12b
-```
-
-### HuggingFace
-
-```bash
-export HF_TOKEN=hf_your_token_here
-tl config connect --backend huggingface --hf-token $HF_TOKEN
-```
-
-Config is stored at `~/.config/tl/config.jsonc`. You can reference env vars directly in the file:
-
-```jsonc
-{
-  "adapter": {
-    "backend": "huggingface",
-    "huggingface": {
-      "token": "${HF_TOKEN}"
-    }
-  }
-}
+tl config connect --model translate-gemma-12b
 ```
 
 ---
@@ -265,7 +241,6 @@ The terminal UI opens with a translation pane, glossary browser, and context sou
 
 | Variable | Description |
 |----------|-------------|
-| `HF_TOKEN` | HuggingFace API token |
 | `TL_CONFIG` | Path to a custom config file |
 
 **Exit codes:** `0` = success, `1` = error.
@@ -281,7 +256,7 @@ bun run test
 # Integration tests (pipeline + SQLite)
 TEST_INTEGRATION=1 bun run test
 
-# Adapter tests (requires Ollama or HF token)
+# Adapter tests (requires Ollama)
 TEST_ADAPTER=1 bun run test
 ```
 

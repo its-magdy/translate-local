@@ -8,10 +8,6 @@ import type { AdapterConfig } from "@tl/shared/types";
 import { isSupported } from "@tl/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 
-function coreBackendToAdapterBackend(backend: "local" | "huggingface"): "ollama" | "huggingface" {
-  return backend === "local" ? "ollama" : "huggingface";
-}
-
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
 
@@ -30,6 +26,13 @@ export function makeTranslateCommand(): Command {
         const targetLang = opts.to ?? config.defaults.targetLang;
         const glossaryMode = opts.glossary as "prefer" | "strict";
 
+        if (glossaryMode !== "prefer" && glossaryMode !== "strict") {
+          const msg = `Invalid glossary mode: "${opts.glossary}". Use "prefer" or "strict".`;
+          if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
+          else { console.error(msg); }
+          process.exit(1);
+        }
+
         // BUG-004: validate language codes
         if (sourceLang !== "auto" && !isSupported(sourceLang)) {
           const msg = `Unsupported source language: "${sourceLang}"`;
@@ -45,12 +48,9 @@ export function makeTranslateCommand(): Command {
         }
 
         const adapterCfg: AdapterConfig = {
-          backend: coreBackendToAdapterBackend(config.adapter.backend),
-          model: config.adapter.backend === "local"
-            ? config.adapter.local.model
-            : config.adapter.huggingface.model,
+          backend: "ollama",
+          model: config.adapter.local.model,
           ollamaUrl: config.adapter.local.endpoint,
-          hfToken: config.adapter.huggingface.token,
         };
 
         const adapter = createAdapter(adapterCfg);

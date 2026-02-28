@@ -17,9 +17,8 @@
 - [x] Implement `mock.ts` — deterministic mock adapter
 - [x] Implement `factory.ts` — `createAdapter(config)`
 - [x] Implement `translate-gemma/local.ts` — Ollama HTTP API + `dispose()` for memory cleanup
-- [x] Implement `translate-gemma/huggingface.ts` — HF Inference API with token resolution
 - [x] Write tests: mock, factory, prompt format
-- [x] Write gated tests (`TEST_ADAPTER=1`): real Ollama and HF calls
+- [x] Write gated tests (`TEST_ADAPTER=1`): real Ollama calls
 
 ## Phase 3: Core Pipeline
 - [x] Create `packages/core/` with package.json and tsconfig
