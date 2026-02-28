@@ -76,7 +76,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     id: "translate-source",
     width: "100%",
     flexGrow: 1,
-    placeholder: "Enter text to translate… or paste an image path as 'photo.png' inline",
+    placeholder: "Enter text… paste image path or Ctrl+Shift+V for clipboard image",
     keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
@@ -137,7 +137,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   const shortcuts = new TextRenderable(renderer, {
     id: "status-shortcuts",
-    content: " Ctrl+Enter translate · Tab switch · Ctrl+Q quit",
+    content: " Ctrl+Enter translate · Ctrl+Shift+V paste image · Tab switch · Ctrl+Q quit",
     fg: C.textMuted,
   });
   statusContainer.add(shortcuts);
@@ -214,6 +214,39 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
   // Matches a single-quoted image path anywhere in the text, e.g. '/path/to/photo.png'
   const IMAGE_TOKEN_RE = /'([^'\n]+\.(png|jpg|jpeg|webp|gif|bmp))'/i;
+
+  // Auto-wrap image paths pasted into the textarea (e.g. drag-drop from Finder)
+  renderer.keyInput.on("paste", (event) => {
+    if (!sourceTextarea.focused) return;
+    const text = event.text.trim();
+    const unquoted = text.startsWith("'") && text.endsWith("'")
+      ? text.slice(1, -1)
+      : text.replace(/\\ /g, " ");
+    if (unquoted.split("\n").length === 1 && IMAGE_EXTS.test(unquoted)) {
+      event.preventDefault();
+      sourceTextarea.insertText(`'${unquoted}' `);
+    }
+  });
+
+  // Ctrl+Shift+V: paste image from macOS clipboard (e.g. screenshot via Cmd+Ctrl+Shift+4)
+  renderer.keyInput.on("keypress", (key) => {
+    if (!sourceTextarea.focused) return;
+    if (!(key.ctrl && key.shift && key.name === "v")) return;
+    key.preventDefault();
+    const tmpPath = `/tmp/tl-paste-${Date.now()}.png`;
+    Bun.spawn([
+      "osascript", "-e",
+      `set d to (the clipboard as «class PNGf»)\nset f to open for access POSIX file "${tmpPath}" with write permission\nwrite d to f\nclose access f`,
+    ]).exited.then((code) => {
+      if (code === 0) {
+        sourceTextarea.insertText(`'${tmpPath}' `);
+      } else {
+        updateStatus("●", C.red, "No image in clipboard");
+      }
+    }).catch(() => {
+      updateStatus("●", C.red, "No image in clipboard");
+    });
+  });
 
   let loading = false;
 
