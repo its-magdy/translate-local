@@ -69,6 +69,8 @@ t/
 - **TaggedError with hints**: Errors use `tag` + `hint` for actionable messages. Follow this pattern for new errors.
 - **Glossary XML tags**: `<term translation="target">source</term>` — TranslateGemma's format. Don't change this.
 - **Pipeline flow**: Preprocess (tag inject) → Context retrieval → Translate → Validate (glossary check) → Postprocess (tag strip).
+- **Image mode**: Pass `imageBase64` in `PipelineOptions` to trigger image translation. In this mode: glossary tag injection is skipped, `source` is set to `""`, and `imageBase64` is forwarded to the adapter unchanged. Context retrieval is also skipped when `queryText` is empty (image-only invocation).
+- **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB. Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
 - **Memory management**: Adapters call `dispose()` to unload models from VRAM. CLI calls it after each translation; TUI on exit.
 
 ## Testing
