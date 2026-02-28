@@ -135,7 +135,9 @@ renderer.on("resize", (w: number) => {
 renderer.keyInput.on("keypress", (key) => {
   if (key.ctrl && (key.name === "c" || key.name === "q")) teardown();
   if (key.name === "tab" && !key.shift) {
-    tabs.moveRight();
-    tabs.selectCurrent();
+    if (!(glossaryView.isFormActive?.() ?? false)) {
+      tabs.moveRight();
+      tabs.selectCurrent();
+    }
   }
 });

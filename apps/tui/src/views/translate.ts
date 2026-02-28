@@ -14,6 +14,7 @@ import { C } from "../theme";
 export interface View {
   container: BoxRenderable;
   focus(): void;
+  isFormActive?(): boolean;
 }
 
 export function makeTranslateView(state: AppState, parent: BoxRenderable): View {
