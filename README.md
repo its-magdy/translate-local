@@ -85,8 +85,6 @@ tl translate --image /path/to/menu.png --from en --to es --glossary strict
 tl translate --image /path/to/doc.jpg --to fr --json
 ```
 
-In the TUI, type an image path (ending in `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, or `.bmp`) directly into the source pane and press Ctrl+Enter — image mode is detected automatically.
-
 Get machine-readable output:
 
 ```bash
@@ -259,6 +257,13 @@ See [docs/tui-guide.md](docs/tui-guide.md) for the full reference.
 | `TL_CONFIG` | Path to a custom config file |
 
 **Exit codes:** `0` = success, `1` = error.
+
+**Docs:**
+- [docs/cli-reference.md](docs/cli-reference.md) — full CLI flag reference
+- [docs/tui-guide.md](docs/tui-guide.md) — TUI usage and keybindings
+- [docs/glossary-guide.md](docs/glossary-guide.md) — glossary CSV format and advanced usage
+- [docs/context-guide.md](docs/context-guide.md) — context retrieval tuning
+- [docs/adapter-development.md](docs/adapter-development.md) — building custom adapters
 
 ---
 
