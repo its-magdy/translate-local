@@ -113,9 +113,13 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   const footerText = footer.getChildren()[0] as TextRenderable;
 
+  function isAnyFormActive() {
+    return srcInput.focused || tgtInput.focused
+      || fromPicker.renderable.focused || toPicker.renderable.focused;
+  }
+
   function updateFooterHint() {
-    const inForm = srcInput.focused || tgtInput.focused;
-    footerText.content = inForm
+    footerText.content = isAnyFormActive()
       ? "Tab next field  ·  Shift+Tab prev  ·  Esc cancel  ·  Enter add  ·  Ctrl+Q quit  "
       : "↑↓ navigate  ·  Ctrl+D delete  ·  Tab switch view  ·  Ctrl+Q quit  ";
   }
@@ -123,6 +127,10 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   [srcInput, tgtInput].forEach(input => {
     input.on("focus", updateFooterHint);
     input.on("blur",  updateFooterHint);
+  });
+  [fromPicker.renderable, toPicker.renderable].forEach(p => {
+    p.on("focused", updateFooterHint);
+    p.on("blurred", updateFooterHint);
   });
 
   function hasRtlChars(text: string): boolean {
@@ -194,31 +202,39 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
   renderer.keyInput.on("keypress", (key) => {
     if (!container.visible) return;
 
-    // Form-active: Tab cycles SRC↔TGT, Escape exits form
-    if (srcInput.focused || tgtInput.focused) {
+    // Form-active: Tab cycles all fields, Escape exits form
+    if (isAnyFormActive()) {
       if (key.name === "tab") {
         if (!key.shift) {
-          if (srcInput.focused) { srcInput.blur(); tgtInput.focus(); }
-          else { tgtInput.blur(); srcInput.focus(); }
+          if (srcInput.focused)                  { srcInput.blur();               tgtInput.focus(); }
+          else if (tgtInput.focused)              { tgtInput.blur();               fromPicker.renderable.focus(); }
+          else if (fromPicker.renderable.focused) { fromPicker.renderable.blur();  toPicker.renderable.focus(); }
+          else                                    { toPicker.renderable.blur();    srcInput.focus(); }
         } else {
-          if (tgtInput.focused) { tgtInput.blur(); srcInput.focus(); }
-          else { srcInput.blur(); tgtInput.focus(); }
+          if (srcInput.focused)                  { srcInput.blur();               toPicker.renderable.focus(); }
+          else if (tgtInput.focused)              { tgtInput.blur();               srcInput.focus(); }
+          else if (fromPicker.renderable.focused) { fromPicker.renderable.blur();  tgtInput.focus(); }
+          else                                    { toPicker.renderable.blur();    fromPicker.renderable.focus(); }
         }
         return;
       }
       if (key.name === "escape") {
         srcInput.blur();
         tgtInput.blur();
+        fromPicker.renderable.blur();
+        toPicker.renderable.blur();
         return;
       }
     }
 
     if (key.name === "up") {
-      if (!srcInput.focused && !tgtInput.focused && selectedIdx > 0) updateSelection(selectedIdx - 1);
+      const pickerFocused = fromPicker.renderable.focused || toPicker.renderable.focused;
+      if (!pickerFocused && selectedIdx > 0) updateSelection(selectedIdx - 1);
       return;
     }
     if (key.name === "down") {
-      if (!srcInput.focused && !tgtInput.focused && selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
+      const pickerFocused = fromPicker.renderable.focused || toPicker.renderable.focused;
+      if (!pickerFocused && selectedIdx < entries.length - 1) updateSelection(selectedIdx + 1);
       return;
     }
     if (key.name === "d" && key.ctrl) {
@@ -272,7 +288,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       srcInput.focus();
     },
     isFormActive() {
-      return srcInput.focused || tgtInput.focused;
+      return isAnyFormActive();
     },
   };
 }
