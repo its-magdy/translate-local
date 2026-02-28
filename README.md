@@ -75,6 +75,18 @@ tl "hello world" --from en --to es
 tl translate "hello world" --from en --to es
 ```
 
+#### Image translation
+
+TranslateGemma supports vision input. Pass `--image` with a path to extract and translate text from an image:
+
+```bash
+tl translate --image /path/to/sign.jpg --to ar
+tl translate --image /path/to/menu.png --from en --to es --glossary strict
+tl translate --image /path/to/doc.jpg --to fr --json
+```
+
+In the TUI, type an image path (ending in `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, or `.bmp`) directly into the source pane and press Ctrl+Enter — image mode is detected automatically.
+
 Get machine-readable output:
 
 ```bash
@@ -215,6 +227,7 @@ The terminal UI opens with a translation pane, glossary browser, and context sou
 |---------|-------------|
 | `tl <text>` | Translate text (shorthand for `tl translate`) |
 | `tl translate <text>` | Translate with explicit subcommand |
+| `tl translate --image <path>` | Extract and translate text from an image |
 | `tl glossary add` | Add a glossary term pair |
 | `tl glossary list` | List glossary entries |
 | `tl glossary remove <id>` | Remove an entry by ID |

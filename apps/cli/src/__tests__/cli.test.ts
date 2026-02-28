@@ -174,4 +174,31 @@ describe("tl CLI", () => {
       expect(parsed).toHaveProperty("message");
     });
   });
+
+  describe("translate --image", () => {
+    it("errors when neither text nor --image is provided", () => {
+      const r = run(["translate", "--to", "ar"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("--image");
+    });
+
+    it("errors with IMAGE_NOT_FOUND for nonexistent file", () => {
+      const r = run(["translate", "--image", "/nonexistent/image.png", "--to", "ar"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("IMAGE_NOT_FOUND");
+    });
+
+    it("outputs JSON IMAGE_NOT_FOUND when --json and missing image file", () => {
+      const r = run(["translate", "--image", "/nonexistent/image.png", "--to", "ar", "--json"]);
+      expect(r.exitCode).toBe(1);
+      const parsed = JSON.parse(r.stderr);
+      expect(parsed.error).toBe("IMAGE_NOT_FOUND");
+    });
+
+    it("shows --image in translate help", () => {
+      const r = run(["translate", "--help"]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("--image");
+    });
+  });
 });
