@@ -298,11 +298,16 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
       }
 
       let streamBuffer = "";
+      let lastRenderMs = 0;
       runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, {
         imageBase64,
         onChunk: (chunk) => {
           streamBuffer += chunk;
-          updateOutput(streamBuffer);
+          const now = Date.now();
+          if (now - lastRenderMs >= 16) {
+            lastRenderMs = now;
+            updateOutput(streamBuffer);
+          }
         },
       })
         .then((result) => {

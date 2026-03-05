@@ -84,7 +84,12 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         lineBuffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const chunk = JSON.parse(line) as OllamaStreamChunk;
+          let chunk: OllamaStreamChunk;
+          try {
+            chunk = JSON.parse(line) as OllamaStreamChunk;
+          } catch {
+            throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
+          }
           if (chunk.response) {
             request.onChunk(chunk.response);
             accumulated += chunk.response;
@@ -93,7 +98,12 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       }
       // flush remaining buffer
       if (lineBuffer.trim()) {
-        const chunk = JSON.parse(lineBuffer) as OllamaStreamChunk;
+        let chunk: OllamaStreamChunk;
+        try {
+          chunk = JSON.parse(lineBuffer) as OllamaStreamChunk;
+        } catch {
+          throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${lineBuffer}`, "Check Ollama version or restart Ollama");
+        }
         if (chunk.response) {
           request.onChunk(chunk.response);
           accumulated += chunk.response;

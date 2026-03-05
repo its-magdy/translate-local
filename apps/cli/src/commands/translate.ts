@@ -108,9 +108,10 @@ export function makeTranslateCommand(): Command {
           if (isJson) {
             console.log(formatTranslationResult(result, true));
           } else {
-            // Streaming already wrote the translation; print newline + metadata
-            const coveragePct = Math.round(result.glossaryCoverage * 100);
-            process.stdout.write(`\n\n(${result.metadata.durationMs}ms · coverage ${coveragePct}%)\n`);
+            // Streaming already wrote the translation tokens; reuse formatter for
+            // metadata lines by zeroing out the translated text so nothing is reprinted.
+            const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
+            process.stdout.write(`\n${meta}\n`);
           }
         } finally {
           glossaryStore.close();

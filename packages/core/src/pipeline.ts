@@ -38,7 +38,9 @@ export async function runPipeline(
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
-      onChunk,
+      // Only stream on the first attempt; retries are silent to avoid concatenating
+      // partial output from attempt N with tokens from attempt N+1.
+      onChunk: retries === 0 ? onChunk : undefined,
       options: { glossaryMode },
     };
 
