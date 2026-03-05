@@ -7,6 +7,7 @@ export interface TranslationRequest {
   imageBase64?: string;   // base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];
   contextSnippets?: string[];
+  onChunk?: (chunk: string) => void;
   options?: {
     formality?: "formal" | "informal";
     glossaryMode?: "strict" | "prefer";

@@ -97,13 +97,22 @@ export function makeTranslateCommand(): Command {
             .filter((s) => s.score >= config.context.minRelevance)
             .map((s) => s.content);
 
+          const isJson = opts.json ?? false;
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
             imageBase64,
+            onChunk: isJson ? undefined : (chunk) => process.stdout.write(chunk),
           });
-          console.log(formatTranslationResult(result, opts.json ?? false));
+          if (isJson) {
+            console.log(formatTranslationResult(result, true));
+          } else {
+            // Streaming already wrote the translation tokens; reuse formatter for
+            // metadata lines by zeroing out the translated text so nothing is reprinted.
+            const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
+            process.stdout.write(`\n${meta}\n`);
+          }
         } finally {
           glossaryStore.close();
           contextStore.close();
