@@ -8,6 +8,7 @@ export interface PipelineOptions {
   maxRetries?: number;
   contextSnippets?: string[];
   imageBase64?: string;
+  onChunk?: (chunk: string) => void;
 }
 
 export async function runPipeline(
@@ -18,7 +19,7 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64 } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk } = options;
   const isImageMode = !!imageBase64;
 
   // Preprocess: skip glossary tag injection for images (can't tag pixels)
@@ -37,6 +38,7 @@ export async function runPipeline(
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
+      onChunk,
       options: { glossaryMode },
     };
 

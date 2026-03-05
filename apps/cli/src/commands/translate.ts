@@ -97,13 +97,21 @@ export function makeTranslateCommand(): Command {
             .filter((s) => s.score >= config.context.minRelevance)
             .map((s) => s.content);
 
+          const isJson = opts.json ?? false;
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
             imageBase64,
+            onChunk: isJson ? undefined : (chunk) => process.stdout.write(chunk),
           });
-          console.log(formatTranslationResult(result, opts.json ?? false));
+          if (isJson) {
+            console.log(formatTranslationResult(result, true));
+          } else {
+            // Streaming already wrote the translation; print newline + metadata
+            const coveragePct = Math.round(result.glossaryCoverage * 100);
+            process.stdout.write(`\n\n(${result.metadata.durationMs}ms · coverage ${coveragePct}%)\n`);
+          }
         } finally {
           glossaryStore.close();
           contextStore.close();

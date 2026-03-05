@@ -297,8 +297,16 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         }
       }
 
-      runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, { imageBase64 })
+      let streamBuffer = "";
+      runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, {
+        imageBase64,
+        onChunk: (chunk) => {
+          streamBuffer += chunk;
+          updateOutput(streamBuffer);
+        },
+      })
         .then((result) => {
+          streamBuffer = "";
           updateOutput(result.translated);
           updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
         })

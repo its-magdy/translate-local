@@ -16,6 +16,11 @@ interface OllamaGenerateResponse {
   response: string;
 }
 
+interface OllamaStreamChunk {
+  response: string;
+  done: boolean;
+}
+
 export class TranslateGemmaLocalAdapter implements Adapter {
   readonly name = "translate-gemma-local";
 
@@ -36,7 +41,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         body: JSON.stringify({
           model: this.model,
           prompt,
-          stream: false,
+          stream: !!request.onChunk,
           ...(system ? { system } : {}),
           ...(request.imageBase64 ? { images: [request.imageBase64] } : {}),
         } satisfies OllamaGenerateRequest),
@@ -59,8 +64,46 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       );
     }
 
-    const data = (await response.json()) as OllamaGenerateResponse;
-    const translated = data.response.trim();
+    let translated: string;
+
+    if (request.onChunk) {
+      // Streaming: read NDJSON line by line
+      if (!response.body) {
+        throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
+      }
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let lineBuffer = "";
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const chunk = JSON.parse(line) as OllamaStreamChunk;
+          if (chunk.response) {
+            request.onChunk(chunk.response);
+            accumulated += chunk.response;
+          }
+        }
+      }
+      // flush remaining buffer
+      if (lineBuffer.trim()) {
+        const chunk = JSON.parse(lineBuffer) as OllamaStreamChunk;
+        if (chunk.response) {
+          request.onChunk(chunk.response);
+          accumulated += chunk.response;
+        }
+      }
+      translated = accumulated.trim();
+    } else {
+      const data = (await response.json()) as OllamaGenerateResponse;
+      translated = data.response.trim();
+    }
 
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(
       request.glossaryHits ?? [],
