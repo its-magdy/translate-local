@@ -20,9 +20,19 @@ export class TlCommandError extends Error {
   }
 }
 
+const EXTRA_PATH = [
+  "/usr/local/bin",
+  "/opt/homebrew/bin",
+  `${process.env.HOME}/.bun/bin`,
+  `${process.env.HOME}/.local/bin`,
+].join(":");
+
 async function runTl(args: string[]): Promise<string> {
   try {
-    const { stdout } = await exec(getTlPath(), args, { timeout: 30_000 });
+    const { stdout } = await exec(getTlPath(), args, {
+      timeout: 30_000,
+      env: { ...process.env, PATH: `${EXTRA_PATH}:${process.env.PATH ?? ""}` },
+    });
     return stdout;
   } catch (error: unknown) {
     const err = error as { stderr?: string; message?: string };
