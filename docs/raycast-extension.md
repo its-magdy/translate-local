@@ -88,7 +88,7 @@ apps/raycast/
         └── glossary.test.tsx
 ```
 
-**Important**: `apps/raycast/` must NOT be in the Bun workspaces array. It uses Bun but is completely separate from the monorepo build.
+**Important**: `apps/raycast/` must NOT be in the Bun workspaces array. It uses **npm** (not bun) because Raycast only supports npm. It is completely separate from the monorepo build.
 
 ---
 
@@ -186,13 +186,13 @@ apps/raycast/
 
 1. Create `apps/raycast/` directory (outside Bun workspaces)
 2. Initialize with `npx @anthropic-ai/create-raycast-extension` or manually:
-   - `bun init`
-   - `bun install @raycast/api @raycast/utils`
-   - `bun install -D typescript @types/node`
+   - `npm init`
+   - `npm install @raycast/api @raycast/utils`
+   - `npm install -D typescript @types/node`
 3. Configure `package.json` with Raycast manifest fields
 4. Create `tsconfig.json` extending Raycast's recommended config
 5. Add `.gitignore` for `node_modules/`, `build/`
-6. Verify dev mode: `bun run dev` loads in Raycast
+6. Verify dev mode: `npm run dev` loads in Raycast
 
 ### Phase 2: Core Library (`src/lib/`)
 
@@ -514,17 +514,19 @@ describe.skipIf(!INTEGRATION)("tl integration", () => {
 ### Running Tests
 
 ```bash
-cd apps/raycast   # or extensions/raycast
-bun test                          # Unit tests only
-TEST_INTEGRATION=1 bun test       # Unit + integration
-bun test --watch                  # Watch mode during dev
+cd apps/raycast
+npm test                          # Unit tests only
+TEST_INTEGRATION=1 npm test       # Unit + integration
+npm run test:watch                # Watch mode during dev
 ```
+
+> **Note:** The Raycast extension uses **npm** (not bun) because Raycast only supports npm.
 
 ### CI
 
 Add to Turborepo pipeline or run independently:
 ```bash
-cd apps/raycast && bun install --frozen-lockfile && bun test && bun run lint
+cd apps/raycast && npm ci && npm test && npm run lint
 ```
 
 ---
@@ -565,13 +567,13 @@ For users who want to use it without the store:
 ```bash
 git clone https://github.com/its-magdy/tl
 cd tl/apps/raycast
-bun install
-bun run dev     # Loads into Raycast in dev mode
+npm install
+npm run dev     # Loads into Raycast in dev mode
 ```
 
 Or build and import:
 ```bash
-bun run build
+npm run build
 # In Raycast: Import Extension → select apps/raycast/
 ```
 

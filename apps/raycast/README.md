@@ -10,9 +10,11 @@ Local-first translation with glossary enforcement via the `tl` CLI and Ollama.
 
 ## Development
 
+> **Note:** The Raycast extension uses **npm** (not bun) because Raycast only supports npm.
+
 ```bash
-bun install
-bun run dev
+npm install
+npm run dev
 ```
 
 This opens the extension in Raycast's development mode.
@@ -20,7 +22,7 @@ This opens the extension in Raycast's development mode.
 ## Testing
 
 ```bash
-bun test
+npm test
 ```
 
 ## Commands
