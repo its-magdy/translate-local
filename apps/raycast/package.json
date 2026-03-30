@@ -1,0 +1,104 @@
+{
+  "name": "tl-translate",
+  "title": "tl Translate",
+  "description": "Local-first translation with glossary enforcement via tl + Ollama",
+  "icon": "icon.png",
+  "author": "its-magdy",
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "translate",
+      "title": "Translate Text",
+      "subtitle": "tl",
+      "description": "Translate text with glossary support",
+      "mode": "view"
+    },
+    {
+      "name": "translate-selection",
+      "title": "Translate Selection",
+      "subtitle": "tl",
+      "description": "Translate selected text and paste result",
+      "mode": "no-view"
+    },
+    {
+      "name": "translate-clipboard",
+      "title": "Translate Clipboard",
+      "subtitle": "tl",
+      "description": "Translate clipboard contents",
+      "mode": "no-view"
+    },
+    {
+      "name": "glossary-list",
+      "title": "Manage Glossary",
+      "subtitle": "tl",
+      "description": "View and manage glossary entries",
+      "mode": "view"
+    },
+    {
+      "name": "glossary-add",
+      "title": "Add Glossary Entry",
+      "subtitle": "tl",
+      "description": "Add a new glossary term pair",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "tlPath",
+      "title": "tl Binary Path",
+      "description": "Path to the tl CLI binary",
+      "type": "textfield",
+      "default": "tl",
+      "required": false
+    },
+    {
+      "name": "defaultTargetLang",
+      "title": "Default Target Language",
+      "description": "Default language to translate into",
+      "type": "dropdown",
+      "default": "ar",
+      "required": false,
+      "data": [
+        { "title": "Arabic", "value": "ar" },
+        { "title": "French", "value": "fr" },
+        { "title": "Spanish", "value": "es" },
+        { "title": "German", "value": "de" },
+        { "title": "Chinese", "value": "zh" },
+        { "title": "Japanese", "value": "ja" },
+        { "title": "Korean", "value": "ko" }
+      ]
+    },
+    {
+      "name": "glossaryMode",
+      "title": "Glossary Mode",
+      "description": "How strictly to enforce glossary terms",
+      "type": "dropdown",
+      "default": "prefer",
+      "required": false,
+      "data": [
+        { "title": "Prefer (suggest terms)", "value": "prefer" },
+        { "title": "Strict (require terms)", "value": "strict" }
+      ]
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.93",
+    "@raycast/utils": "^1.19"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0",
+    "@types/node": "^22",
+    "typescript": "^5.7",
+    "vitest": "^3.0",
+    "@testing-library/react": "^16.0",
+    "eslint": "^9"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint",
+    "fix-lint": "ray lint --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}

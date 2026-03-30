@@ -2,7 +2,7 @@
   "name": "tl-monorepo",
   "private": true,
   "packageManager": "bun@1.3.5",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": ["packages/*", "apps/cli", "apps/tui"],
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
