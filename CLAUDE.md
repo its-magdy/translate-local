@@ -1,24 +1,16 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-Guidelines for the `tl` translation CLI tool. Merge with project-specific instructions as needed.
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+Primary guidelines for all agents working on the `tl` translation CLI project. This is the source of truth — Claude Code and other agent systems should follow these rules.
 
 ---
 
 ## ⛔ MANDATORY BEFORE WRITING ANY CODE
 
-These are non-negotiable. Do them in order before touching a single file:
-
-1. **Create a feature branch** — `git checkout -b feature/<short-description>` from `main`. No exceptions, not even for "small" tasks.
-2. **Commit after every logical unit** — one file done, one feature complete, tests passing = commit + push. Do NOT accumulate all work into one commit at the end.
+1. **Create a feature branch** — `git checkout -b feature/<short-description>` from `main`. No exceptions.
+2. **Commit after every logical unit** — one file done, one feature complete, tests passing = commit + push. Do NOT accumulate all work into one commit.
 3. **Push after every commit** — `git push` immediately. Never leave commits sitting locally.
 
-Violations of these three rules are not acceptable. Past agents have failed on all three. Do not repeat this.
-
-**Enforce this by checking `git status` and `git branch` before writing any file.**
+Check `git status` and `git branch` before writing any file.
 
 ---
 
@@ -29,35 +21,16 @@ Violations of these three rules are not acceptable. Past agents have failed on a
 ## Commands
 
 ```bash
-# Install dependencies
 bun install
-
-# Run all tests (all packages via Turborepo)
 bun run test
-
-# Run tests for a single package
 bun test --cwd packages/core
 bun test --cwd packages/shared
 bun test --cwd packages/adapters
-
-# Run a single test file
 bun test packages/core/src/__tests__/pipeline.test.ts
-
-# Integration tests (requires SQLite, no Ollama)
 TEST_INTEGRATION=1 bun run test
-
-# Real adapter tests (requires running Ollama)
 TEST_ADAPTER=1 bun run test
-
-# Build all packages
 bun run build
-
-# Run the CLI directly (no build needed)
 bun run apps/cli/src/index.ts "hello" --to ar
-
-# Use the `tl` shorthand (one-time setup)
-cd apps/cli && bun link
-tl "hello" --to ar
 ```
 
 ## Tech Stack
@@ -69,7 +42,7 @@ tl "hello" --to ar
 - **TUI**: OpenTUI (React-based terminal UI)
 - **Validation**: Zod
 - **Testing**: bun:test
-- **Database**: SQLite via `bun:sqlite` (glossary + context storage)
+- **Database**: SQLite via `bun:sqlite`
 - **Config**: JSONC at `~/.config/tl/config.jsonc`
 
 ## Monorepo Structure
@@ -85,32 +58,28 @@ t/
 
 ## npm Scope & Publishing
 
-- **Scope**: `@tl/*` — all packages under `packages/` are publishable (`@tl/shared`, `@tl/core`, `@tl/adapters`)
-- **Apps** (`apps/cli`, `apps/tui`) are private, not published
-- **Subpath exports**: Each package uses the `exports` field for granular imports (e.g., `@tl/shared/types`, `@tl/core/pipeline`)
-- **Peer deps**: `@tl/core` and `@tl/adapters` peer-depend on `@tl/shared`
-- **Bun-first**: In dev, `.ts` sources are consumed directly via `exports` — no build step needed
+- Scope: `@tl/*` — packages are publishable, apps are private
+- Subpath exports point to `.ts` source directly (Bun-first, no build for dev)
+- `@tl/core` and `@tl/adapters` peer-depend on `@tl/shared`
 
 ## Versioning & Changelog
 
-- Each publishable package (`packages/*`) maintains its own `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format.
-- Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
-- Starting version: `0.1.0` for all packages until a stable public API is established.
-- When completing a feature, bump the affected package version(s) in their `package.json` and update their `CHANGELOG.md`.
-- Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
+- Each package maintains its own `CHANGELOG.md` (Keep a Changelog format)
+- Versions follow Semantic Versioning; starting at `0.1.0`
+- Bump affected package versions and update `CHANGELOG.md` when completing a feature
 
 ## Key Patterns
 
 - **Adapter interface**: All adapters implement `translate()` and `dispose()`. Use `createAdapter(config)` factory.
-- **TaggedError with hints**: Errors use `tag` + `hint` for actionable messages. Follow this pattern for new errors.
+- **TaggedError with hints**: Errors use `TlError` with `tag` + `hint`. No raw `throw new Error()`. Add new tags to `ErrorTag` union in `packages/shared/src/errors.ts`.
 - **Glossary XML tags**: `<term translation="target">source</term>` — TranslateGemma's format. Don't change this.
 - **Pipeline flow**: Preprocess (tag inject) → Context retrieval → Translate → Validate (glossary check) → Postprocess (tag strip).
-- **Image mode**: Pass `imageBase64` in `PipelineOptions` to trigger image translation. In this mode: glossary tag injection is skipped, `source` is set to `""`, and `imageBase64` is forwarded to the adapter unchanged. Context retrieval is also skipped when `queryText` is empty (image-only invocation).
-- **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB. Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
-- **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. When present, the pipeline forwards it on the first attempt only (retries are silent to avoid concatenating tokens across attempts). The adapter sets `stream: true` and calls `onChunk` per token via NDJSON, while still accumulating the full response for postprocessing. Adapters that don't support streaming ignore the field. CLI writes tokens directly to stdout; TUI updates the output pane with a 16ms render throttle.
-- **Memory management**: Adapters call `dispose()` to unload models from VRAM. CLI calls it after each translation; TUI on exit.
-- **MockAdapter**: Available via `createMockAdapter()` from `@tl/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
-- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models.
+- **Image mode**: Pass `imageBase64` in `PipelineOptions`. Glossary tag injection is skipped, `source` is `""`, context retrieval skipped when `queryText` is empty.
+- **Image validation**: Validate extension (`.png .jpg .jpeg .webp .gif .bmp`) and size ≤ 10 MB before reading. Call `file.exists()` before `arrayBuffer()`. Use typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
+- **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. Forwarded on first attempt only (not retries). Adapter sets `stream: true` and calls `onChunk` per token via NDJSON while accumulating the full response. CLI writes tokens to stdout; TUI updates output pane with 16ms render throttle.
+- **Memory management**: `dispose()` unloads models from VRAM. CLI calls it after each translation; TUI on exit.
+- **MockAdapter**: `createMockAdapter()` from `@tl/adapters` — deterministic glossary substitution for unit/integration tests.
+- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` → TranslateGemma XML-style prompt. `buildNaturalPrompt(request)` → generic instruction-style prompt string.
 
 ## Testing
 
@@ -128,115 +97,68 @@ t/
 - `docs/translategemma-research.md` — model details, prompt format, glossary approach
 - `docs/better-context-analysis.md` — patterns borrowed from better-context (btca)
 
-## 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-## 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-## 4a. Verification Before Every Commit
-
-**Never commit until all checks pass. Fix, then commit.**
-
-Before committing any change, run all of the following in order:
-
-1. **Build**: `bun run build` — must succeed with no errors
-2. **Tests**: `bun run test` — all tests must pass (0 failures)
-3. **Smoke test the CLI**: run `tl` commands relevant to the changed code and confirm expected output
-   - If the CLI binary isn't built yet for the phase, skip step 3 and note it explicitly
-4. **Integration tests** (when applicable): `TEST_INTEGRATION=1 bun run test`
-
-If any check fails: fix the issue, re-run all checks, then commit.
-Do not commit with failing tests, build errors, or broken CLI commands.
-
-## 5. Git Workflow
-
-**Use branches. Keep main clean. Write meaningful commits. Commit regularly.**
-
-Branch strategy:
-- `main` is the stable, deployable branch. **Never commit directly to it — not even a single line.**
-- **Always create a feature branch before starting any work**, even small tasks. Do this as the very first step — before reading files, before planning, before writing anything.
-- Create feature branches from `main`: `feature/<short-description>` (e.g., `feature/phase-2-adapters`).
-- Use `fix/<short-description>` for bug fixes, `chore/<short-description>` for non-feature work.
-- Keep branches short-lived. Merge back to `main` promptly via PR.
-
-Commits — commit early and often:
-- **Commit after each logical unit of work** — don't accumulate all changes into one giant commit at the end. Past agents have done this and it is wrong.
-- A "logical unit" can be: one file implemented, one feature complete, tests passing, a bug fixed.
-- After each commit, immediately push. Don't batch pushes.
-- Write clear, concise commit messages: imperative mood, under 72 chars for the subject.
-- If a commit needs a body, separate it from the subject with a blank line.
-- Good: `Add MockAdapter with deterministic glossary substitution`
-- Bad: `updates`, `fix stuff`, `wip`, `done`
-
-Push regularly:
-- **Push your branch to remote after every commit** (or at minimum at the end of each working session). Don't let local commits sit unpushed.
-- Use `git push -u origin <branch>` on first push; `git push` thereafter.
-
-Merging:
-- Merge feature branches into `main` via PR or after verification.
-- Delete branches after merging.
-- Resolve conflicts carefully — investigate before discarding changes.
-
-## 6. Documentation Maintenance
-
-**Keep project docs accurate as the project evolves.**
-
-After completing a feature or significant change:
-- Update `CLAUDE.md` if new patterns, conventions, or guidelines emerged.
-- Update `AGENTS.md` if agent workflows, roles, or coordination changed.
-- Don't let docs drift from reality — stale docs are worse than no docs.
-
 ---
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, clarifying questions come before implementation rather than after mistakes, and git history is clean and meaningful.
+## General Principles
+
+- **Read before acting.** Always read relevant files and understand context before making changes.
+- **Read the docs.** Before implementing a feature, read relevant docs in `docs/`.
+- **One task at a time.** Don't drift into adjacent improvements.
+- **Think before coding.** State assumptions explicitly. If uncertain, ask. If simpler approach exists, say so.
+- **Simplicity first.** Minimum code that solves the problem. No speculative features or abstractions.
+- **Surgical changes.** Touch only what you must. Match existing style. Don't refactor things that aren't broken.
+- **Goal-driven execution.** Define success criteria. Loop until verified.
+
+## Git Workflow
+
+- Always work on a feature branch, never directly on `main`.
+- Create the branch before starting work: `git checkout -b feature/<name>`.
+- Make atomic commits with clear messages as you progress — commit early and often.
+- Push after every commit. Don't let local commits sit unpushed.
+- Merge to `main` via PR after verification. Delete the branch after merging.
+- Good commit messages: imperative mood, under 72 chars. e.g. `Add MockAdapter with deterministic glossary substitution`
+
+## Verification Before Every Commit
+
+Run all checks in order before committing:
+
+1. `bun run build` — must succeed with no errors
+2. `bun run test` — all tests must pass
+3. Smoke test the CLI for changed code
+4. `TEST_INTEGRATION=1 bun run test` (when applicable)
+
+Do not commit with failing tests, build errors, or broken CLI commands.
+
+## Implementation Phases
+
+Work follows phases in `docs/plan.md`:
+1. Foundation (shared types, errors, utils)
+2. Adapters (mock, TranslateGemma local)
+3. Core Pipeline (config, glossary, pipeline)
+4. CLI (commands, formatters)
+5. Context System (TF-IDF indexer)
+6. TUI (interactive views)
+7. Documentation
+
+Complete phases in order. Each phase should build and test before starting the next.
+
+## Task Completion Checklist
+
+Before marking a task done:
+1. `bun run build` — compiles cleanly
+2. `bun run test` — all tests pass
+3. Changes committed with meaningful messages
+4. Branch merged to `main` (if feature is complete)
+5. Update `CLAUDE.md` if new patterns, conventions, or workflows emerged
+
+## Agent Coordination
+
+- Multiple agents must each use a separate branch.
+- Communicate changes via commit messages and PR descriptions — keep them descriptive.
+- Avoid overlapping file edits. If conflict is likely, coordinate before starting.
+
+## Error Handling
+
+- If blocked, surface the issue clearly — don't retry the same failing approach.
+- If a task is ambiguous, ask for clarification before proceeding.
+- If you break something, fix it before moving on.
