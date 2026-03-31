@@ -1,7 +1,17 @@
 {
   "name": "@tl/core",
   "version": "0.3.0",
+  "description": "Core translation pipeline with glossary enforcement and context retrieval for tl",
+  "license": "MIT",
+  "author": "Mohamed Omar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-magdy/Translate-Local.git",
+    "directory": "packages/core"
+  },
+  "keywords": ["translation", "glossary", "pipeline", "localization"],
   "type": "module",
+  "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
   "exports": {
     ".": "./src/index.ts",
     "./pipeline": "./src/pipeline.ts",

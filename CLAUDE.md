@@ -121,12 +121,11 @@ t/
 
 ## Reference Docs
 
-- `docs/product-spec.md` — data models, CLI commands, user workflows
-- `docs/implementation-plan.md` — architecture, pipeline flow, config schema
-- `docs/plan.md` — implementation phases and verification steps
-- `docs/tasks.md` — task checklist by phase
-- `docs/translategemma-research.md` — model details, prompt format, glossary approach
-- `docs/better-context-analysis.md` — patterns borrowed from better-context (btca)
+- `docs/cli-reference.md` — full command and flag reference
+- `docs/glossary-guide.md` — CSV format, domain filtering, advanced usage
+- `docs/context-guide.md` — TF-IDF retrieval, tokenization, tuning parameters
+- `docs/tui-guide.md` — terminal UI keybindings and workflows
+- `docs/adapter-development.md` — guide for adding new model backends
 
 ## 1. Think Before Coding
 
@@ -234,7 +233,6 @@ Merging:
 
 After completing a feature or significant change:
 - Update `CLAUDE.md` if new patterns, conventions, or guidelines emerged.
-- Update `AGENTS.md` if agent workflows, roles, or coordination changed.
 - Don't let docs drift from reality — stale docs are worse than no docs.
 
 ---

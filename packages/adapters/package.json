@@ -1,7 +1,17 @@
 {
   "name": "@tl/adapters",
   "version": "0.2.0",
+  "description": "Model adapter implementations for tl (TranslateGemma via Ollama, mock)",
+  "license": "MIT",
+  "author": "Mohamed Omar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-magdy/Translate-Local.git",
+    "directory": "packages/adapters"
+  },
+  "keywords": ["translation", "ollama", "translategemma", "adapter"],
   "type": "module",
+  "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
   "exports": {
     ".": "./src/index.ts",
     "./mock": "./src/mock.ts",
