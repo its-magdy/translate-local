@@ -53,6 +53,59 @@ describe("matchTerms", () => {
     const hits = matchTerms("Hello world", [entry("API", "واجهة برمجة")]);
     expect(hits).toHaveLength(0);
   });
+
+  it("handles overlapping terms: 'API' and 'API key'", () => {
+    const entries = [entry("API", "واجهة برمجة"), entry("API key", "مفتاح واجهة برمجة")];
+    const hits = matchTerms("Use the API key to call the API", entries);
+    expect(hits).toHaveLength(2);
+    // "API key" should match as the longer term first
+    expect(hits[0].entry.sourceTerm).toBe("API key");
+    // Standalone "API" at the end
+    expect(hits[1].entry.sourceTerm).toBe("API");
+  });
+
+  it("handles overlapping terms where shorter is substring of longer", () => {
+    const entries = [entry("cloud", "سحابة"), entry("cloud computing", "الحوسبة السحابية")];
+    const hits = matchTerms("cloud computing and cloud storage", entries);
+    expect(hits).toHaveLength(2);
+    expect(hits[0].entry.sourceTerm).toBe("cloud computing");
+    expect(hits[1].entry.sourceTerm).toBe("cloud");
+  });
+
+  it("matches Arabic source terms", () => {
+    const hits = matchTerms("أنا أحب الذكاء الاصطناعي كثيرا", [entry("الذكاء الاصطناعي", "artificial intelligence")]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.sourceTerm).toBe("الذكاء الاصطناعي");
+  });
+
+  it("does not match Arabic term as substring of longer word", () => {
+    // "كتاب" should not match inside "كتابة"
+    const hits = matchTerms("كتابة جميلة", [entry("كتاب", "book")]);
+    expect(hits).toHaveLength(0);
+  });
+
+  it("matches CJK source terms when exact string", () => {
+    const hits = matchTerms("机器学习", [entry("机器学习", "machine learning")]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.sourceTerm).toBe("机器学习");
+  });
+
+  it("matches CJK source terms delimited by punctuation", () => {
+    const hits = matchTerms("我喜欢「机器学习」技术", [entry("机器学习", "machine learning")]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("matches CJK source terms delimited by comma", () => {
+    const hits = matchTerms("机器学习，很好", [entry("机器学习", "machine learning")]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("does not match CJK term when adjacent to other CJK characters", () => {
+    // CJK has no word boundaries; adjacent letters prevent matching
+    // This is expected — CJK glossary matching requires punctuation/space delimiters
+    const hits = matchTerms("我喜欢机器学习技术", [entry("机器学习", "machine learning")]);
+    expect(hits).toHaveLength(0);
+  });
 });
 
 describe("GlossaryStore", () => {

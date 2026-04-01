@@ -142,6 +142,6 @@ export function loadConfig(configPath?: string): CoreConfig {
 
 export function saveConfig(config: CoreConfig, configPath?: string): void {
   const p = getConfigPath(configPath);
-  mkdirSync(dirname(p), { recursive: true });
+  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
   writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
 }

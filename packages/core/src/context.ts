@@ -25,7 +25,7 @@ export class ContextStore {
 
   constructor(dbPath: string) {
     try {
-      mkdirSync(dirname(dbPath), { recursive: true });
+      mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (

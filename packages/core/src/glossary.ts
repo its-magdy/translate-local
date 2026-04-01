@@ -31,7 +31,10 @@ function termPattern(term: string): RegExp {
  * Longest-first greedy to avoid partial overlaps.
  * Returns hits sorted by startIndex ascending.
  *
- * Uses Unicode-aware boundaries (\p{L}) for non-Latin terms.
+ * Uses Unicode-aware boundaries (\p{L}) for non-Latin terms (Arabic, etc.).
+ *
+ * Known limitation: CJK scripts have no word boundaries between adjacent characters.
+ * CJK glossary terms only match when delimited by punctuation, spaces, or string edges.
  */
 export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[] {
   const sorted = [...entries].sort((a, b) => b.sourceTerm.length - a.sourceTerm.length);
@@ -59,7 +62,7 @@ export class GlossaryStore {
 
   constructor(dbPath: string) {
     try {
-      mkdirSync(dirname(dbPath), { recursive: true });
+      mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS glossary (
