@@ -9,13 +9,29 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const LATIN_START = /^[a-zA-Z0-9_]/;
+const LATIN_END = /[a-zA-Z0-9_]$/;
+
+/**
+ * Build a word-boundary regex for a glossary term.
+ *
+ * For ASCII word characters, plain \b works. For non-Latin characters
+ * (CJK, Arabic, etc.), we use Unicode-aware negative lookbehind/lookahead
+ * with \p{L} so the term is not matched as a substring of a longer word.
+ */
+function termPattern(term: string): RegExp {
+  const escaped = escapeRegex(term);
+  const start = LATIN_START.test(term) ? "\\b" : "(?<!\\p{L})";
+  const end = LATIN_END.test(term) ? "\\b" : "(?!\\p{L})";
+  return new RegExp(`${start}${escaped}${end}`, "giu");
+}
+
 /**
  * Match glossary terms in text using word-boundary matching.
  * Longest-first greedy to avoid partial overlaps.
  * Returns hits sorted by startIndex ascending.
  *
- * Known limitation: \b operates on ASCII word boundaries (\w = [a-zA-Z0-9_]).
- * For non-Latin source terms (CJK, Arabic, etc.), \b will not match correctly.
+ * Uses Unicode-aware boundaries (\p{L}) for non-Latin terms.
  */
 export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[] {
   const sorted = [...entries].sort((a, b) => b.sourceTerm.length - a.sourceTerm.length);
@@ -23,7 +39,7 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[
   const occupied = new Uint8Array(text.length);
 
   for (const entry of sorted) {
-    const pattern = new RegExp(`\\b${escapeRegex(entry.sourceTerm)}\\b`, "gi");
+    const pattern = termPattern(entry.sourceTerm);
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const start = match.index;
@@ -58,10 +74,11 @@ export class GlossaryStore {
         )
       `);
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_langs ON glossary(source_lang, target_lang)`);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
         "GLOSSARY_DB_ERROR",
-        `Failed to open glossary db at ${dbPath}: ${err.message}`,
+        `Failed to open glossary db at ${dbPath}: ${msg}`,
         `Check that ${dbPath} is writable`,
         err,
       );
@@ -84,8 +101,9 @@ export class GlossaryStore {
         if (existing) return { id: existing.id, ...entry };
         // Row vanished between INSERT OR IGNORE and SELECT — fall through to return the new id
       }
-    } catch (err: any) {
-      throw new TlError("GLOSSARY_DB_ERROR", `Failed to add glossary entry: ${err.message}`, "Check for db corruption", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("GLOSSARY_DB_ERROR", `Failed to add glossary entry: ${msg}`, "Check for db corruption", err);
     }
     return { id, ...entry };
   }
@@ -94,8 +112,9 @@ export class GlossaryStore {
     try {
       const result = this.db.run(`DELETE FROM glossary WHERE id = ?`, [id]);
       return result.changes > 0;
-    } catch (err: any) {
-      throw new TlError("GLOSSARY_DB_ERROR", `Failed to remove glossary entry: ${err.message}`, "Check the id is valid", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("GLOSSARY_DB_ERROR", `Failed to remove glossary entry: ${msg}`, "Check the id is valid", err);
     }
   }
 
@@ -120,8 +139,9 @@ export class GlossaryStore {
         domain: r.domain ?? undefined,
         note: r.note ?? undefined,
       }));
-    } catch (err: any) {
-      throw new TlError("GLOSSARY_DB_ERROR", `Failed to list glossary entries: ${err.message}`, "Check db integrity", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("GLOSSARY_DB_ERROR", `Failed to list glossary entries: ${msg}`, "Check db integrity", err);
     }
   }
 

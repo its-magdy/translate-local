@@ -50,10 +50,11 @@ export class ContextStore {
         );
         CREATE INDEX IF NOT EXISTS idx_terms_lookup ON context_terms(source_id, term);
       `);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
         "CONTEXT_DB_ERROR",
-        `Failed to open context db at ${dbPath}: ${err.message}`,
+        `Failed to open context db at ${dbPath}: ${msg}`,
         `Check that ${dbPath} is writable`,
         err,
       );
@@ -64,8 +65,9 @@ export class ContextStore {
     try {
       const stat = statSync(path);
       if (!stat.isDirectory()) throw new Error(`${path} is not a directory`);
-    } catch (err: any) {
-      throw new TlError("CONTEXT_DB_ERROR", `Invalid path: ${err.message}`, `Provide a readable directory path`, err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("CONTEXT_DB_ERROR", `Invalid path: ${msg}`, `Provide a readable directory path`, err);
     }
 
     const id = randomUUID();
