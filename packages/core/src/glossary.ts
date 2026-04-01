@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
-import { mkdirSync } from "fs";
+import { mkdirSync, chmodSync } from "fs";
 import { dirname } from "path";
 import type { GlossaryEntry, GlossaryHit } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
@@ -63,6 +63,7 @@ export class GlossaryStore {
   constructor(dbPath: string) {
     try {
       mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
+      try { chmodSync(dirname(dbPath), 0o700); } catch { /* may fail on system dirs like /tmp */ }
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS glossary (

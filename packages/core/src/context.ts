@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
-import { mkdirSync, readdirSync, readFileSync, statSync } from "fs";
+import { mkdirSync, chmodSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import type { ContextSource, ContextSnippet } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
@@ -26,6 +26,7 @@ export class ContextStore {
   constructor(dbPath: string) {
     try {
       mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
+      try { chmodSync(dirname(dbPath), 0o700); } catch { /* may fail on system dirs like /tmp */ }
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (

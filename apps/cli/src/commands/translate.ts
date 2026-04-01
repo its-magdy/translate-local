@@ -128,7 +128,7 @@ export function makeTranslateCommand(): Command {
         // BUG-005: emit JSON error when --json flag is set
         if (opts.json) {
           const e = err instanceof TlError ? err : null;
-          console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint }));
+          console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint ?? null }));
         } else {
           console.error(formatError(err));
         }

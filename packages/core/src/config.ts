@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import { TlError } from "@tl/shared/errors";
@@ -143,5 +143,6 @@ export function loadConfig(configPath?: string): CoreConfig {
 export function saveConfig(config: CoreConfig, configPath?: string): void {
   const p = getConfigPath(configPath);
   mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
+  try { chmodSync(dirname(p), 0o700); } catch { /* may fail on system dirs */ }
   writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
 }

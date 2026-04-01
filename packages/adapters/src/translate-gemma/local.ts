@@ -71,7 +71,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       if (!response.body) {
         throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
       }
-      const MAX_ACCUMULATED_BYTES = 10 * 1024 * 1024; // 10 MB safety limit
+      const MAX_ACCUMULATED_CHARS = 10 * 1024 * 1024; // 10M character safety limit
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let lineBuffer = "";
@@ -95,8 +95,8 @@ export class TranslateGemmaLocalAdapter implements Adapter {
             if (chunk.response) {
               request.onChunk(chunk.response);
               accumulated += chunk.response;
-              if (accumulated.length > MAX_ACCUMULATED_BYTES) {
-                throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10 MB size limit", "The model produced an unexpectedly large response");
+              if (accumulated.length > MAX_ACCUMULATED_CHARS) {
+                throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
               }
             }
           }

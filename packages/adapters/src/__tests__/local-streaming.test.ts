@@ -95,7 +95,7 @@ describe("TranslateGemmaLocalAdapter streaming", () => {
       expect(err).toBeInstanceOf(TlError);
       const tlErr = err as TlError;
       expect(tlErr.tag).toBe("TRANSLATION_FAILED");
-      expect(tlErr.message).toContain("10 MB");
+      expect(tlErr.message).toContain("10M character");
     }
   });
 
