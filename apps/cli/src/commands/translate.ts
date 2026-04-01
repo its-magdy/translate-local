@@ -57,7 +57,10 @@ export function makeTranslateCommand(): Command {
           process.exit(1);
         }
 
-        const adapterBackend = (process.env.TL_ADAPTER === "mock" ? "mock" : "ollama") as AdapterConfig["backend"];
+        if (process.env.TL_ADAPTER && process.env.TL_ADAPTER !== "mock" && process.env.TL_ADAPTER !== "ollama") {
+          console.warn(`Warning: unknown TL_ADAPTER "${process.env.TL_ADAPTER}", falling back to "ollama"`);
+        }
+        const adapterBackend = process.env.TL_ADAPTER === "mock" ? "mock" : "ollama";
         const adapterCfg: AdapterConfig = {
           backend: adapterBackend,
           model: config.adapter.local.model,
@@ -124,7 +127,7 @@ export function makeTranslateCommand(): Command {
       } catch (err) {
         // BUG-005: emit JSON error when --json flag is set
         if (opts.json) {
-          const e = err as any;
+          const e = err instanceof TlError ? err : null;
           console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint }));
         } else {
           console.error(formatError(err));

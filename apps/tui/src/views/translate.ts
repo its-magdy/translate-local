@@ -228,7 +228,6 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     }
   });
 
-  let loading = false;
   let activeAbort: AbortController | null = null;
 
   function triggerTranslate() {
@@ -245,7 +244,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
-    loading = true;
+
     updateOutput("");
 
     (async () => {
@@ -264,7 +263,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           if (!(await file.exists())) {
             if (abort.signal.aborted) return;
             updateStatus("●", C.red, `Image not found: ${imagePath}`);
-            loading = false;
+
             return;
           }
           const buf = await file.arrayBuffer();
@@ -272,7 +271,6 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         } catch (err) {
           if (abort.signal.aborted) return;
           updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-          loading = false;
           return;
         }
       } else {
@@ -289,7 +287,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
             if (!(await file.exists())) {
               if (abort.signal.aborted) return;
               updateStatus("●", C.red, `Image not found: ${stripped}`);
-              loading = false;
+  
               return;
             }
             const buf = await file.arrayBuffer();
@@ -298,7 +296,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           } catch (err) {
             if (abort.signal.aborted) return;
             updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-            loading = false;
+
             return;
           }
         } else {
@@ -335,9 +333,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           updateStatus("●", C.red, `Error: ${msg}`);
         })
         .finally(() => {
-          if (abort.signal.aborted) return;
-          loading = false;
-          activeAbort = null;
+          if (activeAbort === abort) activeAbort = null;
         });
     })();
   }
