@@ -8,6 +8,7 @@ import type { AdapterConfig } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
 import { isSupported } from "@tl/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
+import { resolve } from "path";
 
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
@@ -56,8 +57,9 @@ export function makeTranslateCommand(): Command {
           process.exit(1);
         }
 
+        const adapterBackend = (process.env.TL_ADAPTER === "mock" ? "mock" : "ollama") as AdapterConfig["backend"];
         const adapterCfg: AdapterConfig = {
-          backend: "ollama",
+          backend: adapterBackend,
           model: config.adapter.local.model,
           ollamaUrl: config.adapter.local.endpoint,
         };
@@ -72,6 +74,7 @@ export function makeTranslateCommand(): Command {
 
           let imageBase64: string | undefined;
           if (opts.image) {
+            opts.image = resolve(opts.image);
             if (!IMAGE_EXTS.test(opts.image)) {
               throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
             }

@@ -69,7 +69,7 @@ export interface ContextSnippet {
 
 // Config types
 
-export type AdapterBackend = "ollama";
+export type AdapterBackend = "ollama" | "mock";
 
 export interface AdapterConfig {
   backend: AdapterBackend;
