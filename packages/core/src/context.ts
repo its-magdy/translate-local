@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
-import { mkdirSync, readdirSync, readFileSync, statSync } from "fs";
+import { mkdirSync, chmodSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import type { ContextSource, ContextSnippet } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
@@ -25,7 +25,8 @@ export class ContextStore {
 
   constructor(dbPath: string) {
     try {
-      mkdirSync(dirname(dbPath), { recursive: true });
+      mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
+      try { chmodSync(dirname(dbPath), 0o700); } catch { /* may fail on system dirs like /tmp */ }
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (
@@ -50,10 +51,11 @@ export class ContextStore {
         );
         CREATE INDEX IF NOT EXISTS idx_terms_lookup ON context_terms(source_id, term);
       `);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
         "CONTEXT_DB_ERROR",
-        `Failed to open context db at ${dbPath}: ${err.message}`,
+        `Failed to open context db at ${dbPath}: ${msg}`,
         `Check that ${dbPath} is writable`,
         err,
       );
@@ -64,8 +66,9 @@ export class ContextStore {
     try {
       const stat = statSync(path);
       if (!stat.isDirectory()) throw new Error(`${path} is not a directory`);
-    } catch (err: any) {
-      throw new TlError("CONTEXT_DB_ERROR", `Invalid path: ${err.message}`, `Provide a readable directory path`, err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("CONTEXT_DB_ERROR", `Invalid path: ${msg}`, `Provide a readable directory path`, err);
     }
 
     const id = randomUUID();

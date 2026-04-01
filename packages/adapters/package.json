@@ -13,13 +13,33 @@
   "type": "module",
   "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
   "exports": {
-    ".": "./src/index.ts",
-    "./mock": "./src/mock.ts",
-    "./factory": "./src/factory.ts",
-    "./base": "./src/base.ts",
-    "./translate-gemma/local": "./src/translate-gemma/local.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./mock": {
+      "bun": "./src/mock.ts",
+      "import": "./dist/mock.js",
+      "types": "./dist/mock.d.ts"
+    },
+    "./factory": {
+      "bun": "./src/factory.ts",
+      "import": "./dist/factory.js",
+      "types": "./dist/factory.d.ts"
+    },
+    "./base": {
+      "bun": "./src/base.ts",
+      "import": "./dist/base.js",
+      "types": "./dist/base.d.ts"
+    },
+    "./translate-gemma/local": {
+      "bun": "./src/translate-gemma/local.ts",
+      "import": "./dist/translate-gemma/local.js",
+      "types": "./dist/translate-gemma/local.d.ts"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "bun test --pass-with-no-tests"

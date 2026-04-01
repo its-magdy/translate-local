@@ -11,10 +11,13 @@ export function createAdapter(config: AdapterConfig): Adapter {
     case "ollama":
       return new TranslateGemmaLocalAdapter(model, config.ollamaUrl ?? DEFAULT_OLLAMA_URL);
 
+    case "mock":
+      return new MockAdapter();
+
     default: {
       // Exhaustiveness check
       const _never: never = backend;
-      throw new TlError("CONFIG_INVALID", `Unknown adapter backend: ${_never}`, "Valid backends are: ollama");
+      throw new TlError("CONFIG_INVALID", `Unknown adapter backend: ${_never}`, "Valid backends are: ollama, mock");
     }
   }
 }

@@ -8,6 +8,7 @@ import type { AdapterConfig } from "@tl/shared/types";
 import { TlError } from "@tl/shared/errors";
 import { isSupported } from "@tl/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
+import { resolve } from "path";
 
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
@@ -56,8 +57,12 @@ export function makeTranslateCommand(): Command {
           process.exit(1);
         }
 
+        if (process.env.TL_ADAPTER && process.env.TL_ADAPTER !== "mock" && process.env.TL_ADAPTER !== "ollama") {
+          console.warn(`Warning: unknown TL_ADAPTER "${process.env.TL_ADAPTER}", falling back to "ollama"`);
+        }
+        const adapterBackend = process.env.TL_ADAPTER === "mock" ? "mock" : "ollama";
         const adapterCfg: AdapterConfig = {
-          backend: "ollama",
+          backend: adapterBackend,
           model: config.adapter.local.model,
           ollamaUrl: config.adapter.local.endpoint,
         };
@@ -72,6 +77,7 @@ export function makeTranslateCommand(): Command {
 
           let imageBase64: string | undefined;
           if (opts.image) {
+            opts.image = resolve(opts.image);
             if (!IMAGE_EXTS.test(opts.image)) {
               throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
             }
@@ -121,8 +127,8 @@ export function makeTranslateCommand(): Command {
       } catch (err) {
         // BUG-005: emit JSON error when --json flag is set
         if (opts.json) {
-          const e = err as any;
-          console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint }));
+          const e = err instanceof TlError ? err : null;
+          console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint ?? null }));
         } else {
           console.error(formatError(err));
         }

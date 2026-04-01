@@ -228,18 +228,23 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     }
   });
 
-  let loading = false;
+  let activeAbort: AbortController | null = null;
 
   function triggerTranslate() {
-    if (loading || !container.visible) return;
+    if (!container.visible) return;
 
     const raw = sourceTextarea.plainText.trim();
     if (!raw) return;
 
+    // Cancel any in-flight translation so the new one takes over
+    if (activeAbort) activeAbort.abort();
+    const abort = new AbortController();
+    activeAbort = abort;
+
     const sourceLang = fromPicker.getValue();
     const targetLang = toPicker.getValue();
 
-    loading = true;
+
     updateOutput("");
 
     (async () => {
@@ -256,15 +261,16 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         try {
           const file = Bun.file(imagePath);
           if (!(await file.exists())) {
+            if (abort.signal.aborted) return;
             updateStatus("●", C.red, `Image not found: ${imagePath}`);
-            loading = false;
+
             return;
           }
           const buf = await file.arrayBuffer();
           imageBase64 = Buffer.from(buf).toString("base64");
         } catch (err) {
+          if (abort.signal.aborted) return;
           updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-          loading = false;
           return;
         }
       } else {
@@ -279,16 +285,18 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           try {
             const file = Bun.file(stripped);
             if (!(await file.exists())) {
+              if (abort.signal.aborted) return;
               updateStatus("●", C.red, `Image not found: ${stripped}`);
-              loading = false;
+  
               return;
             }
             const buf = await file.arrayBuffer();
             imageBase64 = Buffer.from(buf).toString("base64");
             textToTranslate = "";
           } catch (err) {
+            if (abort.signal.aborted) return;
             updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-            loading = false;
+
             return;
           }
         } else {
@@ -297,11 +305,14 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         }
       }
 
+      if (abort.signal.aborted) return;
+
       let streamBuffer = "";
       let lastRenderMs = 0;
       runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, {
         imageBase64,
         onChunk: (chunk) => {
+          if (abort.signal.aborted) return;
           streamBuffer += chunk;
           const now = Date.now();
           if (now - lastRenderMs >= 16) {
@@ -311,16 +322,18 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         },
       })
         .then((result) => {
+          if (abort.signal.aborted) return;
           streamBuffer = "";
           updateOutput(result.translated);
           updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
         })
         .catch((err: unknown) => {
+          if (abort.signal.aborted) return;
           const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
           updateStatus("●", C.red, `Error: ${msg}`);
         })
         .finally(() => {
-          loading = false;
+          if (activeAbort === abort) activeAbort = null;
         });
     })();
   }

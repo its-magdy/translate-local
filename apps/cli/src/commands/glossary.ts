@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { loadConfig } from "@tl/core/config";
 import { GlossaryStore } from "@tl/core/glossary";
 import { readFileSync } from "fs";
+import { resolve } from "path";
 import { formatGlossaryList, formatError } from "../formatters/output";
 import { isSupported } from "@tl/shared/utils/language";
 
@@ -136,7 +137,8 @@ export function makeGlossaryCommand(): Command {
     .description("Import entries from CSV (source,target,from,to[,domain][,note])")
     .action((file: string) => {
       try {
-        const lines = readFileSync(file, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#"));
+        const resolvedFile = resolve(file);
+        const lines = readFileSync(resolvedFile, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#"));
         let added = 0;
         withStore((store) => {
           for (const line of lines) {

@@ -13,15 +13,43 @@
   "type": "module",
   "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types.ts",
-    "./errors": "./src/errors.ts",
-    "./utils": "./src/utils.ts",
-    "./utils/language": "./src/utils/language.ts",
-    "./utils/text": "./src/utils/text.ts",
-    "./constants": "./src/constants.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./types": {
+      "bun": "./src/types.ts",
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    },
+    "./errors": {
+      "bun": "./src/errors.ts",
+      "import": "./dist/errors.js",
+      "types": "./dist/errors.d.ts"
+    },
+    "./utils": {
+      "bun": "./src/utils.ts",
+      "import": "./dist/utils.js",
+      "types": "./dist/utils.d.ts"
+    },
+    "./utils/language": {
+      "bun": "./src/utils/language.ts",
+      "import": "./dist/utils/language.js",
+      "types": "./dist/utils/language.d.ts"
+    },
+    "./utils/text": {
+      "bun": "./src/utils/text.ts",
+      "import": "./dist/utils/text.js",
+      "types": "./dist/utils/text.d.ts"
+    },
+    "./constants": {
+      "bun": "./src/constants.ts",
+      "import": "./dist/constants.js",
+      "types": "./dist/constants.d.ts"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "bun test"

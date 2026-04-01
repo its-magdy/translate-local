@@ -134,6 +134,38 @@ describe("tl CLI", () => {
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain("zzz");
     });
+
+    it("imports CSV with quoted fields containing commas", () => {
+      const csvFile = join(tmpDir, "quoted.csv");
+      writeFileSync(csvFile, '"machine learning, deep","تعلم الآلة، العميق",en,ar,,\n');
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Imported 1");
+    });
+
+    it("imports CSV skipping empty lines and comments", () => {
+      const csvFile = join(tmpDir, "gaps.csv");
+      writeFileSync(csvFile, "# comment line\n\nhello,مرحبا,en,ar,,\n\nworld,عالم,en,ar,,\n");
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Imported 2");
+    });
+
+    it("imports CSV with special characters in terms", () => {
+      const csvFile = join(tmpDir, "special.csv");
+      writeFileSync(csvFile, 'C++,سي بلس بلس,en,ar,,\n"C#",سي شارب,en,ar,,\n');
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Imported 2");
+    });
+
+    it("imports CSV skipping rows with missing required fields", () => {
+      const csvFile = join(tmpDir, "incomplete.csv");
+      writeFileSync(csvFile, "hello,مرحبا,en,ar,,\n,missing_source,en,ar,,\nworld,,en,ar,,\n");
+      const r = run(["glossary", "import", csvFile]);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("Imported 1");
+    });
   });
 
   describe("context", () => {
@@ -172,6 +204,33 @@ describe("tl CLI", () => {
       const parsed = JSON.parse(r.stderr);
       expect(parsed).toHaveProperty("error");
       expect(parsed).toHaveProperty("message");
+    });
+  });
+
+  describe("translate e2e with MockAdapter", () => {
+    it("translates text using mock adapter", () => {
+      const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      // MockAdapter doesn't stream, so non-JSON output shows metadata only
+      expect(r.stdout).toContain("mock");
+      expect(r.stdout).toContain("Glossary:");
+    });
+
+    it("translates with --json flag using mock adapter", () => {
+      const r = run(["translate", "hello world", "--to", "ar", "--json"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      const parsed = JSON.parse(r.stdout);
+      expect(parsed.translated).toContain("[ar]");
+      expect(parsed.translated).toContain("hello world");
+      expect(parsed.targetLang).toBe("ar");
+    });
+
+    it("translates with --from flag using mock adapter", () => {
+      const r = run(["translate", "hello", "--from", "en", "--to", "fr", "--json"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      const parsed = JSON.parse(r.stdout);
+      expect(parsed.translated).toContain("[fr]");
+      expect(parsed.sourceLang).toBe("en");
     });
   });
 
