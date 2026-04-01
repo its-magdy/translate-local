@@ -13,13 +13,33 @@
   "type": "module",
   "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
   "exports": {
-    ".": "./src/index.ts",
-    "./pipeline": "./src/pipeline.ts",
-    "./glossary": "./src/glossary.ts",
-    "./context": "./src/context.ts",
-    "./config": "./src/config.ts"
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./pipeline": {
+      "bun": "./src/pipeline.ts",
+      "import": "./dist/pipeline.js",
+      "types": "./dist/pipeline.d.ts"
+    },
+    "./glossary": {
+      "bun": "./src/glossary.ts",
+      "import": "./dist/glossary.js",
+      "types": "./dist/glossary.d.ts"
+    },
+    "./context": {
+      "bun": "./src/context.ts",
+      "import": "./dist/context.js",
+      "types": "./dist/context.d.ts"
+    },
+    "./config": {
+      "bun": "./src/config.ts",
+      "import": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "bun test"
