@@ -63,7 +63,7 @@ If any check fails, fix the issue and re-run before committing.
 ## PR Requirements
 
 - Title: concise, imperative, under 72 characters
-- Description: what changed and why; link to the relevant task in `docs/tasks.md`
+- Description: what changed and why
 - All tests passing (CI must be green)
 - No direct commits to `main`
 
@@ -85,4 +85,4 @@ Changes to `packages/*` should include a version bump in `package.json` and a `C
 - [Adapter Development](docs/adapter-development.md)
 - [Glossary Guide](docs/glossary-guide.md)
 - [Context Guide](docs/context-guide.md)
-- [Implementation Plan](docs/implementation-plan.md)
+- [TUI Guide](docs/tui-guide.md)

@@ -3,5 +3,19 @@ dist/
 .turbo/
 *.tsbuildinfo
 .DS_Store
+Thumbs.db
 
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+
+# Local config
 .mcp.json
