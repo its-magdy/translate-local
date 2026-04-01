@@ -71,30 +71,46 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       if (!response.body) {
         throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
       }
+      const MAX_ACCUMULATED_BYTES = 10 * 1024 * 1024; // 10 MB safety limit
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let lineBuffer = "";
       let accumulated = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        lineBuffer += decoder.decode(value, { stream: true });
-        const lines = lineBuffer.split("\n");
-        lineBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          let chunk: OllamaStreamChunk;
-          try {
-            chunk = JSON.parse(line) as OllamaStreamChunk;
-          } catch {
-            throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
-          }
-          if (chunk.response) {
-            request.onChunk(chunk.response);
-            accumulated += chunk.response;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          lineBuffer += decoder.decode(value, { stream: true });
+          const lines = lineBuffer.split("\n");
+          lineBuffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let chunk: OllamaStreamChunk;
+            try {
+              chunk = JSON.parse(line) as OllamaStreamChunk;
+            } catch {
+              throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
+            }
+            if (chunk.response) {
+              request.onChunk(chunk.response);
+              accumulated += chunk.response;
+              if (accumulated.length > MAX_ACCUMULATED_BYTES) {
+                throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10 MB size limit", "The model produced an unexpectedly large response");
+              }
+            }
           }
         }
+      } catch (err) {
+        if (err instanceof TlError) throw err;
+        throw new TlError(
+          "TRANSLATION_FAILED",
+          `Stream interrupted: ${err instanceof Error ? err.message : String(err)}`,
+          "Check network connectivity and Ollama status",
+          err
+        );
+      } finally {
+        reader.releaseLock();
       }
       // flush remaining buffer
       if (lineBuffer.trim()) {
