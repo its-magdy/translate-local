@@ -214,6 +214,47 @@ tl config path
 
 ---
 
+## RTL languages and terminal compatibility
+
+When translating to a right-to-left language (Arabic, Hebrew, Persian, Urdu,
+etc.), the visual quality of `tl`'s output depends almost entirely on which
+terminal you run it in. `tl` itself emits canonical logical-order UTF-8 — it
+is up to the terminal to perform Arabic letter joining (shaping) and
+Unicode UAX#9 BiDi reordering.
+
+As of April 2026, only a minority of popular terminals do this correctly.
+The table below summarizes verified behavior; if your terminal is not
+listed, assume it does not support RTL.
+
+| Terminal | Shaping (letter joining) | BiDi reorder (UAX#9) | Notes |
+|----------|---|---|---|
+| GNOME Terminal / VTE | Yes | Yes | `enable-bidi` is on by default. Recommended on Linux. |
+| Konsole (KDE) | Yes | Yes | Renders RTL from the right edge of the pane. Recommended on KDE. |
+| mlterm | Yes | Yes | Reference implementation for RTL terminals. |
+| iTerm2 ≥ 3.6 | Yes (experimental) | Partial | Enable Settings → General → Experimental → "Enable support for right-to-left scripts". Mixed LTR/RTL still imperfect. Recommended on macOS. |
+| macOS Terminal.app | No | Partial | Reorders, but does not join Arabic letters. |
+| Ghostty | No | No | Tracking [ghostty#11079](https://github.com/ghostty-org/ghostty/pull/11079) and [#1442](https://github.com/ghostty-org/ghostty/issues/1442). Until merged, Arabic appears in logical-LTR order. |
+| kitty | No | No | Has `force_ltr`; recommended workaround is piping through GNU FriBidi externally. |
+| WezTerm | No | Opt-in | `experimental_bidi = true` enables UAX#9 but with known glyph-width bugs. |
+| Alacritty | No | No | Explicit non-goal. |
+| Windows Terminal | No | No | Tracking [microsoft/terminal#19076](https://github.com/microsoft/terminal/issues/19076). |
+| Warp | No | No | Documented in [warpdotdev/Warp#3589](https://github.com/warpdotdev/Warp/issues/3589). |
+| VS Code integrated terminal | No | No | xterm.js limitation. |
+| tmux (passthrough) | n/a | Breaks layout | tmux corrupts pane geometry on logical-order RTL regardless of host. See [tmux#2425](https://github.com/tmux/tmux/issues/2425). |
+
+**Recommendation:** if you regularly translate to Arabic or another RTL
+language, use one of the terminals in the top four rows. On macOS, the
+practical choice is **iTerm2 with the experimental RTL flag enabled**. On
+Linux, **Konsole** or **GNOME Terminal** work out of the box.
+
+**Piping and files are always correct:** `tl` emits canonical logical-order
+UTF-8 to non-TTY destinations (`tl ... > out.txt`, `tl ... | grep`,
+`tl ... --json`), so RTL output remains correct and searchable in any text
+editor or downstream tool — only the live terminal display is affected by
+the limitations above.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
