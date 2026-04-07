@@ -1,0 +1,77 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: darwin-arm64, bun: bun-darwin-arm64 }
+          - { name: darwin-x64,   bun: bun-darwin-x64 }
+          - { name: linux-x64,    bun: bun-linux-x64 }
+          - { name: linux-arm64,  bun: bun-linux-arm64 }
+          - { name: windows-x64,  bun: bun-windows-x64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile binary
+        working-directory: apps/cli
+        run: |
+          mkdir -p dist
+          OUT="dist/tl-${{ matrix.target.name }}"
+          if [ "${{ matrix.target.name }}" = "windows-x64" ]; then
+            OUT="${OUT}.exe"
+          fi
+          bun build --compile --minify --sourcemap \
+            --target=${{ matrix.target.bun }} \
+            ./src/index.ts \
+            --outfile "$OUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tl-${{ matrix.target.name }}
+          path: apps/cli/dist/tl-${{ matrix.target.name }}*
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        working-directory: artifacts
+        run: |
+          ls -lh
+          sha256sum tl-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
