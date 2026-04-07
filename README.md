@@ -24,23 +24,63 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.3
 - [Ollama](https://ollama.com) with `translate-gemma-12b` pulled
+- (Contributors only) [Bun](https://bun.sh) ≥ 1.3
 
 ## Installation
+
+`tl` ships as a self-contained binary — no Bun, Node, or other runtime needed. Pick the install method for your platform.
+
+### Direct binary download
+
+Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest):
+
+```bash
+# macOS — Apple Silicon
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-arm64 -o /usr/local/bin/tl
+chmod +x /usr/local/bin/tl
+xattr -d com.apple.quarantine /usr/local/bin/tl   # macOS only — required until we ship signed builds
+
+# macOS — Intel
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-x64 -o /usr/local/bin/tl
+chmod +x /usr/local/bin/tl
+xattr -d com.apple.quarantine /usr/local/bin/tl
+
+# Linux — x64
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-x64 -o /usr/local/bin/tl
+chmod +x /usr/local/bin/tl
+
+# Linux — ARM64
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-arm64 -o /usr/local/bin/tl
+chmod +x /usr/local/bin/tl
+```
+
+For Windows, download `tl-windows-x64.exe` from the release page and place it on your `PATH`.
+
+The binary is ~60 MB and self-contained. Verify the download with the `SHA256SUMS` file from the same release.
+
+### Develop / contribute to tl
+
+This is the **contributor** workflow — `bun link` symlinks `tl` to your working copy of the source. If you delete or move the cloned folder, `tl` breaks. End users should use the binary download above.
 
 ```bash
 git clone https://github.com/its-magdy/Translate-Local.git
 cd Translate-Local
 bun install
+cd apps/cli && bun link
 ```
 
-No build step is needed. Bun runs TypeScript sources directly.
-
-To use the `tl` shorthand, link the CLI entry point:
+To build a release-style binary locally:
 
 ```bash
-cd apps/cli && bun link
+cd apps/cli && bun run build:bin
+./dist/tl --version
+```
+
+To uninstall the dev link later (Bun's `bun unlink <name>` is not yet implemented, so `cd` into the original directory):
+
+```bash
+cd apps/cli && bun unlink
 ```
 
 ## Setup
