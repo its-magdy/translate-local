@@ -43,6 +43,16 @@
       "import": "./dist/utils/text.js",
       "types": "./dist/utils/text.d.ts"
     },
+    "./utils/terminal": {
+      "bun": "./src/utils/terminal.ts",
+      "import": "./dist/utils/terminal.js",
+      "types": "./dist/utils/terminal.d.ts"
+    },
+    "./utils/bidi": {
+      "bun": "./src/utils/bidi.ts",
+      "import": "./dist/utils/bidi.js",
+      "types": "./dist/utils/bidi.d.ts"
+    },
     "./constants": {
       "bun": "./src/constants.ts",
       "import": "./dist/constants.js",
@@ -57,5 +67,9 @@
   "devDependencies": {
     "bun-types": "latest",
     "typescript": "^5.7"
+  },
+  "dependencies": {
+    "arabic-reshaper": "^1.1.0",
+    "bidi-js": "^1.0.3"
   }
 }

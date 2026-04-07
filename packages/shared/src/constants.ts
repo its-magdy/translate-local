@@ -28,6 +28,27 @@ export const SUPPORTED_LANGUAGES: readonly string[] = Object.keys(LANG_NAMES);
 
 export const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
 
+// BCP-47 primary subtags for right-to-left scripts. Used to gate the BiDi
+// reshape pipeline (see utils/bidi.ts) and the terminal capability detector
+// (see utils/terminal.ts). Compare against `lang.toLowerCase().split("-")[0]`.
+export const RTL_LANGS: ReadonlySet<string> = new Set([
+  "ar", // Arabic
+  "fa", // Persian
+  "he", // Hebrew
+  "ur", // Urdu
+  "ps", // Pashto
+  "sd", // Sindhi
+  "ug", // Uyghur
+  "yi", // Yiddish
+  "dv", // Divehi
+  "ckb", // Central Kurdish
+]);
+
+export function isRtlLang(lang: string | undefined | null): boolean {
+  if (!lang) return false;
+  return RTL_LANGS.has(lang.toLowerCase().split("-")[0]);
+}
+
 export const DEFAULT_MODEL = "translate-gemma-12b";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 /**
