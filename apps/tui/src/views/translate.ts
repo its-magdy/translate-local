@@ -7,6 +7,8 @@ import {
 } from "@opentui/core";
 import { runPipeline } from "@tl/core/pipeline";
 import { TlError } from "@tl/shared/errors";
+import { isRtlLang } from "@tl/shared/constants";
+import { reshapeForTerminal } from "@tl/shared/utils/bidi";
 import type { AppState } from "../index";
 import { makeLangPicker } from "./widgets";
 import { C } from "../theme";
@@ -149,8 +151,6 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
 
-  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
-
   function paneWidth(): number {
     return Math.floor(renderer.width / 2) - 4; // subtract borders + padding
   }
@@ -188,21 +188,24 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   }
 
   function rtlAlign(text: string): string {
+    // OpenTUI is shaping-blind (it draws cells left-to-right with no UAX#9 or
+    // Arabic joining), so we run the same reshape pipeline as the CLI uses
+    // for shaping-blind terminals: arabic-reshaper → bidi-js → visual-order
+    // Presentation Forms. Then right-align each line within the pane.
     const w = paneWidth();
-    // OpenTUI renders left-to-right so Arabic must be character-reversed per
-    // word to appear correctly, matching what the glossary view does.
-    return text.split("\n").map((line) => {
-      const reversed = line.split(" ").map((word) => [...word].reverse().join("")).reverse().join(" ");
-      const pad = Math.max(0, w - reversed.length);
-      return " ".repeat(pad) + reversed;
-    }).join("\n");
+    return reshapeForTerminal(text)
+      .split("\n")
+      .map((line) => {
+        const pad = Math.max(0, w - [...line].length);
+        return " ".repeat(pad) + line;
+      })
+      .join("\n");
   }
 
   function updateOutput(text: string) {
     outputScroll.content.remove("output-text");
     if (text) {
-      const targetLang = toPicker.getValue().toLowerCase().split("-")[0];
-      const isRtl = RTL_LANGS.has(targetLang);
+      const isRtl = isRtlLang(toPicker.getValue());
       const wrapped = wrapText(text, paneWidth());
       const content = isRtl ? rtlAlign(wrapped) : wrapped;
       outputScroll.content.add(new TextRenderable(renderer, { id: "output-text", content }));
