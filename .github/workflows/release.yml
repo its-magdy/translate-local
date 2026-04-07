@@ -31,6 +31,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # NOTE: All targets are cross-compiled from ubuntu-latest. Bun's
+      # cross-compilation has had rough edges around platform-specific natives
+      # (notably `bun:sqlite`, which this project uses for the glossary store).
+      # Before tagging a release, manually smoke-test the darwin builds against
+      # a real glossary DB on a Mac to catch breakage early.
       - name: Compile binary
         working-directory: apps/cli
         run: |

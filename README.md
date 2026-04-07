@@ -33,31 +33,35 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 ### Direct binary download
 
-Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest):
+Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
 
 ```bash
+mkdir -p ~/.local/bin
+
 # macOS — Apple Silicon
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-arm64 -o /usr/local/bin/tl
-chmod +x /usr/local/bin/tl
-xattr -d com.apple.quarantine /usr/local/bin/tl   # macOS only — required until we ship signed builds
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-arm64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+xattr -d com.apple.quarantine ~/.local/bin/tl   # macOS only — required until we ship signed builds
 
 # macOS — Intel
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-x64 -o /usr/local/bin/tl
-chmod +x /usr/local/bin/tl
-xattr -d com.apple.quarantine /usr/local/bin/tl
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-x64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+xattr -d com.apple.quarantine ~/.local/bin/tl
 
 # Linux — x64
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-x64 -o /usr/local/bin/tl
-chmod +x /usr/local/bin/tl
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-x64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
 
 # Linux — ARM64
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-arm64 -o /usr/local/bin/tl
-chmod +x /usr/local/bin/tl
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-arm64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
 ```
+
+To install system-wide instead, replace `~/.local/bin` with `/usr/local/bin` and prefix each `curl`/`chmod`/`xattr` with `sudo`.
 
 For Windows, download `tl-windows-x64.exe` from the release page and place it on your `PATH`.
 
-The binary is ~60 MB and self-contained. Verify the download with the `SHA256SUMS` file from the same release.
+The binary is ~63 MB and self-contained. Verify the download with the `SHA256SUMS` file from the same release.
 
 ### Develop / contribute to tl
 
@@ -77,10 +81,10 @@ cd apps/cli && bun run build:bin
 ./dist/tl --version
 ```
 
-To uninstall the dev link later (Bun's `bun unlink <name>` is not yet implemented, so `cd` into the original directory):
+To uninstall the dev link later, remove the symlink Bun created in `~/.bun/bin`:
 
 ```bash
-cd apps/cli && bun unlink
+rm "$(which tl)"
 ```
 
 ## Setup
