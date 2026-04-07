@@ -1,6 +1,6 @@
 {
   "name": "@tl/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:bin": "bun build --compile --minify --sourcemap ./src/index.ts --outfile dist/tl",
     "dev": "bun run src/index.ts",
     "test": "bun test --pass-with-no-tests"
   },
@@ -15,6 +16,7 @@
     "@tl/adapters": "workspace:*",
     "@tl/core": "workspace:*",
     "@tl/shared": "workspace:*",
+    "@tl/tui": "workspace:*",
     "commander": "^14.0.3"
   },
   "devDependencies": {
