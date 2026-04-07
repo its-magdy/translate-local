@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { existsSync } from "fs";
+import { fileURLToPath } from "url";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
@@ -24,7 +25,7 @@ program.addCommand(makeConfigCommand());
 
 // When called with no args, launch TUI
 if (process.argv.length <= 2) {
-  const tuiPath = new URL("../../tui/src/index.ts", import.meta.url).pathname;
+  const tuiPath = fileURLToPath(new URL("../../tui/src/index.ts", import.meta.url));
   if (!existsSync(tuiPath)) {
     console.error(`tl: TUI entry point not found at ${tuiPath}`);
     process.exit(1);
