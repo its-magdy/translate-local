@@ -25,9 +25,12 @@ program.addCommand(makeConfigCommand());
 // Dynamic import keeps OpenTUI/React off the cold path for non-TUI invocations.
 if (process.argv.length <= 2) {
   const { runTui } = await import("@tl/tui");
+  // runTui() resolves once setup is done; the renderer's stdin raw-mode + render
+  // loop keep the event loop alive afterwards, and its teardown() handler is what
+  // ultimately calls process.exit(). Do NOT exit here — that would kill the TUI
+  // before any user input could be processed.
   await runTui();
-  process.exit(0);
-}
+} else {
 
 // Support: `tl <text>` as shorthand for `tl translate <text>`
 // Derive command names dynamically so new subcommands are picked up automatically.
@@ -41,3 +44,5 @@ program.parseAsync(process.argv).catch((err) => {
   console.error(err.message ?? String(err));
   process.exit(1);
 });
+
+}
