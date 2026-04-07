@@ -45,7 +45,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   const toPicker = makeLangPicker(renderer, "translate-to-select", config.defaults?.targetLang ?? "fr", false);
   langRow.add(toPicker.renderable);
 
-  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+Enter", fg: C.textMuted }));
+  langRow.add(new TextRenderable(renderer, { id: "translate-hint", content: "  ⌨  Ctrl+T", fg: C.textMuted }));
 
   // ── Split row ────────────────────────────────────────────────────────────────
   const splitRow = new BoxRenderable(renderer, {
@@ -77,7 +77,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     width: "100%",
     flexGrow: 1,
     placeholder: "Enter text… paste an image or path to translate",
-    keyBindings: [{ name: "return", ctrl: true, action: "submit" }],
+    keyBindings: [{ name: "t", ctrl: true, action: "submit" }],
     onSubmit: () => triggerTranslate(),
   });
   leftPane.add(sourceTextarea);
@@ -137,7 +137,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   const shortcuts = new TextRenderable(renderer, {
     id: "status-shortcuts",
-    content: " Ctrl+Enter translate · Tab switch · Ctrl+Q quit",
+    content: " Ctrl+T translate · Tab switch · Ctrl+Q quit",
     fg: C.textMuted,
   });
   statusContainer.add(shortcuts);

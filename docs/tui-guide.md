@@ -22,7 +22,7 @@ The TUI has two tabs, switchable with **Tab** / **Shift+Tab**:
 ### Basic usage
 
 1. Type (or paste) text into the left pane
-2. Press **Ctrl+Enter** to translate
+2. Press **Ctrl+T** to translate
 3. The translation appears in the right pane
 
 Language selectors at the top control the source and target languages. Source defaults to auto-detect; target defaults to the language in your config (fallback: French).
@@ -70,7 +70,7 @@ Navigate the list with **Up/Down** arrows, then press **Ctrl+D** to delete the s
 
 | Key | Action |
 |-----|--------|
-| **Ctrl+Enter** | Translate |
+| **Ctrl+T** | Translate |
 | **Tab** | Switch to next tab |
 | **Shift+Tab** | Switch to previous tab |
 | **Up / Down** | Navigate glossary list |
