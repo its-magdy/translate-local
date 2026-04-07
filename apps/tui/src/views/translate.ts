@@ -189,12 +189,10 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   function rtlAlign(text: string): string {
     const w = paneWidth();
-    // OpenTUI renders left-to-right so Arabic must be character-reversed per
-    // word to appear correctly, matching what the glossary view does.
+    // The terminal applies BiDi itself, so just right-align — don't reverse.
     return text.split("\n").map((line) => {
-      const reversed = line.split(" ").map((word) => [...word].reverse().join("")).reverse().join(" ");
-      const pad = Math.max(0, w - reversed.length);
-      return " ".repeat(pad) + reversed;
+      const pad = Math.max(0, w - line.length);
+      return " ".repeat(pad) + line;
     }).join("\n");
   }
 
