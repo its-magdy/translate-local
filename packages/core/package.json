@@ -11,7 +11,7 @@
   },
   "keywords": ["translation", "glossary", "pipeline", "localization"],
   "type": "module",
-  "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
+  "files": ["dist/", "LICENSE", "README.md"],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
