@@ -1,0 +1,14 @@
+{
+  "name": "@translate-local/tl-darwin-x64",
+  "version": "0.2.0",
+  "description": "macOS x64 binary for @translate-local/tl — do not install directly",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin/tl"],
+  "preferUnplugged": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-magdy/Translate-Local.git"
+  }
+}

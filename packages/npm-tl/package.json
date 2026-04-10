@@ -1,0 +1,20 @@
+{
+  "name": "@translate-local/tl",
+  "version": "0.2.0",
+  "description": "CLI-first translation tool with glossary enforcement and local models",
+  "bin": { "tl": "bin/tl.js" },
+  "files": ["bin/tl.js", "README.md"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-magdy/Translate-Local.git"
+  },
+  "license": "MIT",
+  "optionalDependencies": {
+    "@translate-local/tl-darwin-arm64": "0.2.0",
+    "@translate-local/tl-darwin-x64":   "0.2.0",
+    "@translate-local/tl-linux-x64":    "0.2.0",
+    "@translate-local/tl-linux-arm64":  "0.2.0",
+    "@translate-local/tl-win32-x64":    "0.2.0"
+  }
+}

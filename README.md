@@ -24,23 +24,84 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.3
 - [Ollama](https://ollama.com) with `translate-gemma-12b` pulled
+- (Contributors only) [Bun](https://bun.sh) ≥ 1.3
 
 ## Installation
+
+`tl` ships as a self-contained binary — no Bun, Node, or other runtime needed. Pick the install method for your platform.
+
+### npm / bun
+
+If you have Bun or Node installed, this is the easiest path:
+
+```sh
+# Install globally — then just type `tl`
+bun install -g @translate-local/tl
+# or
+npm install -g @translate-local/tl
+
+# Run without installing (one-off)
+bunx @translate-local/tl "hello" --to ar
+npx @translate-local/tl "hello" --to ar
+```
+
+Only the binary for your platform is downloaded (~63 MB). No Bun or Node runtime needed after install.
+
+### Direct binary download
+
+Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
+
+```bash
+mkdir -p ~/.local/bin
+
+# macOS — Apple Silicon
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-arm64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+xattr -d com.apple.quarantine ~/.local/bin/tl   # macOS only — required until we ship signed builds
+
+# macOS — Intel
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-x64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+xattr -d com.apple.quarantine ~/.local/bin/tl
+
+# Linux — x64
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-x64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+
+# Linux — ARM64
+curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-arm64 -o ~/.local/bin/tl
+chmod +x ~/.local/bin/tl
+```
+
+To install system-wide instead, replace `~/.local/bin` with `/usr/local/bin` and prefix each `curl`/`chmod`/`xattr` with `sudo`.
+
+For Windows, download `tl-windows-x64.exe` from the release page and place it on your `PATH`.
+
+The binary is ~63 MB and self-contained. Verify the download with the `SHA256SUMS` file from the same release.
+
+### Develop / contribute to tl
+
+This is the **contributor** workflow — `bun link` symlinks `tl` to your working copy of the source. If you delete or move the cloned folder, `tl` breaks. End users should use the binary download above.
 
 ```bash
 git clone https://github.com/its-magdy/Translate-Local.git
 cd Translate-Local
 bun install
+cd apps/cli && bun link
 ```
 
-No build step is needed. Bun runs TypeScript sources directly.
-
-To use the `tl` shorthand, link the CLI entry point:
+To build a release-style binary locally:
 
 ```bash
-cd apps/cli && bun link
+cd apps/cli && bun run build:bin
+./dist/tl --version
+```
+
+To uninstall the dev link later, remove the symlink Bun created in `~/.bun/bin`:
+
+```bash
+rm "$(which tl)"
 ```
 
 ## Setup
