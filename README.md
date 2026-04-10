@@ -50,27 +50,27 @@ Only the binary for your platform is downloaded (~63 MB). No Bun or Node runtime
 
 ### Direct binary download
 
-Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
+Download for your platform from the [latest release](https://github.com/its-magdy/translate-local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
 
 ```bash
 mkdir -p ~/.local/bin
 
 # macOS — Apple Silicon
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-arm64 -o ~/.local/bin/tl
+curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-darwin-arm64 -o ~/.local/bin/tl
 chmod +x ~/.local/bin/tl
 xattr -d com.apple.quarantine ~/.local/bin/tl   # macOS only — required until we ship signed builds
 
 # macOS — Intel
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-darwin-x64 -o ~/.local/bin/tl
+curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-darwin-x64 -o ~/.local/bin/tl
 chmod +x ~/.local/bin/tl
 xattr -d com.apple.quarantine ~/.local/bin/tl
 
 # Linux — x64
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-x64 -o ~/.local/bin/tl
+curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-linux-x64 -o ~/.local/bin/tl
 chmod +x ~/.local/bin/tl
 
 # Linux — ARM64
-curl -L https://github.com/its-magdy/Translate-Local/releases/latest/download/tl-linux-arm64 -o ~/.local/bin/tl
+curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-linux-arm64 -o ~/.local/bin/tl
 chmod +x ~/.local/bin/tl
 ```
 
@@ -85,8 +85,8 @@ The binary is ~63 MB and self-contained. Verify the download with the `SHA256SUM
 This is the **contributor** workflow — `bun link` symlinks `tl` to your working copy of the source. If you delete or move the cloned folder, `tl` breaks. End users should use the binary download above.
 
 ```bash
-git clone https://github.com/its-magdy/Translate-Local.git
-cd Translate-Local
+git clone https://github.com/its-magdy/translate-local.git
+cd translate-local
 bun install
 cd apps/cli && bun link
 ```

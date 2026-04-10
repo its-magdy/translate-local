@@ -19,3 +19,4 @@ Thumbs.db
 
 # Local config
 .mcp.json
+.claude/settings.local.json
