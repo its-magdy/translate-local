@@ -31,20 +31,22 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 `tl` ships as a self-contained binary — no Bun, Node, or other runtime needed. Pick the install method for your platform.
 
-### npm / bunx
+### npm / bun
 
-If you have Node or Bun installed, this is the easiest path:
+If you have Bun or Node installed, this is the easiest path:
 
 ```sh
 # Install globally — then just type `tl`
+bun install -g @translate-local/tl
+# or
 npm install -g @translate-local/tl
 
-# Or run without installing
+# Run without installing (one-off)
 bunx @translate-local/tl "hello" --to ar
 npx @translate-local/tl "hello" --to ar
 ```
 
-npm installs only the binary for your platform (~63 MB). You do not need Bun or any other runtime after install.
+Only the binary for your platform is downloaded (~63 MB). No Bun or Node runtime needed after install.
 
 ### Direct binary download
 
