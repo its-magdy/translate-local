@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import { mkdirSync, chmodSync } from "fs";
 import { dirname } from "path";
-import type { GlossaryEntry, GlossaryHit } from "@tl/shared/types";
-import { TlError } from "@tl/shared/errors";
+import type { GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
+import { TlError } from "@translate-local/shared/errors";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

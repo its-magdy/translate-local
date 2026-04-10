@@ -10,16 +10,16 @@
       },
     },
     "apps/cli": {
-      "name": "@tl/cli",
-      "version": "0.1.0",
+      "name": "@translate-local/cli",
+      "version": "0.3.0",
       "bin": {
         "tl": "./src/index.ts",
       },
       "dependencies": {
-        "@tl/adapters": "workspace:*",
-        "@tl/core": "workspace:*",
-        "@tl/shared": "workspace:*",
-        "@tl/tui": "workspace:*",
+        "@translate-local/adapters": "workspace:*",
+        "@translate-local/core": "workspace:*",
+        "@translate-local/shared": "workspace:*",
+        "@translate-local/tui": "workspace:*",
         "commander": "^14.0.3",
       },
       "devDependencies": {
@@ -28,13 +28,13 @@
       },
     },
     "apps/tui": {
-      "name": "@tl/tui",
-      "version": "0.1.0",
+      "name": "@translate-local/tui",
+      "version": "0.3.0",
       "dependencies": {
         "@opentui/core": "0.1.82",
-        "@tl/adapters": "workspace:*",
-        "@tl/core": "workspace:*",
-        "@tl/shared": "workspace:*",
+        "@translate-local/adapters": "workspace:*",
+        "@translate-local/core": "workspace:*",
+        "@translate-local/shared": "workspace:*",
       },
       "devDependencies": {
         "bun-types": "latest",
@@ -42,36 +42,70 @@
       },
     },
     "packages/adapters": {
-      "name": "@tl/adapters",
-      "version": "0.2.0",
+      "name": "@translate-local/adapters",
+      "version": "0.3.0",
       "devDependencies": {
-        "@tl/shared": "workspace:*",
+        "@translate-local/shared": "workspace:*",
         "bun-types": "latest",
         "typescript": "^5.7",
       },
       "peerDependencies": {
-        "@tl/shared": "workspace:*",
+        "@translate-local/shared": "workspace:*",
       },
     },
     "packages/core": {
-      "name": "@tl/core",
+      "name": "@translate-local/core",
       "version": "0.3.0",
       "dependencies": {
         "zod": "^4.3.6",
       },
       "devDependencies": {
-        "@tl/adapters": "workspace:*",
-        "@tl/shared": "workspace:*",
+        "@translate-local/adapters": "workspace:*",
+        "@translate-local/shared": "workspace:*",
         "bun-types": "latest",
         "typescript": "^5.7",
       },
       "peerDependencies": {
-        "@tl/shared": "workspace:*",
+        "@translate-local/shared": "workspace:*",
       },
     },
+    "packages/npm-tl": {
+      "name": "@translate-local/tl",
+      "version": "0.3.0",
+      "bin": {
+        "tl": "bin/tl.js",
+      },
+      "optionalDependencies": {
+        "@translate-local/tl-darwin-arm64": "0.3.0",
+        "@translate-local/tl-darwin-x64": "0.3.0",
+        "@translate-local/tl-linux-arm64": "0.3.0",
+        "@translate-local/tl-linux-x64": "0.3.0",
+        "@translate-local/tl-win32-x64": "0.3.0",
+      },
+    },
+    "packages/npm-tl-darwin-arm64": {
+      "name": "@translate-local/tl-darwin-arm64",
+      "version": "0.3.0",
+    },
+    "packages/npm-tl-darwin-x64": {
+      "name": "@translate-local/tl-darwin-x64",
+      "version": "0.3.0",
+    },
+    "packages/npm-tl-linux-arm64": {
+      "name": "@translate-local/tl-linux-arm64",
+      "version": "0.3.0",
+    },
+    "packages/npm-tl-linux-x64": {
+      "name": "@translate-local/tl-linux-x64",
+      "version": "0.3.0",
+    },
+    "packages/npm-tl-win32-x64": {
+      "name": "@translate-local/tl-win32-x64",
+      "version": "0.3.0",
+    },
     "packages/shared": {
-      "name": "@tl/shared",
-      "version": "0.1.1",
+      "name": "@translate-local/shared",
+      "version": "0.3.0",
       "devDependencies": {
         "bun-types": "latest",
         "typescript": "^5.7",
@@ -151,17 +185,29 @@
 
     "@opentui/core-win32-x64": ["@opentui/core-win32-x64@0.1.82", "", { "os": "win32", "cpu": "x64" }, "sha512-TV1ljMVRkUozDwPLz/S4q6t262jPm4K/M8BIJ25mhrh2n5bKdhW1/T0c3fZzbx/g4ikOzQ8cRrIZvgr+pLgvBw=="],
 
-    "@tl/adapters": ["@tl/adapters@workspace:packages/adapters"],
-
-    "@tl/cli": ["@tl/cli@workspace:apps/cli"],
-
-    "@tl/core": ["@tl/core@workspace:packages/core"],
-
-    "@tl/shared": ["@tl/shared@workspace:packages/shared"],
-
-    "@tl/tui": ["@tl/tui@workspace:apps/tui"],
-
     "@tokenizer/token": ["@tokenizer/token@0.3.0", "", {}, "sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A=="],
+
+    "@translate-local/adapters": ["@translate-local/adapters@workspace:packages/adapters"],
+
+    "@translate-local/cli": ["@translate-local/cli@workspace:apps/cli"],
+
+    "@translate-local/core": ["@translate-local/core@workspace:packages/core"],
+
+    "@translate-local/shared": ["@translate-local/shared@workspace:packages/shared"],
+
+    "@translate-local/tl": ["@translate-local/tl@workspace:packages/npm-tl"],
+
+    "@translate-local/tl-darwin-arm64": ["@translate-local/tl-darwin-arm64@workspace:packages/npm-tl-darwin-arm64"],
+
+    "@translate-local/tl-darwin-x64": ["@translate-local/tl-darwin-x64@workspace:packages/npm-tl-darwin-x64"],
+
+    "@translate-local/tl-linux-arm64": ["@translate-local/tl-linux-arm64@workspace:packages/npm-tl-linux-arm64"],
+
+    "@translate-local/tl-linux-x64": ["@translate-local/tl-linux-x64@workspace:packages/npm-tl-linux-x64"],
+
+    "@translate-local/tl-win32-x64": ["@translate-local/tl-win32-x64@workspace:packages/npm-tl-win32-x64"],
+
+    "@translate-local/tui": ["@translate-local/tui@workspace:apps/tui"],
 
     "@types/node": ["@types/node@25.2.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-m0jEgYlYz+mDJZ2+F4v8D1AyQb+QzsNqRuI7xg1VQX/KlKS0qT9r1Mo16yo5F/MtifXFgaofIFsdFMox2SxIbQ=="],
 
@@ -181,7 +227,7 @@
 
     "bun-ffi-structs": ["bun-ffi-structs@0.1.2", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-Lh1oQAYHDcnesJauieA4UNkWGXY9hYck7OA5IaRwE3Bp6K2F2pJSNYqq+hIy7P3uOvo3km3oxS8304g5gDMl/w=="],
 
-    "bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
+    "bun-types": ["bun-types@1.3.12", "", { "dependencies": { "@types/node": "*" } }, "sha512-HqOLj5PoFajAQciOMRiIZGNoKxDJSr6qigAttOX40vJuSp6DN/CxWp9s3C1Xwm4oH7ybueITwiaOcWXoYVoRkA=="],
 
     "bun-webgpu": ["bun-webgpu@0.1.5", "", { "dependencies": { "@webgpu/types": "^0.1.60" }, "optionalDependencies": { "bun-webgpu-darwin-arm64": "^0.1.5", "bun-webgpu-darwin-x64": "^0.1.5", "bun-webgpu-linux-x64": "^0.1.5", "bun-webgpu-win32-x64": "^0.1.5" } }, "sha512-91/K6S5whZKX7CWAm9AylhyKrLGRz6BUiiPiM/kXadSnD4rffljCD/q9cNFftm5YXhx4MvLqw33yEilxogJvwA=="],
 

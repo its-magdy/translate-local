@@ -1,5 +1,5 @@
 import { SelectRenderable, type CliRenderer } from "@opentui/core";
-import { LANG_NAMES } from "@tl/shared/constants";
+import { LANG_NAMES } from "@translate-local/shared/constants";
 
 export const SUPPORTED_LANGUAGES = [
   { code: "auto", name: "Auto-detect" },

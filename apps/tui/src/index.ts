@@ -6,12 +6,12 @@ import {
   TabSelectRenderableEvents,
   type CliRenderer,
 } from "@opentui/core";
-import { loadConfig } from "@tl/core/config";
-import { GlossaryStore } from "@tl/core/glossary";
-import { createAdapter } from "@tl/adapters/factory";
-import type { Adapter, AdapterConfig } from "@tl/shared/types";
-import type { CoreConfig } from "@tl/core/config";
-import { TlError } from "@tl/shared/errors";
+import { loadConfig } from "@translate-local/core/config";
+import { GlossaryStore } from "@translate-local/core/glossary";
+import { createAdapter } from "@translate-local/adapters/factory";
+import type { Adapter, AdapterConfig } from "@translate-local/shared/types";
+import type { CoreConfig } from "@translate-local/core/config";
+import { TlError } from "@translate-local/shared/errors";
 import { makeTranslateView } from "./views/translate";
 import { makeGlossaryView } from "./views/glossary";
 import { C } from "./theme";

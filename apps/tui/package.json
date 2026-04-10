@@ -1,5 +1,5 @@
 {
-  "name": "@tl/tui",
+  "name": "@translate-local/tui",
   "version": "0.3.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
-    "@tl/shared": "workspace:*",
-    "@tl/core": "workspace:*",
-    "@tl/adapters": "workspace:*",
+    "@translate-local/shared": "workspace:*",
+    "@translate-local/core": "workspace:*",
+    "@translate-local/adapters": "workspace:*",
     "@opentui/core": "0.1.82"
   },
   "devDependencies": {

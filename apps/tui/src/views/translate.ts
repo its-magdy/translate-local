@@ -5,8 +5,8 @@ import {
   TextareaRenderable,
   type CliRenderer,
 } from "@opentui/core";
-import { runPipeline } from "@tl/core/pipeline";
-import { TlError } from "@tl/shared/errors";
+import { runPipeline } from "@translate-local/core/pipeline";
+import { TlError } from "@translate-local/shared/errors";
 import type { AppState } from "../index";
 import { makeLangPicker } from "./widgets";
 import { C } from "../theme";

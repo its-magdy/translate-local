@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
-import { TlError } from "@tl/shared/errors";
+import { TlError } from "@translate-local/shared/errors";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
@@ -25,7 +25,7 @@ program.addCommand(makeConfigCommand());
 // When called with no args, launch TUI in-process via dynamic import.
 // Dynamic import keeps OpenTUI/React off the cold path for non-TUI invocations.
 if (process.argv.length <= 2) {
-  const { runTui } = await import("@tl/tui");
+  const { runTui } = await import("@translate-local/tui");
   // runTui() resolves once setup is done; the renderer's stdin raw-mode + render
   // loop keep the event loop alive afterwards, and its teardown() handler is what
   // ultimately calls process.exit(). Do NOT exit here — that would kill the TUI

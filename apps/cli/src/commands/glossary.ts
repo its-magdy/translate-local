@@ -1,10 +1,10 @@
 import { Command } from "commander";
-import { loadConfig } from "@tl/core/config";
-import { GlossaryStore } from "@tl/core/glossary";
+import { loadConfig } from "@translate-local/core/config";
+import { GlossaryStore } from "@translate-local/core/glossary";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { formatGlossaryList, formatError } from "../formatters/output";
-import { isSupported } from "@tl/shared/utils/language";
+import { isSupported } from "@translate-local/shared/utils/language";
 
 /** Wrap a CSV field in double-quotes if it contains a comma, quote, or newline. */
 function csvField(s: string): string {

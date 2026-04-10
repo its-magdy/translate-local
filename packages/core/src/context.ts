@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import { mkdirSync, chmodSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
-import type { ContextSource, ContextSnippet } from "@tl/shared/types";
-import { TlError } from "@tl/shared/errors";
+import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
+import { TlError } from "@translate-local/shared/errors";
 
 function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];

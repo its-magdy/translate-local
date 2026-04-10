@@ -85,10 +85,10 @@ t/
 
 ## npm Scope & Publishing
 
-- **Scope**: `@tl/*` — all packages under `packages/` are publishable (`@tl/shared`, `@tl/core`, `@tl/adapters`)
+- **Scope**: `@translate-local/*` — all packages under `packages/` are publishable (`@translate-local/shared`, `@translate-local/core`, `@translate-local/adapters`)
 - **Apps** (`apps/cli`, `apps/tui`) are private, not published
-- **Subpath exports**: Each package uses the `exports` field for granular imports (e.g., `@tl/shared/types`, `@tl/core/pipeline`)
-- **Peer deps**: `@tl/core` and `@tl/adapters` peer-depend on `@tl/shared`
+- **Subpath exports**: Each package uses the `exports` field for granular imports (e.g., `@translate-local/shared/types`, `@translate-local/core/pipeline`)
+- **Peer deps**: `@translate-local/core` and `@translate-local/adapters` peer-depend on `@translate-local/shared`
 - **Bun-first**: In dev, `.ts` sources are consumed directly via `exports` — no build step needed
 
 ## Versioning & Changelog
@@ -109,7 +109,7 @@ t/
 - **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB. Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
 - **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. When present, the pipeline forwards it on the first attempt only (retries are silent to avoid concatenating tokens across attempts). The adapter sets `stream: true` and calls `onChunk` per token via NDJSON, while still accumulating the full response for postprocessing. Adapters that don't support streaming ignore the field. CLI writes tokens directly to stdout; TUI updates the output pane with a 16ms render throttle.
 - **Memory management**: Adapters call `dispose()` to unload models from VRAM. CLI calls it after each translation; TUI on exit.
-- **MockAdapter**: Available via `createMockAdapter()` from `@tl/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
+- **MockAdapter**: Available via `createMockAdapter()` from `@translate-local/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
 - **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models.
 
 ## Testing

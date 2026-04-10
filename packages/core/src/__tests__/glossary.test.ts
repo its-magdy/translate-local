@@ -3,7 +3,7 @@ import { GlossaryStore, matchTerms } from "../glossary";
 import { rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import type { GlossaryEntry } from "@tl/shared/types";
+import type { GlossaryEntry } from "@translate-local/shared/types";
 
 describe("matchTerms", () => {
   const entry = (sourceTerm: string, targetTerm: string): GlossaryEntry => ({

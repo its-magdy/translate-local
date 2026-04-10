@@ -70,9 +70,9 @@ If any check fails, fix the issue and re-run before committing.
 ## Monorepo Structure
 
 ```
-packages/shared/    @tl/shared    — Types, errors, constants, utils
-packages/core/      @tl/core      — Config, glossary, pipeline, context
-packages/adapters/  @tl/adapters  — Adapter implementations
+packages/shared/    @translate-local/shared    — Types, errors, constants, utils
+packages/core/      @translate-local/core      — Config, glossary, pipeline, context
+packages/adapters/  @translate-local/adapters  — Adapter implementations
 apps/cli/           (private)     — Commander.js CLI
 apps/tui/           (private)     — Terminal UI
 ```

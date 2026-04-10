@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { resolve } from "path";
-import { loadConfig } from "@tl/core/config";
-import { ContextStore } from "@tl/core/context";
+import { loadConfig } from "@translate-local/core/config";
+import { ContextStore } from "@translate-local/core/context";
 import { formatError } from "../formatters/output";
 
 async function withStore<T>(fn: (s: ContextStore) => Promise<T>): Promise<T> {
