@@ -56,6 +56,43 @@ jobs:
           path: apps/cli/dist/tl-${{ matrix.target.name }}*
           if-no-files-found: error
 
+  publish-npm:
+    name: publish npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Stage platform packages
+        run: node scripts/stage-npm-packages.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Publish platform packages
+        run: |
+          for dir in packages/npm-tl-*/; do
+            npm publish "$dir" --access public --provenance
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish wrapper package
+        run: npm publish packages/npm-tl --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   release:
     name: release
     needs: build

@@ -31,6 +31,21 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 `tl` ships as a self-contained binary — no Bun, Node, or other runtime needed. Pick the install method for your platform.
 
+### npm / bunx
+
+If you have Node or Bun installed, this is the easiest path:
+
+```sh
+# Install globally — then just type `tl`
+npm install -g @translate-local/tl
+
+# Or run without installing
+bunx @translate-local/tl "hello" --to ar
+npx @translate-local/tl "hello" --to ar
+```
+
+npm installs only the binary for your platform (~63 MB). You do not need Bun or any other runtime after install.
+
 ### Direct binary download
 
 Download for your platform from the [latest release](https://github.com/its-magdy/Translate-Local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
