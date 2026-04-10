@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/tl-win32-x64",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Windows x64 binary for @translate-local/tl — do not install directly",
   "os": ["win32"],
   "cpu": ["x64"],
