@@ -4,8 +4,8 @@
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/its-magdy/Translate-Local.git
-cd Translate-Local
+git clone https://github.com/its-magdy/translate-local.git
+cd translate-local
 
 # 2. Install dependencies (Bun is required)
 bun install
@@ -77,7 +77,7 @@ apps/cli/           (private)     — Commander.js CLI
 apps/tui/           (private)     — Terminal UI
 ```
 
-Changes to `packages/*` should include a version bump in `package.json` and a `CHANGELOG.md` entry following [Keep a Changelog](https://keepachangelog.com/) format.
+All packages share a unified version. When your change warrants a release, bump the version in all `package.json` files together and add an entry to the root `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## Useful Links
 
