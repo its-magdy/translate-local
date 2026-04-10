@@ -38,18 +38,16 @@ if (process.argv.length <= 2) {
     process.exit(1);
   }
 } else {
+  // Support: `tl <text>` as shorthand for `tl translate <text>`
+  // Derive command names dynamically so new subcommands are picked up automatically.
+  const registeredCommands = new Set(program.commands.map((c) => c.name()));
+  const firstArg = process.argv[2];
+  if (firstArg && !registeredCommands.has(firstArg) && !firstArg.startsWith("-")) {
+    process.argv.splice(2, 0, "translate");
+  }
 
-// Support: `tl <text>` as shorthand for `tl translate <text>`
-// Derive command names dynamically so new subcommands are picked up automatically.
-const registeredCommands = new Set(program.commands.map((c) => c.name()));
-const firstArg = process.argv[2];
-if (firstArg && !registeredCommands.has(firstArg) && !firstArg.startsWith("-")) {
-  process.argv.splice(2, 0, "translate");
-}
-
-program.parseAsync(process.argv).catch((err) => {
-  console.error(err.message ?? String(err));
-  process.exit(1);
-});
-
+  program.parseAsync(process.argv).catch((err) => {
+    console.error(err.message ?? String(err));
+    process.exit(1);
+  });
 }

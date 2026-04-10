@@ -82,6 +82,7 @@ jobs:
 
       - name: Publish platform packages
         run: |
+          set -euo pipefail
           for dir in packages/npm-tl-*/; do
             npm publish "$dir" --access public --provenance
           done
