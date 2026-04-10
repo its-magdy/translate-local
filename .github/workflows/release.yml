@@ -82,13 +82,13 @@ jobs:
         run: |
           set -euo pipefail
           for dir in packages/npm-tl-*/; do
-            npm publish "$dir" --access public --provenance
+            (cd "$dir" && npm publish --access public --provenance)
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish wrapper package
-        run: npm publish packages/npm-tl --access public --provenance
+        run: cd packages/npm-tl && npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
