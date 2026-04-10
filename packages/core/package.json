@@ -6,7 +6,7 @@
   "author": "Mohamed Omar",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/its-magdy/Translate-Local.git",
+    "url": "git+https://github.com/its-magdy/translate-local.git",
     "directory": "packages/core"
   },
   "keywords": ["translation", "glossary", "pipeline", "localization"],
