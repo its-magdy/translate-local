@@ -10,7 +10,7 @@
 //   artifacts/tl-linux-arm64
 //   artifacts/tl-windows-x64.exe
 
-import { copyFileSync, chmodSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, chmodSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,6 +20,10 @@ const root = join(__dirname, '..');
 const version = process.argv[2];
 if (!version) {
   console.error('Usage: node scripts/stage-npm-packages.mjs <version>');
+  process.exit(1);
+}
+if (!/^\d+\.\d+\.\d+/.test(version)) {
+  console.error(`Invalid semver version: "${version}"`);
   process.exit(1);
 }
 
@@ -44,6 +48,10 @@ for (const { pkg, src, dst } of PLATFORMS) {
   const dstDir  = join(root, 'packages', pkg, 'bin');
   const dstPath = join(dstDir, dst);
 
+  if (!existsSync(srcPath)) {
+    console.error(`Missing artifact: ${srcPath}`);
+    process.exit(1);
+  }
   copyFileSync(srcPath, dstPath);
   if (!dst.endsWith('.exe')) chmodSync(dstPath, 0o755);
 

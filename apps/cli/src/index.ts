@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
+import { TlError } from "@tl/shared/errors";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
@@ -29,7 +30,13 @@ if (process.argv.length <= 2) {
   // loop keep the event loop alive afterwards, and its teardown() handler is what
   // ultimately calls process.exit(). Do NOT exit here — that would kill the TUI
   // before any user input could be processed.
-  await runTui();
+  try {
+    await runTui();
+  } catch (err) {
+    const msg = err instanceof TlError ? err.hint : String(err);
+    console.error(`tl: ${msg}`);
+    process.exit(1);
+  }
 } else {
 
 // Support: `tl <text>` as shorthand for `tl translate <text>`
