@@ -4,7 +4,7 @@ This guide explains how to implement a custom adapter for `tl`.
 
 ## The Adapter Interface
 
-All adapters implement the `Adapter` interface from `@tl/shared/types`:
+All adapters implement the `Adapter` interface from `@translate-local/shared/types`:
 
 ```typescript
 export interface Adapter {
@@ -97,7 +97,7 @@ To add a new backend type, add a case to this switch.
 
 ```typescript
 // packages/adapters/src/my-service/index.ts
-import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
+import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
 import { buildNaturalPrompt } from "../base";
 
 export class MyServiceAdapter implements Adapter {

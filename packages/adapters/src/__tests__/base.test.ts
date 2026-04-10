@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { buildStructuredPrompt, buildNaturalPrompt } from "../base";
-import type { GlossaryEntry, GlossaryHit, TranslationRequest } from "@tl/shared/types";
+import type { GlossaryEntry, GlossaryHit, TranslationRequest } from "@translate-local/shared/types";
 
 const baseRequest: TranslationRequest = {
   source: "The API is ready.",

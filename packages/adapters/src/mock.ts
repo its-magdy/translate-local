@@ -1,5 +1,5 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
-import { computeGlossaryCoverage } from "@tl/shared/utils/text";
+import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import { computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 
 /**
  * Deterministic mock adapter for testing.

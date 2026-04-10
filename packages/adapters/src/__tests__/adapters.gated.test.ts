@@ -4,7 +4,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { TranslateGemmaLocalAdapter } from "../translate-gemma/local";
-import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "@tl/shared/constants";
+import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "@translate-local/shared/constants";
 
 const RUN = process.env.TEST_ADAPTER === "1";
 

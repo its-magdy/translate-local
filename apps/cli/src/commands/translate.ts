@@ -1,12 +1,12 @@
 import { Command } from "commander";
-import { loadConfig } from "@tl/core/config";
-import { GlossaryStore } from "@tl/core/glossary";
-import { ContextStore } from "@tl/core/context";
-import { runPipeline } from "@tl/core/pipeline";
-import { createAdapter } from "@tl/adapters/factory";
-import type { AdapterConfig } from "@tl/shared/types";
-import { TlError } from "@tl/shared/errors";
-import { isSupported } from "@tl/shared/utils/language";
+import { loadConfig } from "@translate-local/core/config";
+import { GlossaryStore } from "@translate-local/core/glossary";
+import { ContextStore } from "@translate-local/core/context";
+import { runPipeline } from "@translate-local/core/pipeline";
+import { createAdapter } from "@translate-local/adapters/factory";
+import type { AdapterConfig } from "@translate-local/shared/types";
+import { TlError } from "@translate-local/shared/errors";
+import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 import { resolve } from "path";
 

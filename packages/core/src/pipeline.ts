@@ -1,6 +1,6 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@tl/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@tl/shared/utils/text";
-import { TlError } from "@tl/shared/errors";
+import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
+import { TlError } from "@translate-local/shared/errors";
 import type { GlossaryStore } from "./glossary";
 
 export interface PipelineOptions {

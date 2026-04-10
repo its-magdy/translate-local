@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
-import { TlError } from "@tl/shared/errors";
+import { TlError } from "@translate-local/shared/errors";
 
 function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;

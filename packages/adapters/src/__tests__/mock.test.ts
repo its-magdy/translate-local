@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { MockAdapter } from "../mock";
-import type { GlossaryEntry, GlossaryHit, TranslationRequest } from "@tl/shared/types";
+import type { GlossaryEntry, GlossaryHit, TranslationRequest } from "@translate-local/shared/types";
 
 const makeRequest = (overrides?: Partial<TranslationRequest>): TranslationRequest => ({
   source: "Hello world",

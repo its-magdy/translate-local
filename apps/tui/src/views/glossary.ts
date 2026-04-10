@@ -5,7 +5,7 @@ import {
   InputRenderableEvents,
   type CliRenderer,
 } from "@opentui/core";
-import type { GlossaryEntry } from "@tl/shared/types";
+import type { GlossaryEntry } from "@translate-local/shared/types";
 import type { AppState } from "../index";
 import type { View } from "./translate";
 import { makeLangPicker } from "./widgets";

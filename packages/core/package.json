@@ -1,5 +1,5 @@
 {
-  "name": "@tl/core",
+  "name": "@translate-local/core",
   "version": "0.3.0",
   "description": "Core translation pipeline with glossary enforcement and context retrieval for tl",
   "license": "MIT",
@@ -45,11 +45,11 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "@tl/shared": "workspace:*"
+    "@translate-local/shared": "workspace:*"
   },
   "devDependencies": {
-    "@tl/adapters": "workspace:*",
-    "@tl/shared": "workspace:*",
+    "@translate-local/adapters": "workspace:*",
+    "@translate-local/shared": "workspace:*",
     "bun-types": "latest",
     "typescript": "^5.7"
   },

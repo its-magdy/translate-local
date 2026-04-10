@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { runPipeline } from "../pipeline";
 import { GlossaryStore } from "../glossary";
-import { MockAdapter } from "@tl/adapters/mock";
+import { MockAdapter } from "@translate-local/adapters/mock";
 import { rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { TlError } from "@tl/shared/errors";
+import { TlError } from "@translate-local/shared/errors";
 
 const TEST_INTEGRATION = process.env.TEST_INTEGRATION === "1";
 

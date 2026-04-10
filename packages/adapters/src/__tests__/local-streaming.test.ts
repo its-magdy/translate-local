@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { TranslateGemmaLocalAdapter } from "../translate-gemma/local";
-import { TlError } from "@tl/shared/errors";
-import type { TranslationRequest } from "@tl/shared/types";
+import { TlError } from "@translate-local/shared/errors";
+import type { TranslationRequest } from "@translate-local/shared/types";
 
 const ENDPOINT = "http://localhost:11434";
 

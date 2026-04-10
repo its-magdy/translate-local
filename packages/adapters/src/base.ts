@@ -1,5 +1,5 @@
-import type { TranslationRequest } from "@tl/shared/types";
-import { LANG_NAMES } from "@tl/shared/constants";
+import type { TranslationRequest } from "@translate-local/shared/types";
+import { LANG_NAMES } from "@translate-local/shared/constants";
 
 function langLabel(code: string): string {
   const name = LANG_NAMES[code.toLowerCase()];

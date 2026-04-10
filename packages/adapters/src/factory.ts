@@ -1,6 +1,6 @@
-import type { Adapter, AdapterConfig } from "@tl/shared/types";
-import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "@tl/shared/constants";
-import { TlError } from "@tl/shared/errors";
+import type { Adapter, AdapterConfig } from "@translate-local/shared/types";
+import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "@translate-local/shared/constants";
+import { TlError } from "@translate-local/shared/errors";
 import { MockAdapter } from "./mock";
 import { TranslateGemmaLocalAdapter } from "./translate-gemma/local";
 

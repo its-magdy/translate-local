@@ -1,5 +1,5 @@
-import type { TranslationResult } from "@tl/shared/types";
-import type { GlossaryEntry } from "@tl/shared/types";
+import type { TranslationResult } from "@translate-local/shared/types";
+import type { GlossaryEntry } from "@translate-local/shared/types";
 
 const RESET = "\x1b[0m";
 const GREEN = "\x1b[32m";

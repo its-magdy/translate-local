@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { loadConfig, saveConfig, getConfigPath } from "@tl/core/config";
+import { loadConfig, saveConfig, getConfigPath } from "@translate-local/core/config";
 import { formatError } from "../formatters/output";
 
 export function makeConfigCommand(): Command {

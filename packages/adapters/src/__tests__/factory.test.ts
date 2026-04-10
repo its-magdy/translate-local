@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { createAdapter, createMockAdapter } from "../factory";
 import { MockAdapter } from "../mock";
 import { TranslateGemmaLocalAdapter } from "../translate-gemma/local";
-import type { AdapterConfig } from "@tl/shared/types";
+import type { AdapterConfig } from "@translate-local/shared/types";
 
 describe("createAdapter", () => {
   test("creates ollama adapter", () => {
