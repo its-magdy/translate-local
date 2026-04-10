@@ -17,7 +17,7 @@ jobs:
       matrix:
         target:
           - { name: darwin-arm64, bun: bun-darwin-arm64, os: macos-latest  }
-          - { name: darwin-x64,   bun: bun-darwin-x64,   os: macos-13      }
+          - { name: darwin-x64,   bun: bun-darwin-x64,   os: macos-15-intel }
           - { name: linux-x64,    bun: bun-linux-x64,    os: ubuntu-latest }
           - { name: linux-arm64,  bun: bun-linux-arm64,  os: ubuntu-24.04-arm }
           - { name: windows-x64,  bun: bun-windows-x64,  os: windows-latest }
