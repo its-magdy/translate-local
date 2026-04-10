@@ -93,10 +93,10 @@ t/
 
 ## Versioning & Changelog
 
-- Each publishable package (`packages/*`) maintains its own `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format.
+- **Unified versioning**: all packages share a single version number, bumped together on each release.
 - Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
-- Starting version: `0.1.0` for all packages until a stable public API is established.
-- When completing a feature, bump the affected package version(s) in their `package.json` and update their `CHANGELOG.md`.
+- A single root `CHANGELOG.md` tracks all changes (no per-package changelogs).
+- When completing a feature, bump the version in **all** `package.json` files, the CLI `.version()` string, and update the root `CHANGELOG.md`.
 - Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
 
 ## Key Patterns

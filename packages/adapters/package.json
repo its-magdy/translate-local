@@ -1,6 +1,6 @@
 {
   "name": "@tl/adapters",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Model adapter implementations for tl (TranslateGemma via Ollama, mock)",
   "license": "MIT",
   "author": "Mohamed Omar",
@@ -11,7 +11,7 @@
   },
   "keywords": ["translation", "ollama", "translategemma", "adapter"],
   "type": "module",
-  "files": ["dist/", "LICENSE", "README.md", "CHANGELOG.md"],
+  "files": ["dist/", "LICENSE", "README.md"],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
