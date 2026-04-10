@@ -7,8 +7,9 @@
   "engines": { "node": ">=18" },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/its-magdy/Translate-Local.git"
+    "url": "git+https://github.com/its-magdy/translate-local.git"
   },
+  "keywords": ["translation", "cli", "local", "offline", "ollama", "llm", "glossary", "i18n", "l10n", "tui", "rtl", "arabic"],
   "license": "MIT",
   "optionalDependencies": {
     "@translate-local/tl-darwin-arm64": "0.3.0",
