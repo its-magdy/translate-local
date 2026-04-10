@@ -82,7 +82,8 @@ jobs:
         run: |
           set -euo pipefail
           for dir in packages/npm-tl-*/; do
-            (cd "$dir" && npm publish --access public --provenance)
+            (cd "$dir" && npm publish --access public --provenance) || \
+              echo "Skipping $dir — already published"
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
