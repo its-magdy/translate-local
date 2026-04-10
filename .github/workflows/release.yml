@@ -11,16 +11,16 @@ permissions:
 jobs:
   build:
     name: build (${{ matrix.target.name }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
       matrix:
         target:
-          - { name: darwin-arm64, bun: bun-darwin-arm64 }
-          - { name: darwin-x64,   bun: bun-darwin-x64 }
-          - { name: linux-x64,    bun: bun-linux-x64 }
-          - { name: linux-arm64,  bun: bun-linux-arm64 }
-          - { name: windows-x64,  bun: bun-windows-x64 }
+          - { name: darwin-arm64, bun: bun-darwin-arm64, os: macos-latest  }
+          - { name: darwin-x64,   bun: bun-darwin-x64,   os: macos-latest  }
+          - { name: linux-x64,    bun: bun-linux-x64,    os: ubuntu-latest }
+          - { name: linux-arm64,  bun: bun-linux-arm64,  os: ubuntu-24.04-arm }
+          - { name: windows-x64,  bun: bun-windows-x64,  os: windows-latest }
     steps:
       - uses: actions/checkout@v6
 
@@ -31,11 +31,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # NOTE: All targets are cross-compiled from ubuntu-latest. Bun's
-      # cross-compilation has had rough edges around platform-specific natives
-      # (notably `bun:sqlite`, which this project uses for the glossary store).
-      # Before tagging a release, manually smoke-test the darwin builds against
-      # a real glossary DB on a Mac to catch breakage early.
+      # Each target builds on its native OS so platform-specific optional deps
+      # (opentui, bun:sqlite) install and bundle correctly without cross-compilation hacks.
       - name: Compile binary
         working-directory: apps/cli
         run: |
