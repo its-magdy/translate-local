@@ -47,6 +47,20 @@ jobs:
             ./src/index.ts \
             --outfile "$OUT"
 
+      # Ad-hoc sign macOS binaries so Gatekeeper doesn't kill them on Apple Silicon / macOS 15+.
+      # This uses the free "-s -" identity (no Apple Developer account needed).
+      # Bun's JIT engine requires the entitlements below to run under the hardened runtime.
+      - name: Ad-hoc codesign (macOS only)
+        if: startsWith(matrix.target.name, 'darwin')
+        shell: bash
+        working-directory: apps/cli/dist
+        run: |
+          codesign \
+            --entitlements "${{ github.workspace }}/scripts/entitlements.plist" \
+            --force -s - \
+            "tl-${{ matrix.target.name }}"
+          echo "Signed tl-${{ matrix.target.name }}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
