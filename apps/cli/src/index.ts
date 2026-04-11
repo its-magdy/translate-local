@@ -10,7 +10,7 @@ import { makeConfigCommand } from "./commands/config";
 const program = new Command()
   .name("tl")
   .description("Translation CLI — glossary-aware, context-rich, model-agnostic")
-  .version("0.3.3")
+  .version("0.3.4")
   .allowExcessArguments(false);
 
 // `tl <text>` — translate is the default action when a positional argument is passed

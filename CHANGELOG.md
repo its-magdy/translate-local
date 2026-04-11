@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] - 2026-04-11
+
+### Fixed
+- Pin Bun to 1.3.5 in release CI — Bun 1.3.12 regresses macOS codesigning,
+  producing binaries that `codesign -s -` rejects with "invalid or unsupported format"
+
 ## [0.3.3] - 2026-04-11
 
 ### Fixed
