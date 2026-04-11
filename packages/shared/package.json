@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/shared",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Shared types, errors, constants, and utilities for tl",
   "license": "MIT",
   "author": "Mohamed Omar",
