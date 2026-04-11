@@ -29,57 +29,49 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 ## Installation
 
-`tl` ships as a self-contained binary — no Bun, Node, or other runtime needed. Pick the install method for your platform.
+`tl` ships as a self-contained binary — no Bun, Node, or other runtime needed after install.
+
+### macOS — Homebrew (recommended)
+
+```bash
+brew install its-magdy/tap/tl
+```
+
+Installs `tl` and keeps it up to date with `brew upgrade tl`.
+
+### macOS / Linux — install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/its-magdy/translate-local/main/install.sh | sh
+```
+
+Auto-detects your platform and architecture, installs to `~/.local/bin`, and patches your shell profile. No `sudo` required.
 
 ### npm / bun
 
-If you have Bun or Node installed, this is the easiest path:
-
-```sh
-# Install globally — then just type `tl`
-bun install -g @translate-local/tl
-
-# Run without installing (one-off)
+```bash
+npm install -g @translate-local/tl
+# or
+bun add -g @translate-local/tl
+# or run without installing
 bunx @translate-local/tl "hello" --to ar
 ```
 
-Only the binary for your platform is downloaded (~63 MB). No Bun or Node runtime needed after install.
-
 ### Direct binary download
 
-Download for your platform from the [latest release](https://github.com/its-magdy/translate-local/releases/latest). The snippets below install to `~/.local/bin` — no `sudo` required. Make sure `~/.local/bin` is on your `PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile if it isn't):
+Download for your platform from the [latest release](https://github.com/its-magdy/translate-local/releases/latest) and place the binary on your `PATH`.
 
-```bash
-mkdir -p ~/.local/bin
+| Platform | Binary |
+|----------|--------|
+| macOS — Apple Silicon | `tl-darwin-arm64` |
+| macOS — Intel | `tl-darwin-x64` |
+| Linux — x64 | `tl-linux-x64` |
+| Linux — ARM64 | `tl-linux-arm64` |
+| Windows — x64 | `tl-windows-x64.exe` |
 
-# macOS — Apple Silicon
-curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-darwin-arm64 -o ~/.local/bin/tl
-chmod +x ~/.local/bin/tl
-xattr -d com.apple.quarantine ~/.local/bin/tl   # macOS only — required until we ship signed builds
-
-# macOS — Intel
-curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-darwin-x64 -o ~/.local/bin/tl
-chmod +x ~/.local/bin/tl
-xattr -d com.apple.quarantine ~/.local/bin/tl
-
-# Linux — x64
-curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-linux-x64 -o ~/.local/bin/tl
-chmod +x ~/.local/bin/tl
-
-# Linux — ARM64
-curl -L https://github.com/its-magdy/translate-local/releases/latest/download/tl-linux-arm64 -o ~/.local/bin/tl
-chmod +x ~/.local/bin/tl
-```
-
-To install system-wide instead, replace `~/.local/bin` with `/usr/local/bin` and prefix each `curl`/`chmod`/`xattr` with `sudo`.
-
-For Windows, download `tl-windows-x64.exe` from the release page and place it on your `PATH`.
-
-The binary is ~63 MB and self-contained. Verify the download with the `SHA256SUMS` file from the same release.
+Verify downloads against the `SHA256SUMS` file from the same release.
 
 ### Develop / contribute to tl
-
-This is the **contributor** workflow — `bun link` symlinks `tl` to your working copy of the source. If you delete or move the cloned folder, `tl` breaks. End users should use the binary download above.
 
 ```bash
 git clone https://github.com/its-magdy/translate-local.git
@@ -95,11 +87,7 @@ cd apps/cli && bun run build:bin
 ./dist/tl --version
 ```
 
-To uninstall the dev link later, remove the symlink Bun created in `~/.bun/bin`:
-
-```bash
-rm "$(which tl)"
-```
+---
 
 ## Setup
 
@@ -135,7 +123,7 @@ tl translate "hello world" --from en --to es
 
 #### Image translation
 
-TranslateGemma supports vision input. Pass `--image` with a path to extract and translate text from an image:
+Pass `--image` with a path to extract and translate text from an image:
 
 ```bash
 tl translate --image /path/to/sign.jpg --to ar
@@ -143,7 +131,7 @@ tl translate --image /path/to/menu.png --from en --to es --glossary strict
 tl translate --image /path/to/doc.jpg --to fr --json
 ```
 
-Get machine-readable output:
+#### JSON output
 
 ```bash
 tl "hello" --from en --to ar --json
@@ -210,7 +198,7 @@ tl glossary export --from en --to ar > backup.csv
 **Remove by ID:**
 
 ```bash
-tl glossary remove <id>   # ID shown in: tl glossary list --json
+tl glossary remove <id>
 ```
 
 See [docs/glossary-guide.md](docs/glossary-guide.md) for the full reference.
@@ -227,16 +215,10 @@ Index local `.md`, `.txt`, `.mdx`, or `.rst` files. On each translation, the mos
 tl context add ~/docs/legal-corpus
 ```
 
-The directory is indexed immediately.
-
 **List sources:**
 
 ```bash
 tl context list
-```
-
-```
-~/docs/legal-corpus   42 files   indexed 2025-01-15T10:30:00Z
 ```
 
 **Re-index after file changes:**
@@ -273,9 +255,9 @@ Run `tl` with no arguments:
 tl
 ```
 
-The terminal UI opens with a **Translate** tab (side-by-side source/target panes) and a **Glossary** tab for managing term pairs. It supports image translation via drag-and-drop or pasting an image path into the source pane.
+The terminal UI opens with a **Translate** tab (side-by-side source/target panes) and a **Glossary** tab for managing term pairs. Supports image translation via drag-and-drop or pasting an image path into the source pane.
 
-See [docs/tui-guide.md](docs/tui-guide.md) for the full reference.
+See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 
 ---
 
