@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/tl-linux-x64",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Linux x64 binary for @translate-local/tl — do not install directly",
   "os": ["linux"],
   "cpu": ["x64"],

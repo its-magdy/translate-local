@@ -42,7 +42,7 @@ jobs:
           if [ "${{ matrix.target.name }}" = "windows-x64" ]; then
             OUT="${OUT}.exe"
           fi
-          bun build --compile --minify --sourcemap \
+          bun build --compile --minify \
             --target=${{ matrix.target.bun }} \
             ./src/index.ts \
             --outfile "$OUT"
