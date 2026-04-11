@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/tl",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "CLI-first translation tool with glossary enforcement and local models",
   "bin": { "tl": "bin/tl.js" },
   "files": ["bin/tl.js", "README.md"],
@@ -12,10 +12,10 @@
   "keywords": ["translation", "cli", "local", "offline", "ollama", "llm", "glossary", "i18n", "l10n", "tui", "rtl", "arabic"],
   "license": "MIT",
   "optionalDependencies": {
-    "@translate-local/tl-darwin-arm64": "0.3.2",
-    "@translate-local/tl-darwin-x64":   "0.3.2",
-    "@translate-local/tl-linux-x64":    "0.3.2",
-    "@translate-local/tl-linux-arm64":  "0.3.2",
-    "@translate-local/tl-win32-x64":    "0.3.2"
+    "@translate-local/tl-darwin-arm64": "0.3.3",
+    "@translate-local/tl-darwin-x64":   "0.3.3",
+    "@translate-local/tl-linux-x64":    "0.3.3",
+    "@translate-local/tl-linux-arm64":  "0.3.3",
+    "@translate-local/tl-win32-x64":    "0.3.3"
   }
 }
