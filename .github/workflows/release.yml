@@ -131,3 +131,13 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Trigger Homebrew tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          gh api repos/its-magdy/homebrew-tap/dispatches \
+            --method POST \
+            --field event_type=tl-release \
+            --field client_payload[version]="${VERSION#v}"
