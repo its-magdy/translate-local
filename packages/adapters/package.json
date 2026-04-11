@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/adapters",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Model adapter implementations for tl (TranslateGemma via Ollama, mock)",
   "license": "MIT",
   "author": "Mohamed Omar",

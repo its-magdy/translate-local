@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/tl-darwin-arm64",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "macOS arm64 binary for @translate-local/tl — do not install directly",
   "os": ["darwin"],
   "cpu": ["arm64"],
