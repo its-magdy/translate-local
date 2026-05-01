@@ -216,7 +216,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   // Auto-wrap image paths pasted into the textarea (e.g. drag-drop from Finder)
   renderer.keyInput.on("paste", (event) => {
     if (!sourceTextarea.focused) return;
-    const text = event.text.trim();
+    const text = new TextDecoder().decode(event.bytes).trim();
     const unquoted = text.startsWith("'") && text.endsWith("'")
       ? text.slice(1, -1)
       : text.replace(/\\ /g, " ");
