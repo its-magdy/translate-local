@@ -50,8 +50,8 @@
   "devDependencies": {
     "@translate-local/adapters": "workspace:*",
     "@translate-local/shared": "workspace:*",
-    "bun-types": "latest",
-    "typescript": "^5.7"
+    "@types/bun": "latest",
+    "typescript": "^6.0"
   },
   "dependencies": {
     "zod": "^4.3.6"

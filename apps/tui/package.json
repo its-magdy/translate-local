@@ -15,10 +15,10 @@
     "@translate-local/shared": "workspace:*",
     "@translate-local/core": "workspace:*",
     "@translate-local/adapters": "workspace:*",
-    "@opentui/core": "0.1.82"
+    "@opentui/core": "0.2.1"
   },
   "devDependencies": {
-    "bun-types": "latest",
-    "typescript": "^5.7"
+    "@types/bun": "latest",
+    "typescript": "^6.0"
   }
 }
