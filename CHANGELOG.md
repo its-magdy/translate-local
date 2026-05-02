@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] - 2026-05-02
+
+### Changed
+- Bump Bun from 1.3.5 to 1.3.13 (release CI pinned to 1.3.13)
+- Bump `@opentui/core` from 0.1.82 to 0.2.1
+- Upgrade TypeScript from 5.7 to 6.0; replace `bun-types` with `@types/bun`
+
 ## [0.3.4] - 2026-04-11
 
 ### Fixed
