@@ -28,7 +28,7 @@ export const SUPPORTED_LANGUAGES: readonly string[] = Object.keys(LANG_NAMES);
 
 export const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
 
-export const DEFAULT_MODEL = "translate-gemma-12b";
+export const DEFAULT_MODEL = "translategemma:latest";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 /**
  * NOTE: `~` is NOT expanded by Node/Bun. Consumers must resolve this themselves, e.g.:

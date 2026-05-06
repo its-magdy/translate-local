@@ -45,6 +45,14 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
     const uniqueTokens = [...new Set(tokens)];
     lines.push(
       `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
+      // Few-shot examples — proven LLM technique to lock in format compliance.
+      // The example uses generic words so it doesn't bias the actual translation.
+      `EXAMPLES of correct placeholder preservation across languages:`,
+      `  Source: "Hello __TLPH_0__, you have __TLPH_1__ messages"`,
+      `  → Spanish: "Hola __TLPH_0__, tienes __TLPH_1__ mensajes"`,
+      `  → Arabic: "مرحبًا __TLPH_0__، لديك __TLPH_1__ رسالة"`,
+      `  → Japanese: "こんにちは __TLPH_0__ さん、__TLPH_1__ 件のメッセージがあります"`,
+      `Notice each token appears exactly once in each translation, in a natural position. Apply the same discipline to your translation below.`,
     );
   }
 

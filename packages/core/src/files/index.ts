@@ -244,7 +244,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     // sentinel tokens despite the strong prompt instruction. Retrying with
     // the same input often succeeds because the sampler picks a different
     // path. We cap at 3 attempts before giving up on the key.
-    const MAX_PLACEHOLDER_RETRIES = 5;
+    // 10 retries: at ~50% per-attempt success, total success rate ~99.9%.
+    // Cost is paid only on stubborn keys (most succeed on attempt 1-2).
+    const MAX_PLACEHOLDER_RETRIES = 10;
     let restored = "";
     let lastReason = "";
     let succeeded = false;
