@@ -49,3 +49,4 @@ export function resolveGlossaryDbPath(): string { return join(homedir(), ".confi
 /** Returns the resolved absolute path to the default context database. */
 export function resolveContextDbPath(): string { return join(homedir(), ".config/tl/context.db"); }
 export const DEFAULT_GLOSSARY_MODE = "prefer" as const;
+export const DEFAULT_OLLAMA_TIMEOUT_MS = 60_000;

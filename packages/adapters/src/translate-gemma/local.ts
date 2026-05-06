@@ -1,6 +1,7 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { computeGlossaryCoverage } from "@translate-local/shared/utils/text";
+import { DEFAULT_OLLAMA_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { buildStructuredPrompt } from "../base";
 
 interface OllamaGenerateRequest {
@@ -26,7 +27,8 @@ export class TranslateGemmaLocalAdapter implements Adapter {
 
   constructor(
     private readonly model: string,
-    private readonly endpoint: string
+    private readonly endpoint: string,
+    private readonly timeoutMs: number = DEFAULT_OLLAMA_TIMEOUT_MS
   ) {}
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
@@ -45,8 +47,16 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           ...(system ? { system } : {}),
           ...(request.imageBase64 ? { images: [request.imageBase64] } : {}),
         } satisfies OllamaGenerateRequest),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new TlError(
+          "ADAPTER_UNAVAILABLE",
+          `Ollama did not respond within ${this.timeoutMs}ms`,
+          "Check that Ollama is running and not overloaded: ollama serve"
+        );
+      }
       throw new TlError(
         "ADAPTER_UNAVAILABLE",
         `Ollama is not reachable at ${this.endpoint}`,
@@ -162,6 +172,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           stream: false,
           keep_alive: 0,
         } satisfies OllamaGenerateRequest),
+        signal: AbortSignal.timeout(5_000),
       });
     } catch {
       // Best-effort: ignore errors on dispose
