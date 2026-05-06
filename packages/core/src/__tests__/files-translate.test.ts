@@ -262,9 +262,7 @@ describe("translateFile", () => {
     class DropSentinelAdapter extends MockAdapter {
       async translate(req: { source: string; sourceLang: string; targetLang: string }) {
         // Drop everything after the first sentinel-open char if present
-        const PUA_O = String.fromCharCode(0xe000);
-        const PUA_C = String.fromCharCode(0xe001);
-        const re = new RegExp(`${PUA_O}[^${PUA_C}]*${PUA_C}`, "g");
+        const re = /__TLPH_\d+__/g;
         const dropped = req.source.replace(re, "");
         return {
           translated: `[${req.targetLang}] ${dropped}`,
@@ -289,9 +287,7 @@ describe("translateFile", () => {
   it("--continue-on-error skips placeholder-mismatch keys", async () => {
     class DropSentinelAdapter extends MockAdapter {
       async translate(req: { source: string; sourceLang: string; targetLang: string }) {
-        const PUA_O = String.fromCharCode(0xe000);
-        const PUA_C = String.fromCharCode(0xe001);
-        const re = new RegExp(`${PUA_O}[^${PUA_C}]*${PUA_C}`, "g");
+        const re = /__TLPH_\d+__/g;
         const dropped = req.source.replace(re, "");
         return {
           translated: `[${req.targetLang}] ${dropped}`,

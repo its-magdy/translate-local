@@ -105,22 +105,26 @@ describe("mask + unmask round-trip", () => {
     expect(placeholders).toHaveLength(6); // {{user}} %{action} {item} %s <b> </b>
   });
 
-  test("masked sentinels are PUA-bracketed", () => {
+  test("masked sentinels follow the __TLPH_N__ shape", () => {
     const { masked } = mask("hi {{name}}");
-    expect(masked.charCodeAt(masked.indexOf(String.fromCharCode(0xe000)))).toBe(0xe000);
-    expect(masked.includes("")).toBe(true);
+    expect(masked).toContain("__TLPH_0__");
+    expect(masked).not.toContain("{{name}}");
   });
 
-  test("translated string with reordered placeholders unmasks correctly", () => {
+  test("reordered sentinels in translated output still unmask correctly", () => {
     const src = "Hello {{first}} {{last}}";
     const { masked, placeholders } = mask(src);
-    // Simulate translation that reorders sentinels (RTL languages do this)
-    const swapped = masked.replace(/(.)0(.)/, "X0Y").replace(/(.)1(.)/, (m) => m); // no-op safety
-    // Direct manual swap: flip the two sentinels
-    const parts = masked.split(String.fromCharCode(0xe001));
-    expect(parts.length).toBe(3); // [pre+open0+0, mid+open1+1, post]
-    const restored = unmask(masked, placeholders);
-    expect(restored).toBe(src);
+    expect(masked).toContain("__TLPH_0__");
+    expect(masked).toContain("__TLPH_1__");
+    // Simulate a model output that reordered the sentinels.
+    const reordered = masked
+      .replace("__TLPH_0__", "_PH_A")
+      .replace("__TLPH_1__", "_PH_B")
+      .replace("_PH_A", "__TLPH_1__")
+      .replace("_PH_B", "__TLPH_0__");
+    const restored = unmask(reordered, placeholders);
+    expect(restored).toContain("{{first}}");
+    expect(restored).toContain("{{last}}");
   });
 
   test("empty string masks to empty", () => {

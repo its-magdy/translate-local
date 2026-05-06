@@ -1,17 +1,22 @@
 /**
  * Placeholder protection for file translation.
  *
- * Strategy: hybrid mask + validate. Replace placeholders with sentinels using
- * Unicode Private Use Area chars (U+E000, U+E001) before sending to the model,
- * restore after, then re-extract from the model's output and check multiset
- * equality against the source.
+ * Strategy: hybrid mask + validate. Replace placeholders with ASCII sentinels
+ * (`__TLPH_N__`) before sending to the model, restore after, then re-extract
+ * from the model's output and check multiset equality against the source.
+ *
+ * Why ASCII sentinels: tested with translategemma (the default backend),
+ * Unicode Private Use Area chars (U+E000/U+E001) get stripped from the
+ * model output entirely. Plain ASCII tokens with a distinctive shape survive
+ * translation reliably. The `__TLPH_` prefix is unlikely to appear in real
+ * i18n content.
  *
  * Order in COMBINED matters: longer/more-specific patterns first so the regex
  * engine matches `{{name}}` as one placeholder rather than `{name}` plus stray braces.
  */
 
-const PUA_OPEN = String.fromCharCode(0xe000);
-const PUA_CLOSE = String.fromCharCode(0xe001);
+const SENTINEL_PREFIX = "__TLPH_";
+const SENTINEL_SUFFIX = "__";
 
 const PATTERN_SOURCES = [
   /\{\{\s*[\w.]+\s*\}\}/.source,        // i18next / mustache: {{name}}
@@ -31,7 +36,7 @@ const COMBINED = new RegExp(PATTERN_SOURCES.map((s) => `(?:${s})`).join("|"), "g
 // a full ICU AST parser.
 const ICU = /\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*,/;
 
-const SENTINEL_RE = new RegExp(`${PUA_OPEN}(\\d+)${PUA_CLOSE}`, "g");
+const SENTINEL_RE = new RegExp(`${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}`, "g");
 
 export type Placeholder = { raw: string; index: number };
 
@@ -60,7 +65,7 @@ export function mask(text: string): { masked: string; placeholders: Placeholder[
   const masked = text.replace(COMBINED, (m) => {
     const idx = i++;
     placeholders.push({ raw: m, index: idx });
-    return `${PUA_OPEN}${idx}${PUA_CLOSE}`;
+    return `${SENTINEL_PREFIX}${idx}${SENTINEL_SUFFIX}`;
   });
   return { masked, placeholders };
 }
