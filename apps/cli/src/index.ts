@@ -6,6 +6,7 @@ import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
 import { makeContextCommand } from "./commands/context";
 import { makeConfigCommand } from "./commands/config";
+import { makeLanguagesCommand } from "./commands/languages";
 
 const program = new Command()
   .name("tl")
@@ -21,6 +22,7 @@ program.addCommand(translateCmd);
 program.addCommand(makeGlossaryCommand());
 program.addCommand(makeContextCommand());
 program.addCommand(makeConfigCommand());
+program.addCommand(makeLanguagesCommand());
 
 // When called with no args, launch TUI in-process via dynamic import.
 // Dynamic import keeps OpenTUI/React off the cold path for non-TUI invocations.
