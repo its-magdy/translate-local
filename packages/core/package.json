@@ -37,6 +37,11 @@
       "bun": "./src/config.ts",
       "import": "./dist/config.js",
       "types": "./dist/config.d.ts"
+    },
+    "./files": {
+      "bun": "./src/files/index.ts",
+      "import": "./dist/files/index.js",
+      "types": "./dist/files/index.d.ts"
     }
   },
   "types": "./dist/index.d.ts",
