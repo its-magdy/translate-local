@@ -7,10 +7,8 @@ Generated from full codebase review + competitive research (May 2026).
 
 ## 🔴 Critical Bugs (will cause real failures today)
 
-**1. No timeout on Ollama API calls**
-- File: `packages/adapters/src/translate-gemma/local.ts:38-48`
-- `fetch()` to Ollama has zero timeout. If Ollama hangs or is slow, the CLI blocks indefinitely with no way out except Ctrl+C. The TUI also hangs.
-- Fix: wrap the fetch in an `AbortController` with a configurable timeout (default 60s).
+**1. ~~No timeout on Ollama API calls~~** ✅ Already fixed
+- Verified `AbortSignal.timeout(this.timeoutMs)` at `packages/adapters/src/translate-gemma/local.ts:50` (Phase A research, 2026-05-06).
 
 **2. Image translation is broken**
 - Files: `apps/cli/src/commands/translate.ts:92-93`, `apps/tui/src/views/translate.ts:267-268`
@@ -36,14 +34,11 @@ Generated from full codebase review + competitive research (May 2026).
 - Competitors (Lokalise, Crowdin, attranslate) all support DeepL, OpenAI, Google Translate, Azure.
 - Recommendation: add adapters for OpenAI and Anthropic behind `--model openai` / `--model anthropic`, reading API keys from env or config.
 
-**6. No file format translation**
-- Every serious translation CLI supports translating structured files: `en.json → ar.json`, YAML, PO/gettext, XLIFF, iOS `.strings`, Flutter ARB, CSV.
-- `tl` only translates single strings. This is the biggest gap against competitors like attranslate, Lokalise CLI, and Crowdin CLI.
-- Recommendation: add a `tl translate --file en.json --to ar` command that preserves keys and structure.
+**6. ~~No file format translation~~** ✅ Shipped in v0.4.0
+- `tl translate --file <path>` supports JSON (vanilla flat/nested, i18next-plurals, Lingui-minimal) and YAML (Rails-style). ARB / xcstrings / FormatJS-with-ICU refused-by-default with `--format raw-json` escape hatch. See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) and [`docs/file-translate-test-report.md`](docs/file-translate-test-report.md).
 
-**7. No batch translation mode**
-- No way to translate multiple strings in one invocation. Users must script loop calls, losing efficiency of local model loading.
-- Recommendation: `tl translate --batch strings.txt` or stdin pipe support (`echo "hello" | tl --to ar`).
+**7. ~~No batch translation mode~~** ✅ Subsumed by #6
+- Translating a JSON catalog effectively batches strings — adapter loads once, glossary opens once, atomic write at end. Stdin pipe support (`echo "hello" | tl --to ar`) is still missing as a separate feature; carried as a future improvement.
 
 **8. Raycast extension is 0% implemented**
 - Directory `apps/raycast/` exists with `node_modules` but zero source files.
