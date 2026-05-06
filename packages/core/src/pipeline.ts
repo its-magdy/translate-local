@@ -3,12 +3,17 @@ import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlos
 import { TlError } from "@translate-local/shared/errors";
 import type { GlossaryStore } from "./glossary";
 
+import type { GlossaryHit } from "@translate-local/shared/types";
+
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
   maxRetries?: number;
   contextSnippets?: string[];
   imageBase64?: string;
   onChunk?: (chunk: string) => void;
+  /** When provided, skip the in-pipeline glossary lookup and use these hits directly.
+   * Used by file-translate to inject synthetic hits that protect masked placeholders. */
+  extraGlossaryHits?: GlossaryHit[];
 }
 
 export async function runPipeline(
@@ -19,11 +24,14 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [] } = options;
   const isImageMode = !!imageBase64;
 
   // Preprocess: skip glossary tag injection for images (can't tag pixels)
-  const hits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
+  const realHits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
+  // Merge real glossary hits with caller-supplied synthetic hits (e.g. placeholder-preservation hits from file mode).
+  // Sort by startIndex; throw if overlapping (caller's responsibility to ensure non-overlap).
+  const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
   let retries = 0;

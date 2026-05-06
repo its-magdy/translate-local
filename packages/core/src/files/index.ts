@@ -209,39 +209,80 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     // Mask placeholders
     const { masked, placeholders } = mask(p.source);
 
+    // Synthesize glossary hits for each sentinel in the masked text.
+    // The translategemma model is well-trained on <term translation="X">word</term>
+    // tags from the glossary infrastructure — using that path is far more reliable
+    // than naked sentinels for getting the model to preserve a token.
+    const sentinelHits: import("@translate-local/shared/types").GlossaryHit[] = [];
+    for (const ph of placeholders) {
+      const tok = `__TLPH_${ph.index}__`;
+      const idx = masked.indexOf(tok);
+      if (idx >= 0) {
+        sentinelHits.push({
+          entry: {
+            id: `__sentinel_${ph.index}`,
+            sourceTerm: tok,
+            targetTerm: tok,
+            sourceLang,
+            targetLang,
+          },
+          startIndex: idx,
+          endIndex: idx + tok.length,
+        });
+      }
+    }
+
     // Retrieve context snippets per-leaf
     const snippets = context.retrieve(p.source, 3).map((s) => s.content);
 
-    // Run the pipeline
-    let translatedMasked: string;
-    try {
-      const result = await runPipeline(masked, sourceLang, targetLang, adapter, glossary, {
-        glossaryMode,
-        contextSnippets: snippets,
-      });
-      translatedMasked = result.translated;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const reason = `Pipeline failed at ${pathStr}: ${msg}`;
-      if (continueOnError) {
-        summary.failed.push({ path: pathStr, reason });
-        continue;
+    // Per-key retry loop. The model is non-deterministic and sometimes drops
+    // sentinel tokens despite the strong prompt instruction. Retrying with
+    // the same input often succeeds because the sampler picks a different
+    // path. We cap at 3 attempts before giving up on the key.
+    const MAX_PLACEHOLDER_RETRIES = 5;
+    let restored = "";
+    let lastReason = "";
+    let succeeded = false;
+
+    for (let attempt = 0; attempt < MAX_PLACEHOLDER_RETRIES; attempt++) {
+      let translatedMasked: string;
+      try {
+        const result = await runPipeline(masked, sourceLang, targetLang, adapter, glossary, {
+          glossaryMode,
+          contextSnippets: snippets,
+          extraGlossaryHits: sentinelHits,
+        });
+        translatedMasked = result.translated;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastReason = `Pipeline failed at ${pathStr}: ${msg}`;
+        if (continueOnError) break;
+        throw err;
       }
-      throw err;
+
+      restored = unmask(translatedMasked, placeholders);
+      // If no placeholders to validate, accept on first attempt
+      if (placeholders.length === 0) {
+        succeeded = true;
+        break;
+      }
+      const v = validate(p.source, restored);
+      if (v.ok) {
+        succeeded = true;
+        break;
+      }
+      lastReason = `Placeholder mismatch at ${pathStr} (attempt ${attempt + 1}/${MAX_PLACEHOLDER_RETRIES}) — missing: [${v.missing.join(", ")}], extra: [${v.extra.join(", ")}]`;
     }
 
-    const restored = unmask(translatedMasked, placeholders);
-    const v = validate(p.source, restored);
-    if (!v.ok) {
-      const reason = `Placeholder mismatch at ${pathStr} — missing: [${v.missing.join(", ")}], extra: [${v.extra.join(", ")}]`;
+    if (!succeeded) {
       if (continueOnError) {
-        summary.failed.push({ path: pathStr, reason });
+        summary.failed.push({ path: pathStr, reason: lastReason });
         continue;
       }
       throw new TlError(
         "PLACEHOLDER_MISMATCH",
-        reason,
-        "The model output dropped or altered placeholders. Re-run, or use --continue-on-error to continue.",
+        lastReason,
+        "The model output dropped or altered placeholders across all retries. Re-run, or use --continue-on-error to continue.",
       );
     }
 

@@ -36,6 +36,18 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
     }
   }
 
+  // File-mode placeholder protection: when the source contains __TLPH_N__ sentinels
+  // (injected by the file-translate orchestrator), instruct the model strongly
+  // to preserve them. Without this, the model decides per-sentence whether to
+  // keep them based on fluency and frequently drops them.
+  if (!isImageMode && /__TLPH_\d+__/.test(request.source)) {
+    const tokens = (request.source.match(/__TLPH_\d+__/g) ?? []);
+    const uniqueTokens = [...new Set(tokens)];
+    lines.push(
+      `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
+    );
+  }
+
   if (!isImageMode) {
     lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
     lines.push(""); // blank line
