@@ -82,3 +82,9 @@ Navigate the list with **Up/Down** arrows, then press **Ctrl+D** to delete the s
 ## Exit
 
 Quitting gracefully unloads the model from memory and closes the database. Use **Ctrl+Q** or **Ctrl+C**.
+
+---
+
+## File mode
+
+File translation (`tl translate --file <path>`) is CLI-only. The TUI does not currently expose this feature. Use the CLI directly or pipe through the TUI's translate tab one string at a time.

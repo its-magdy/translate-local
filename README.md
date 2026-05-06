@@ -11,6 +11,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 - [Setup](#setup)
 - [Usage](#usage)
   - [Translate text](#translate-text)
+  - [File translation](#file-translation)
   - [Glossary](#glossary)
   - [Context sources](#context-sources)
   - [Config](#config)
@@ -130,6 +131,27 @@ tl translate --image /path/to/sign.jpg --to ar
 tl translate --image /path/to/menu.png --from en --to es --glossary strict
 tl translate --image /path/to/doc.jpg --to fr --json
 ```
+
+#### File translation
+
+Translate a JSON i18n catalog. By default, only missing/empty keys in the target are translated; existing translations are preserved.
+
+```bash
+# en.json → ar.json (auto-inferred output path)
+tl translate --file en.json --to ar
+
+# Re-translate everything
+tl translate --file en.json --to ar --force
+
+# Preview
+tl translate --file en.json --to ar --dry-run
+```
+
+Recognized layouts: `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`. Pass `--out <path>` when no locale token can be inferred.
+
+Supports vanilla JSON (flat or nested) and i18next plural-key files. ARB, xcstrings, and FormatJS-with-ICU are refused by default — use `--format raw-json` to bypass at your own risk. YAML support is coming in the next release.
+
+See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) for sync semantics, placeholder protection, edge-case behavior, and refused-format rationales.
 
 #### JSON output
 

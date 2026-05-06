@@ -74,6 +74,12 @@ The retrieved snippets are passed to the adapter as `contextSnippets` in `Transl
 }
 ```
 
+## Context in file mode
+
+`tl translate --file <path>` retrieves context per leaf, with the source value as the query. Each translated key gets its own up-to-`maxSnippets` snippets ranked by TF-IDF.
+
+The current tokenizer matches `[a-z0-9]{3,}` and works best for Latin-script source values. Short or non-Latin source strings may yield zero context (they fall through the tokenizer). This means file mode for Arabic / CJK source files runs without retrieval boost — translation still proceeds, just without context.
+
 ## Performance Notes
 
 - Indexing is synchronous and happens in a single transaction per source
