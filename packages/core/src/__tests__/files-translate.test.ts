@@ -319,4 +319,56 @@ describe("translateFile", () => {
     expect(summary.failed[0].path).toBe("bad");
     expect(summary.translated).toBe(1);
   });
+
+  // ── YAML (Phase B) ────────────────────────────────────────────────
+
+  it("translates a YAML file (Rails i18n shape)", async () => {
+    const src = writeSrc("en.yml", "en:\n  greeting: \"Hello, %{name}!\"\n  bye: Goodbye\n");
+    const out = join(dir, "ar.yml");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.translated).toBe(2);
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("[ar] Hello, %{name}!");
+    expect(text).toContain("[ar] Goodbye");
+  });
+
+  it("preserves YAML comments through translation", async () => {
+    const src = writeSrc("en.yml", "# user-facing greeting\ngreeting: hello\ncount: 5\n");
+    const out = join(dir, "ar.yml");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("# user-facing greeting");
+  });
+
+  it("preserves YAML key order in translation", async () => {
+    const src = writeSrc("en.yml", "z: one\na: two\nm: three\n");
+    const out = join(dir, "ar.yml");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const lines = readFileSync(out, "utf8").trim().split("\n");
+    expect(lines[0]).toMatch(/^z:/);
+    expect(lines[1]).toMatch(/^a:/);
+    expect(lines[2]).toMatch(/^m:/);
+  });
+
+  it("refuses YAML with anchors", async () => {
+    const src = writeSrc("en.yml", "shared: &s hello\nx: *s\n");
+    const out = join(dir, "ar.yml");
+    await expect(translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    })).rejects.toThrow(/anchors|alias/i);
+  });
 });

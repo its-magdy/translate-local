@@ -151,6 +151,22 @@ describe("tl translate --file", () => {
     expect(r.stderr).toContain("Use only one of");
   });
 
+  it("translates a YAML file", () => {
+    const src = join(dir, "en.yml");
+    writeFileSync(src, "# greeting\ngreeting: hello\nbye: goodbye\n");
+    const out = join(dir, "ar.yml");
+
+    const r = run(
+      ["translate", "--file", src, "--to", "ar"],
+      { TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(out)).toBe(true);
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("[ar] hello");
+    expect(text).toContain("# greeting"); // comment preserved
+  });
+
   it("--help mentions --file", () => {
     const r = run(["translate", "--help"]);
     expect(r.exitCode).toBe(0);
