@@ -97,11 +97,14 @@ tl translate --file en.json --to ar --continue-on-error
 | Vanilla JSON (flat or nested) | ✅ supported | Default for `.json`. |
 | Lingui minimal mode | ✅ supported | Treated as vanilla. |
 | i18next with plural keys (`_one`, `_other`, …) | ✅ supported | Each plural form is translated 1:1; CLDR category mismatch warning emitted. |
+| YAML (Rails / Hugo / Symfony non-ICU) | ✅ supported | Default for `.yaml` / `.yml`. Comments, key order, and block scalar style preserved on round-trip. |
 | Flutter ARB | ❌ refused | `@key` metadata + ICU MessageFormat. Use `--format raw-json` to override. |
 | Apple `.xcstrings` | ❌ refused | Per-locale `stringUnit` state machine. Use `--format raw-json` to override. |
 | FormatJS / react-intl extracted catalog | ❌ refused | ICU bodies in `defaultMessage`. Use `--format raw-json` to override. |
 | Lingui full mode | ❌ refused | Multi-field per-key shape. |
-| YAML | 🚧 Phase B | Coming soon. |
+| YAML with anchors / aliases | ❌ refused | Modifying an anchored value mutates all aliases. Inline before translating. |
+| YAML 1.1 directive (`%YAML 1.1`) | ❌ refused | Norway problem and other implicit-typing edge cases. Re-save as 1.2. |
+| Multi-document YAML | ❌ refused | Split into separate files. |
 
 **Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` blocks are refused (use `--continue-on-error` to skip them).
 

@@ -142,6 +142,15 @@ For JSON, the following are preserved on write:
 - **Key order:** new keys appended at the position of their source counterpart; existing keys retain their order.
 - **UTF-8 BOM:** stripped on read; never written back. (BOM in JSON breaks `JSON.parse` in many tools; we don't propagate the problem.)
 
+For YAML (via the `yaml` package's Document API), additionally preserved:
+
+- **Comments** above and inline with keys.
+- **Block scalar style** — literal `|` and folded `>` are kept; if the source value used `|`, the translated value will too (forced single-line strings get block-quoted automatically when long).
+- **Quoting style** per scalar (plain, single-quoted, double-quoted).
+- **Key insertion order** within maps.
+
+Long translated strings are not reflowed — the writer is configured with `lineWidth: 0` so the content you put in is the content that comes out. Anchors and aliases are not supported (refused at read time).
+
 ---
 
 ## Edge case behavior
