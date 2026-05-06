@@ -206,6 +206,25 @@ tl config path
 
 ---
 
+### `tl languages`
+
+List all supported BCP-47 language codes and their display names.
+
+```bash
+tl languages
+#   af     Afrikaans
+#   ar     Arabic
+#   ...
+
+tl languages --json   # output as JSON object { "ar": "Arabic", ... }
+```
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as a JSON object instead of a table |
+
+---
+
 ## Environment Variables
 
 | Variable | Description |
