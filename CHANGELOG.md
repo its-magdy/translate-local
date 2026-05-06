@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-05-06
+
+### Added
+- **File mode** for `tl translate`: `--file <path>` translates JSON or YAML i18n catalogs.
+  - Default sync semantics: only translates missing, empty, `null`, or whitespace-only target values; existing translations are preserved. Pass `--force` to re-translate everything.
+  - Output path auto-inferred via locale-token replacement (`en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`). Override with `--out <path>`.
+  - Atomic write — temp file + rename — guarantees the original target is intact on crash or kill.
+  - Re-parse-before-commit: the written file is re-read to confirm it parses cleanly; on failure the rename is skipped.
+  - Round-trip preserves: indentation, line endings (LF/CRLF), trailing newline, key order, UTF-8 BOM stripping. YAML additionally preserves comments, block scalar style (`|`/`>`), and quoting style.
+  - Placeholder protection (hybrid mask + multiset validation) for: `{{name}}` (i18next), `{name}` (Vue/ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags.
+  - Non-translatable skip heuristics for URLs, emails, semver, single chars, and ALL-CAPS short tokens. Override with `--translate-all`.
+  - `--dry-run` reports what would be translated without writing.
+  - `--continue-on-error` skips keys that fail validation (e.g. placeholder mismatch) instead of aborting the run.
+  - `--format auto|json|yaml|raw-json|raw-yaml`: format override; `raw-*` bypasses content-shape refusal.
+  - `--max-size <mb>` controls source file size cap (default 20 MB).
+  - Refused-by-default formats: Flutter ARB (`@key` metadata + ICU), Apple `.xcstrings`, FormatJS-with-ICU, Lingui full mode, YAML with anchors/aliases, YAML 1.1 directive, multi-document YAML.
+  - 9 new typed errors: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_INVALID_TYPE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_EMPTY`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`.
+  - New core subpath export: `@translate-local/core/files`.
+- New docs: [`docs/file-translate-guide.md`](docs/file-translate-guide.md).
+
+### Changed
+- `yaml@^2` added as a dependency of `@translate-local/core`.
+
 ## [0.3.5] - 2026-05-02
 
 ### Changed
