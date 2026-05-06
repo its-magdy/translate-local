@@ -80,7 +80,11 @@ Override detection with `--format <fmt>`:
 
 ## Placeholder protection
 
-`tl` extracts placeholders from each source value, replaces them with sentinel tokens (Unicode Private Use Area chars `U+E000`/`U+E001`) before sending to the model, and restores them after. The translated output is then re-scanned for placeholders and validated against the source.
+`tl` extracts placeholders from each source value, replaces them with ASCII sentinel tokens (`__TLPH_0__`, `__TLPH_1__`, …) before sending to the model, and restores them after. Each sentinel is also injected as a synthetic glossary hit, which wraps it in the `<term translation="X">` mechanism the underlying model is well-trained to preserve. The translated output is then re-scanned for placeholders and validated against the source via multiset equality.
+
+If validation fails (the model dropped or altered a placeholder), the orchestrator retries up to **5 times** with the same input — translation models are non-deterministic and a different sample often succeeds. After 5 failures the key is reported as failed; with `--continue-on-error` the rest of the file proceeds and the failed key is recorded in the run summary.
+
+**Reliability notes (measured against translategemma):** single-placeholder strings preserve at near-100%. Multi-placeholder strings preserve reliably for `{{name}}`, `{name}`, `%1$s`/`%2$d` (positional), and HTML tags. Multi-placeholder Rails-style `%{var}` and bare printf `%s/%d` are flakier (~40-70%) because the model's fluency bias sometimes drops a placeholder it considers redundant — `--continue-on-error` is recommended for production catalogs heavy in these.
 
 **Recognized placeholder families:**
 
