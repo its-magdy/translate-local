@@ -82,9 +82,9 @@ Override detection with `--format <fmt>`:
 
 `tl` extracts placeholders from each source value, replaces them with ASCII sentinel tokens (`__TLPH_0__`, `__TLPH_1__`, …) before sending to the model, and restores them after. Each sentinel is also injected as a synthetic glossary hit, which wraps it in the `<term translation="X">` mechanism the underlying model is well-trained to preserve. The translated output is then re-scanned for placeholders and validated against the source via multiset equality.
 
-If validation fails (the model dropped or altered a placeholder), the orchestrator retries up to **5 times** with the same input — translation models are non-deterministic and a different sample often succeeds. After 5 failures the key is reported as failed; with `--continue-on-error` the rest of the file proceeds and the failed key is recorded in the run summary.
+If validation fails (the model dropped or altered a placeholder), the orchestrator retries up to **5 times** with the same input — translation models are non-deterministic and a different sample often succeeds. If all retries fail, the source value is written to the target as a fallback and the key is recorded in the failed list. The whole run then exits with code `2` so CI catches it. Pass `--strict` to switch to abort-on-first-failure.
 
-**Reliability notes (measured against translategemma):** single-placeholder strings preserve at near-100%. Multi-placeholder strings preserve reliably for `{{name}}`, `{name}`, `%1$s`/`%2$d` (positional), and HTML tags. Multi-placeholder Rails-style `%{var}` and bare printf `%s/%d` are flakier (~40-70%) because the model's fluency bias sometimes drops a placeholder it considers redundant — `--continue-on-error` is recommended for production catalogs heavy in these.
+**Reliability notes (measured against translategemma):** single-placeholder strings preserve at near-100%. Multi-placeholder strings preserve reliably for `{{name}}`, `{name}`, `%1$s`/`%2$d` (positional), and HTML tags. Multi-placeholder Rails-style `%{var}` together with another `%{var}` and bare printf `%s/%d` clusters are flakier (~40-70%) because the model's fluency bias sometimes drops a placeholder it considers redundant. The default continue-and-fallback mode handles these gracefully — failed keys retain English source text in the output, easy to grep for and fix manually.
 
 **Recognized placeholder families:**
 
@@ -101,7 +101,7 @@ If validation fails (the model dropped or altered a placeholder), the orchestrat
 
 **Validation:** multiset equality. The set of placeholders extracted from the model output must exactly match the source — same identities, same counts. Reordering is allowed (RTL languages legitimately move placeholders around).
 
-**Failure mode:** by default, a placeholder mismatch fails the entire run with `PLACEHOLDER_MISMATCH`. The original target file is untouched (atomic write only commits on success). Pass `--continue-on-error` to record the failed key in the result summary and skip it; the rest of the file proceeds.
+**Failure mode (default):** a placeholder mismatch is recorded in the run summary and the source value is written to the target as a fallback (so the output file remains complete and you can grep for un-translated source text). The exit code is non-zero (`2`) if any keys failed, so CI catches it. Pass `--strict` to switch to abort-on-first-failure (the original target file is then left untouched).
 
 **ICU MessageFormat** — strings containing `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}`, or ICU number/date format directives are refused. Partial-ICU translation requires a full ICU AST parser, which is deferred to a future phase. Use `--continue-on-error` to skip these strings.
 

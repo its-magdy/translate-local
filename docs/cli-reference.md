@@ -67,7 +67,7 @@ Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**,
 | `--force` | flag | off | Re-translate every leaf, overwriting existing target values. |
 | `--dry-run` | flag | off | Report what would be translated; write nothing. |
 | `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
-| `--continue-on-error` | flag | off | Skip keys that fail validation (e.g. placeholder mismatch) instead of aborting. |
+| `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
 | `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |
 | `--max-size <mb>` | number | `20` | Source file size cap. |
 
@@ -86,8 +86,8 @@ tl translate --file en.json --to ar --dry-run
 # Power-user: translate every leaf in an ARB file (may corrupt @key metadata)
 tl translate --file en.arb --to ar --format raw-json --out ar.arb
 
-# Continue past placeholder-mismatch errors instead of aborting
-tl translate --file en.json --to ar --continue-on-error
+# Strict mode: abort on first failure (default is to continue and report)
+tl translate --file en.json --to ar --strict
 ```
 
 **Supported formats (Phase A — JSON only; YAML in Phase B):**

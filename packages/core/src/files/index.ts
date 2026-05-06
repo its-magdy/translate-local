@@ -38,6 +38,11 @@ export type FileTranslateOptions = {
   format?: FormatOverride;
   mode?: SyncMode;
   glossaryMode?: "prefer" | "strict";
+  /**
+   * Default true. When true, validation failures (e.g. placeholder mismatch
+   * after retries) record the key in the summary and fall back to the source
+   * value, but the run continues. When false, the first failure aborts.
+   */
   continueOnError?: boolean;
   translateAll?: boolean;
   maxFileBytes?: number;
@@ -69,7 +74,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     format = "auto",
     mode = "missing-only",
     glossaryMode = "prefer",
-    continueOnError = false,
+    continueOnError = true,
     translateAll = false,
     maxFileBytes = DEFAULT_MAX_BYTES,
     onProgress,
@@ -276,13 +281,17 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
     if (!succeeded) {
       if (continueOnError) {
+        // Fallback: write the source value to the target so the output file
+        // is complete (every key has a value). User can grep for source text
+        // to find failed keys.
         summary.failed.push({ path: pathStr, reason: lastReason });
+        p.set(p.source);
         continue;
       }
       throw new TlError(
         "PLACEHOLDER_MISMATCH",
         lastReason,
-        "The model output dropped or altered placeholders across all retries. Re-run, or use --continue-on-error to continue.",
+        "The model output dropped or altered placeholders across all retries. Pass --strict only if you want abort-on-failure; otherwise the default continues with source-as-fallback.",
       );
     }
 

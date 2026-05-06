@@ -254,14 +254,9 @@ describe("translateFile", () => {
     }
   });
 
-  it("placeholder mismatch fails by default", async () => {
-    // Add a glossary entry that, when applied, will leave a placeholder count off.
-    // The MockAdapter prepends "[ar] " — placeholders are masked, and the round-trip
-    // through MockAdapter preserves them. To force a mismatch, we'd need a misbehaving
-    // adapter. Instead, test the contract directly via an adapter that drops sentinels.
+  it("placeholder mismatch with continueOnError=false (strict mode) aborts", async () => {
     class DropSentinelAdapter extends MockAdapter {
       async translate(req: { source: string; sourceLang: string; targetLang: string }) {
-        // Drop everything after the first sentinel-open char if present
         const re = /__TLPH_\d+__/g;
         const dropped = req.source.replace(re, "");
         return {
@@ -281,7 +276,36 @@ describe("translateFile", () => {
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
       adapter: drop, glossary, context,
+      continueOnError: false,
     })).rejects.toThrow(/Placeholder mismatch|PLACEHOLDER_MISMATCH/);
+  });
+
+  it("placeholder mismatch (default behavior) records failure and falls back to source", async () => {
+    class DropSentinelAdapter extends MockAdapter {
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        const re = /__TLPH_\d+__/g;
+        const dropped = req.source.replace(re, "");
+        return {
+          translated: `[${req.targetLang}] ${dropped}`,
+          sourceLang: req.sourceLang,
+          targetLang: req.targetLang,
+          glossaryCoverage: 1,
+          missingTerms: [],
+          metadata: { adapter: "drop", durationMs: 0, retries: 0 },
+        };
+      }
+    }
+    const drop = new DropSentinelAdapter();
+    const src = writeSrc("en.json", '{\n  "g": "Hello {{name}}"\n}\n');
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: drop, glossary, context,
+    });
+    expect(summary.failed).toHaveLength(1);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.g).toBe("Hello {{name}}"); // source-fallback
   });
 
   it("--continue-on-error skips placeholder-mismatch keys", async () => {

@@ -30,13 +30,13 @@ export function makeTranslateCommand(): Command {
     .option("--force", "File mode: re-translate every leaf (overwrite existing target values)")
     .option("--dry-run", "File mode: list keys that would be translated without writing")
     .option("--format <fmt>", "File mode: format override — auto | json | yaml | raw-json | raw-yaml", "auto")
-    .option("--continue-on-error", "File mode: skip keys that fail validation instead of aborting")
+    .option("--strict", "File mode: abort the run on first validation failure (default: keep going, fall back to source for failed keys)")
     .option("--translate-all", "File mode: bypass URL/email/semver/all-caps skip heuristics")
     .option("--max-size <mb>", "File mode: max source file size in MB", "20")
     .action(async (text: string | undefined, opts: {
       from?: string; to?: string; image?: string; glossary: string; json?: boolean;
       file?: string; out?: string; force?: boolean; dryRun?: boolean;
-      format: string; continueOnError?: boolean; translateAll?: boolean; maxSize: string;
+      format: string; strict?: boolean; translateAll?: boolean; maxSize: string;
     }) => {
       try {
         const config = loadConfig();
@@ -102,6 +102,14 @@ export function makeTranslateCommand(): Command {
             const validFormats = ["auto", "json", "yaml", "raw-json", "raw-yaml"];
             if (!validFormats.includes(formatOverride)) {
               throw new TlError("INVALID_INPUT", `Invalid --format: "${opts.format}"`, `Use one of: ${validFormats.join(", ")}`);
+            }
+
+            // Check file existence first, before locale-token inference. A typo'd
+            // path is a more fundamental error than a missing locale token; users
+            // get a clearer message this way.
+            const { existsSync: srcExists } = await import("fs");
+            if (!srcExists(sourcePath)) {
+              throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
             }
 
             // Resolve out path: --out wins; otherwise infer from locale tokens
@@ -206,7 +214,7 @@ export function makeTranslateCommand(): Command {
               format: formatOverride,
               mode: opts.force ? "force" : "missing-only",
               glossaryMode,
-              continueOnError: opts.continueOnError ?? false,
+              continueOnError: !opts.strict,
               translateAll: opts.translateAll ?? false,
               maxFileBytes: maxBytes,
               onProgress: opts.json ? undefined : (e) => {
@@ -230,11 +238,13 @@ export function makeTranslateCommand(): Command {
                 console.log(`Skipped: ${result.skipped.count} (${reasons})`);
               }
               if (result.failed.length > 0) {
-                console.log(`Failed: ${result.failed.length}`);
+                console.log(`Failed: ${result.failed.length} (source value used as fallback — search the output for un-translated source text)`);
                 for (const f of result.failed) console.error(`  ${f.path}: ${f.reason}`);
               }
               for (const w of result.warnings) console.error(`Warning: ${w}`);
             }
+            // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it
+            if (result.failed.length > 0) process.exit(2);
             return;
           }
           // ── End file mode ────────────────────────────────────────────────
