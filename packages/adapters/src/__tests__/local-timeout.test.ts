@@ -21,13 +21,11 @@ afterEach(() => {
 describe("TranslateGemmaLocalAdapter timeout", () => {
   test("fetch timeout throws ADAPTER_UNAVAILABLE TlError", async () => {
     globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-      // Simulate the signal aborting with a TimeoutError (what AbortSignal.timeout produces)
       const signal = init?.signal as AbortSignal | undefined;
       if (signal) {
         await new Promise<void>((_, reject) => {
           signal.addEventListener("abort", () => {
-            const err = new DOMException("The operation timed out.", "TimeoutError");
-            reject(err);
+            reject(new DOMException("The operation timed out.", "TimeoutError"));
           });
         });
       }
@@ -38,7 +36,7 @@ describe("TranslateGemmaLocalAdapter timeout", () => {
 
     try {
       await adapter.translate(makeRequest());
-      expect(true).toBe(false); // should not reach
+      expect.unreachable("translate should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(TlError);
       const tlErr = err as TlError;
@@ -47,7 +45,7 @@ describe("TranslateGemmaLocalAdapter timeout", () => {
     }
   });
 
-  test("timeout of 1ms is passed via signal to fetch", async () => {
+  test("AbortSignal is passed to fetch", async () => {
     let capturedSignal: AbortSignal | undefined;
 
     globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
