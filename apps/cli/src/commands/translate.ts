@@ -3,11 +3,13 @@ import { loadConfig } from "@translate-local/core/config";
 import { GlossaryStore } from "@translate-local/core/glossary";
 import { ContextStore } from "@translate-local/core/context";
 import { runPipeline } from "@translate-local/core/pipeline";
+import { translateFile } from "@translate-local/core/files";
 import { createAdapter } from "@translate-local/adapters/factory";
 import type { AdapterConfig } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
+import { inferOutputPath } from "../utils/locale-path";
 import { resolve } from "path";
 
 export function makeTranslateCommand(): Command {
@@ -15,14 +17,27 @@ export function makeTranslateCommand(): Command {
 
   cmd
     .name("translate")
-    .description("Translate text or an image")
+    .description("Translate text, an image, or a JSON/YAML file")
     .argument("[text]", "Text to translate")
     .option("--from <lang>", "Source language (BCP-47 or auto)")
     .option("--to <lang>", "Target language (BCP-47)")
     .option("--image <path>", "Path to an image file to translate")
     .option("--glossary <mode>", "Glossary mode: prefer | strict", "prefer")
     .option("--json", "Output JSON")
-    .action(async (text: string | undefined, opts: { from?: string; to?: string; image?: string; glossary: string; json?: boolean }) => {
+    // File mode (with --file). All flags below apply only when --file is set.
+    .option("--file <path>", "Path to a JSON or YAML catalog to translate")
+    .option("--out <path>", "Output path for file mode (default: locale-token replacement)")
+    .option("--force", "File mode: re-translate every leaf (overwrite existing target values)")
+    .option("--dry-run", "File mode: list keys that would be translated without writing")
+    .option("--format <fmt>", "File mode: format override — auto | json | yaml | raw-json | raw-yaml", "auto")
+    .option("--continue-on-error", "File mode: skip keys that fail validation instead of aborting")
+    .option("--translate-all", "File mode: bypass URL/email/semver/all-caps skip heuristics")
+    .option("--max-size <mb>", "File mode: max source file size in MB", "20")
+    .action(async (text: string | undefined, opts: {
+      from?: string; to?: string; image?: string; glossary: string; json?: boolean;
+      file?: string; out?: string; force?: boolean; dryRun?: boolean;
+      format: string; continueOnError?: boolean; translateAll?: boolean; maxSize: string;
+    }) => {
       try {
         const config = loadConfig();
         const sourceLang = opts.from ?? config.defaults.sourceLang;
@@ -36,8 +51,16 @@ export function makeTranslateCommand(): Command {
           process.exit(1);
         }
 
-        if (!text && !opts.image) {
-          const msg = "Provide text to translate or use --image <path>.";
+        // Mutually exclusive input modes
+        const inputModes = [text, opts.image, opts.file].filter(Boolean).length;
+        if (inputModes === 0) {
+          const msg = "Provide text to translate, or use --image <path>, or --file <path>.";
+          if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
+          else { console.error(msg); }
+          process.exit(1);
+        }
+        if (inputModes > 1) {
+          const msg = "Use only one of: positional text, --image, or --file.";
           if (opts.json) { console.error(JSON.stringify({ error: "INVALID_INPUT", message: msg })); }
           else { console.error(msg); }
           process.exit(1);
@@ -72,6 +95,150 @@ export function makeTranslateCommand(): Command {
         const contextStore = new ContextStore(config.context.dbPath);
 
         try {
+          // ── File mode ────────────────────────────────────────────────────
+          if (opts.file) {
+            const sourcePath = resolve(opts.file);
+            const formatOverride = (opts.format ?? "auto") as "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
+            const validFormats = ["auto", "json", "yaml", "raw-json", "raw-yaml"];
+            if (!validFormats.includes(formatOverride)) {
+              throw new TlError("INVALID_INPUT", `Invalid --format: "${opts.format}"`, `Use one of: ${validFormats.join(", ")}`);
+            }
+
+            // Resolve out path: --out wins; otherwise infer from locale tokens
+            let outPath: string;
+            if (opts.out) {
+              outPath = resolve(opts.out);
+            } else {
+              const inferred = inferOutputPath(sourcePath, sourceLang, targetLang);
+              if (!inferred) {
+                throw new TlError(
+                  "INVALID_INPUT",
+                  `Cannot infer output path from "${opts.file}"`,
+                  "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
+                );
+              }
+              outPath = inferred;
+            }
+
+            const maxBytes = parseFloat(opts.maxSize) * 1024 * 1024;
+            if (Number.isNaN(maxBytes) || maxBytes <= 0) {
+              throw new TlError("INVALID_INPUT", `Invalid --max-size: "${opts.maxSize}"`, "Use a positive number of MB, e.g. --max-size 10");
+            }
+
+            // Dry-run: report what would be translated, write nothing.
+            // Implemented via a no-op adapter that records calls without translating.
+            if (opts.dryRun) {
+              type Probe = { count: number };
+              const probe: Probe = { count: 0 };
+              const noopAdapter = {
+                async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+                  probe.count++;
+                  return {
+                    translated: req.source,
+                    sourceLang: req.sourceLang,
+                    targetLang: req.targetLang,
+                    glossaryCoverage: 1,
+                    missingTerms: [],
+                    metadata: { adapter: "dry-run", durationMs: 0, retries: 0 },
+                  };
+                },
+                async dispose() {},
+              };
+              // Run against a temp out path so the real one is never touched
+              const { mkdtempSync, rmSync } = await import("fs");
+              const { tmpdir } = await import("os");
+              const { join: pjoin } = await import("path");
+              const tmpDir = mkdtempSync(pjoin(tmpdir(), "tl-dry-"));
+              const tmpOut = pjoin(tmpDir, "out" + (sourcePath.endsWith(".yaml") || sourcePath.endsWith(".yml") ? ".yaml" : ".json"));
+              try {
+                const dryResult = await translateFile({
+                  sourcePath,
+                  outPath: tmpOut,
+                  sourceLang,
+                  targetLang,
+                  adapter: noopAdapter,
+                  glossary: glossaryStore,
+                  context: contextStore,
+                  format: formatOverride,
+                  mode: opts.force ? "force" : "missing-only",
+                  glossaryMode,
+                  continueOnError: true,
+                  translateAll: opts.translateAll ?? false,
+                  maxFileBytes: maxBytes,
+                });
+                const dryReport = {
+                  source: sourcePath,
+                  target: outPath,
+                  contentFormat: dryResult.contentFormat,
+                  pending: dryResult.totalLeaves,
+                  wouldTranslate: dryResult.translated,
+                  wouldSkip: dryResult.skipped,
+                  warnings: dryResult.warnings,
+                };
+                if (opts.json) {
+                  console.log(JSON.stringify(dryReport, null, 2));
+                } else {
+                  console.log(`[dry-run] Source: ${dryReport.source}`);
+                  console.log(`[dry-run] Target: ${dryReport.target} (NOT written)`);
+                  console.log(`[dry-run] Format: ${dryReport.contentFormat}`);
+                  console.log(`[dry-run] Would translate: ${dryReport.wouldTranslate}`);
+                  if (dryReport.wouldSkip.count > 0) {
+                    console.log(`[dry-run] Would skip: ${dryReport.wouldSkip.count}`);
+                  }
+                  for (const w of dryReport.warnings) console.error(`Warning: ${w}`);
+                }
+              } finally {
+                rmSync(tmpDir, { recursive: true, force: true });
+              }
+              return;
+            }
+
+            // Real run
+            let lastReportedDone = -1;
+            const result = await translateFile({
+              sourcePath,
+              outPath,
+              sourceLang,
+              targetLang,
+              adapter,
+              glossary: glossaryStore,
+              context: contextStore,
+              format: formatOverride,
+              mode: opts.force ? "force" : "missing-only",
+              glossaryMode,
+              continueOnError: opts.continueOnError ?? false,
+              translateAll: opts.translateAll ?? false,
+              maxFileBytes: maxBytes,
+              onProgress: opts.json ? undefined : (e) => {
+                // throttle progress to avoid 1000-line stderr churn
+                if (e.done !== lastReportedDone) {
+                  lastReportedDone = e.done;
+                  process.stderr.write(`\rTranslated ${e.done}/${e.total}`);
+                }
+              },
+            });
+            if (!opts.json) process.stderr.write("\n");
+
+            if (opts.json) {
+              console.log(JSON.stringify(result, null, 2));
+            } else {
+              console.log(`Wrote ${result.outPath}`);
+              console.log(`Format: ${result.contentFormat}`);
+              console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
+              if (result.skipped.count > 0) {
+                const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
+                console.log(`Skipped: ${result.skipped.count} (${reasons})`);
+              }
+              if (result.failed.length > 0) {
+                console.log(`Failed: ${result.failed.length}`);
+                for (const f of result.failed) console.error(`  ${f.path}: ${f.reason}`);
+              }
+              for (const w of result.warnings) console.error(`Warning: ${w}`);
+            }
+            return;
+          }
+          // ── End file mode ────────────────────────────────────────────────
+
           const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
           const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MB
 
