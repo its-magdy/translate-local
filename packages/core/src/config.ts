@@ -66,14 +66,14 @@ export const configSchema = z.object({
     backend: z.literal("local").default("local"),
     local: z.object({
       command: z.string().default("ollama"),
-      model: z.string().default("translate-gemma-12b"),
+      model: z.string().default("translategemma:latest"),
       endpoint: z.string().default("http://localhost:11434"),
       keepAlive: z.boolean().default(false),
-    }).default({ command: "ollama", model: "translate-gemma-12b", endpoint: "http://localhost:11434", keepAlive: false }),
+    }).default({ command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false }),
   }).default({
     type: "translate-gemma",
     backend: "local",
-    local: { command: "ollama", model: "translate-gemma-12b", endpoint: "http://localhost:11434", keepAlive: false },
+    local: { command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false },
   }),
   glossary: z.object({
     mode: z.enum(["strict", "prefer"]).default("prefer"),

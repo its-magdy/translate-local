@@ -25,7 +25,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 ## Prerequisites
 
-- [Ollama](https://ollama.com) with `translate-gemma-12b` pulled
+- [Ollama](https://ollama.com) with `translategemma:latest` pulled
 - (Contributors only) [Bun](https://bun.sh) ≥ 1.3
 
 ## Installation
