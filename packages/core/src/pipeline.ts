@@ -1,7 +1,9 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError } from "@translate-local/shared/errors";
-import type { GlossaryStore } from "./glossary";
+import { matchTerms, type GlossaryStore } from "./glossary";
+
+import type { GlossaryHit } from "@translate-local/shared/types";
 
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
@@ -9,6 +11,14 @@ export interface PipelineOptions {
   contextSnippets?: string[];
   imageBase64?: string;
   onChunk?: (chunk: string) => void;
+  /** Caller-supplied glossary hits merged with the in-pipeline lookup. */
+  extraGlossaryHits?: GlossaryHit[];
+  /**
+   * Pre-fetched glossary entries to match against. When provided, the pipeline
+   * matches in-process instead of calling glossaryStore.findMatches (which would
+   * re-query SQLite per call). Use this when running the pipeline in a hot loop.
+   */
+  glossaryEntries?: GlossaryEntry[];
 }
 
 export async function runPipeline(
@@ -19,11 +29,15 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [], glossaryEntries } = options;
   const isImageMode = !!imageBase64;
 
-  // Preprocess: skip glossary tag injection for images (can't tag pixels)
-  const hits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
+  const realHits = isImageMode
+    ? []
+    : glossaryEntries
+      ? matchTerms(text, glossaryEntries)
+      : glossaryStore.findMatches(text, sourceLang, targetLang);
+  const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
   let retries = 0;
@@ -38,18 +52,14 @@ export async function runPipeline(
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
-      // Only stream on the first attempt; retries are silent to avoid concatenating
-      // partial output from attempt N with tokens from attempt N+1.
+      // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
       onChunk: retries === 0 ? onChunk : undefined,
       options: { glossaryMode },
     };
 
     const raw = await adapter.translate(request);
 
-    // Postprocess: strip tags and normalize
     const translated = normalizeWhitespace(stripGlossaryTags(raw.translated));
-
-    // Validate glossary coverage
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(hits, translated);
     const result: TranslationResult = {
       ...raw,

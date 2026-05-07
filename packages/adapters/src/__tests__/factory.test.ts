@@ -6,7 +6,7 @@ import type { AdapterConfig } from "@translate-local/shared/types";
 
 describe("createAdapter", () => {
   test("creates ollama adapter", () => {
-    const config: AdapterConfig = { backend: "ollama", model: "translate-gemma-12b" };
+    const config: AdapterConfig = { backend: "ollama", model: "translategemma:latest" };
     const adapter = createAdapter(config);
     expect(adapter).toBeInstanceOf(TranslateGemmaLocalAdapter);
   });

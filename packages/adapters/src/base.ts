@@ -6,10 +6,7 @@ function langLabel(code: string): string {
   return name ? `${name} (${code})` : code;
 }
 
-/**
- * Builds a prompt using the official TranslateGemma template format.
- * All instructions go in the prompt itself (model ignores system field for translation).
- */
+// translategemma ignores the system field for translation tasks — all instructions go in the prompt.
 export function buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string } {
   const src = langLabel(request.sourceLang);
   const tgt = langLabel(request.targetLang);
@@ -36,10 +33,26 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
     }
   }
 
+  // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
+  if (!isImageMode && /__TLPH_\d+__/.test(request.source)) {
+    const tokens = (request.source.match(/__TLPH_\d+__/g) ?? []);
+    const uniqueTokens = [...new Set(tokens)];
+    lines.push(
+      `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
+      `EXAMPLES of correct placeholder preservation across languages:`,
+      `  Source: "Hello __TLPH_0__, you have __TLPH_1__ messages"`,
+      `  → Spanish: "Hola __TLPH_0__, tienes __TLPH_1__ mensajes"`,
+      `  → Arabic: "مرحبًا __TLPH_0__، لديك __TLPH_1__ رسالة"`,
+      `  → Japanese: "こんにちは __TLPH_0__ さん、__TLPH_1__ 件のメッセージがあります"`,
+      `Notice each token appears exactly once in each translation, in a natural position. Apply the same discipline to your translation below.`,
+    );
+  }
+
   if (!isImageMode) {
     lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
-    lines.push(""); // blank line
-    lines.push(""); // second blank line (required by model)
+    // Two blank lines are required by the translategemma prompt template.
+    lines.push("");
+    lines.push("");
   }
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
@@ -56,9 +69,6 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   return { prompt: lines.join("\n") };
 }
 
-/**
- * Builds a natural language prompt for generic LLMs (non-TranslateGemma).
- */
 export function buildNaturalPrompt(request: TranslationRequest): string {
   const lines: string[] = [];
 

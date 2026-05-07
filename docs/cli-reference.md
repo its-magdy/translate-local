@@ -20,7 +20,7 @@ tl translate "hello world" --from en --to ar
 
 ### `tl translate <text>`
 
-Translate a string.
+Translate a string, image, or JSON/YAML catalog file.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -28,7 +28,10 @@ Translate a string.
 | `--to <lang>` | string | `ar` | Target language (BCP-47 tag) |
 | `--glossary <mode>` | `prefer\|strict` | `prefer` | Glossary enforcement mode |
 | `--image <path>` | string | — | Path to an image file; extracts and translates the text in it |
+| `--file <path>` | string | — | Path to a JSON or YAML catalog (see [File mode](#file-mode) below) |
 | `--json` | flag | off | Output result as JSON |
+
+The three input modes (`[text]`, `--image`, `--file`) are mutually exclusive.
 
 **Examples:**
 
@@ -37,9 +40,10 @@ tl "good morning" --from en --to ar
 tl translate "bonjour" --from fr --to en --glossary strict
 tl "hello" --to de --json
 tl translate --image screenshot.png --to ar
+tl translate --file en.json --to ar          # see File mode
 ```
 
-**JSON output shape:**
+**JSON output shape (string / image mode):**
 
 ```json
 {
@@ -51,6 +55,76 @@ tl translate --image screenshot.png --to ar
   "metadata": { "adapter": "translate-gemma-local", "durationMs": 420, "retries": 0 }
 }
 ```
+
+#### File mode
+
+Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**, **null**, and **whitespace-only** target values are translated; existing translations are preserved.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--file <path>` | string | — | **Required** for file mode. Source catalog path. |
+| `--out <path>` | string | inferred | Output path. If omitted, inferred by locale-token replacement (e.g. `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`). |
+| `--force` | flag | off | Re-translate every leaf, overwriting existing target values. |
+| `--dry-run` | flag | off | Report what would be translated; write nothing. |
+| `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
+| `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
+| `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |
+| `--max-size <mb>` | number | `20` | Source file size cap. |
+
+**Examples:**
+
+```bash
+# Sync mode — only translates missing/empty keys in ar.json
+tl translate --file en.json --to ar
+
+# Re-translate everything
+tl translate --file en.json --to ar --force
+
+# See what would change without writing
+tl translate --file en.json --to ar --dry-run
+
+# Power-user: translate every leaf in an ARB file (may corrupt @key metadata)
+tl translate --file en.arb --to ar --format raw-json --out ar.arb
+
+# Strict mode: abort on first failure (default is to continue and report)
+tl translate --file en.json --to ar --strict
+```
+
+**Supported formats (Phase A — JSON only; YAML in Phase B):**
+
+| Format | Status | Notes |
+|---|---|---|
+| Vanilla JSON (flat or nested) | ✅ supported | Default for `.json`. |
+| Lingui minimal mode | ✅ supported | Treated as vanilla. |
+| i18next with plural keys (`_one`, `_other`, …) | ✅ supported | Each plural form is translated 1:1; CLDR category mismatch warning emitted. |
+| YAML (Rails / Hugo / Symfony non-ICU) | ✅ supported | Default for `.yaml` / `.yml`. Comments, key order, and block scalar style preserved on round-trip. |
+| Flutter ARB | ❌ refused | `@key` metadata + ICU MessageFormat. Use `--format raw-json` to override. |
+| Apple `.xcstrings` | ❌ refused | Per-locale `stringUnit` state machine. Use `--format raw-json` to override. |
+| FormatJS / react-intl extracted catalog | ❌ refused | ICU bodies in `defaultMessage`. Use `--format raw-json` to override. |
+| Lingui full mode | ❌ refused | Multi-field per-key shape. |
+| YAML with anchors / aliases | ❌ refused | Modifying an anchored value mutates all aliases. Inline before translating. |
+| YAML 1.1 directive (`%YAML 1.1`) | ❌ refused | Norway problem and other implicit-typing edge cases. Re-save as 1.2. |
+| Multi-document YAML | ❌ refused | Split into separate files. |
+
+**Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` blocks are refused; under the default (continue-on-failure) behavior these keys fall back to the source value, or pass `--strict` to abort.
+
+**Skip heuristics.** Values that look like URLs (`https?://...`), email addresses, semver versions, single characters, or ALL-CAPS short tokens (`OK`, `API`, `ID_X`) are passed through unchanged. Override with `--translate-all`.
+
+**JSON output shape (file mode):**
+
+```json
+{
+  "contentFormat": "vanilla",
+  "totalLeaves": 12,
+  "translated": 10,
+  "skipped": { "count": 2, "reasons": { "url": 1, "all-caps-short": 1 } },
+  "failed": [],
+  "warnings": [],
+  "outPath": "/path/to/ar.json"
+}
+```
+
+See [`docs/file-translate-guide.md`](file-translate-guide.md) for deeper coverage of format detection, sync semantics, edge cases, and refused-format rationales.
 
 ---
 
@@ -180,11 +254,11 @@ Configure the adapter backend.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--backend <type>` | `local` | `local` (Ollama) |
-| `--model <name>` | `translate-gemma-12b` | Model name |
+| `--model <name>` | `translategemma:latest` | Model name |
 | `--endpoint <url>` | `http://localhost:11434` | Ollama API URL |
 
 ```bash
-tl config connect --backend local --model translate-gemma-12b
+tl config connect --backend local --model translategemma:latest
 ```
 
 #### `tl config status`

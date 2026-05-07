@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/core",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "description": "Core translation pipeline with glossary enforcement and context retrieval for tl",
   "license": "MIT",
   "author": "Mohamed Omar",
@@ -37,6 +37,11 @@
       "bun": "./src/config.ts",
       "import": "./dist/config.js",
       "types": "./dist/config.d.ts"
+    },
+    "./files": {
+      "bun": "./src/files/index.ts",
+      "import": "./dist/files/index.js",
+      "types": "./dist/files/index.d.ts"
     }
   },
   "types": "./dist/index.d.ts",
@@ -54,6 +59,7 @@
     "typescript": "^6.0"
   },
   "dependencies": {
+    "yaml": "^2.8.4",
     "zod": "^4.3.6"
   }
 }

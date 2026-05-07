@@ -1,6 +1,6 @@
 {
   "name": "@translate-local/tl",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "CLI-first translation tool with glossary enforcement and local models",
   "bin": { "tl": "bin/tl.js" },
   "files": ["bin/tl.js", "README.md"],

@@ -11,7 +11,14 @@ export type ErrorTag =
   | "IMAGE_NOT_FOUND"
   | "IMAGE_READ_FAILED"
   | "IMAGE_INVALID_TYPE"
-  | "IMAGE_TOO_LARGE";
+  | "IMAGE_TOO_LARGE"
+  | "FILE_NOT_FOUND"
+  | "FILE_TOO_LARGE"
+  | "FILE_PARSE_FAILED"
+  | "FILE_WRITE_FAILED"
+  | "FILE_INVALID_FORMAT"
+  | "PLACEHOLDER_MISMATCH"
+  | "SAME_LOCALE";
 
 export class TlError extends Error {
   readonly tag: ErrorTag;
