@@ -1,4 +1,5 @@
-import { SPEC, LANGS, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
+import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
+import { SPEC, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
 
 // Escape characters that have special meaning inside a zsh single-quoted string.
 function zq(s: string): string {
@@ -27,6 +28,10 @@ function emitOptionLine(opt: OptionSpec): string {
     case "value":
     case "text":
       return `'${opt.flag}[${desc}]:value:'`;
+    default: {
+      const _exhaustive: never = opt.takes;
+      throw new Error(`Unhandled ArgKind: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -41,7 +46,6 @@ function emitPositional(pos: PositionalSpec, index: number): string {
   if (pos.takes === "lang") {
     return `'${tag}:${pos.name}:->langs'`;
   }
-  // value / text — accept anything, no specific completion.
   return `'${tag}:${pos.name}:'`;
 }
 
@@ -118,7 +122,7 @@ function emitCommandFunctions(parents: string[], cmd: CommandSpec): string[] {
 }
 
 export function generateZsh(): string {
-  const langArr = LANGS.join(" ");
+  const langArr = SUPPORTED_LANGUAGES.join(" ");
   const topDescriptors = SPEC.commands
     .map((c) => `    '${c.name}:${zq(c.description)}'`)
     .join("\n");

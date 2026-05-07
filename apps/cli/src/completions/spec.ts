@@ -1,9 +1,5 @@
 // Single source of truth for shell completion generators.
 // Hand-maintained alongside the Commander definitions in apps/cli/src/commands/.
-// The drift-detection test in __tests__/completion.test.ts walks the live program
-// tree and fails if a command or flag is added to one place without the other.
-
-import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
 
 export type ArgKind = "lang" | "path" | "choice" | "value" | "text";
 
@@ -34,7 +30,6 @@ export interface CommandSpec {
 export interface RootSpec {
   name: string;
   description: string;
-  globalFlags: OptionSpec[];
   commands: CommandSpec[];
 }
 
@@ -42,17 +37,13 @@ const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "bmp"] as const;
 const CATALOG_EXTS = ["json", "yaml", "yml"] as const;
 const GLOSSARY_MODES = ["prefer", "strict"] as const;
 const FILE_FORMATS = ["auto", "json", "yaml", "raw-json", "raw-yaml"] as const;
-const SHELLS = ["bash", "zsh", "fish"] as const;
+
+export const SUPPORTED_SHELLS = ["bash", "zsh", "fish"] as const;
+export type SupportedShell = (typeof SUPPORTED_SHELLS)[number];
 
 export const SPEC: RootSpec = {
   name: "tl",
   description: "Translation CLI — glossary-aware, context-rich, model-agnostic",
-  globalFlags: [
-    { flag: "--help", description: "Show help" },
-    { flag: "-h", description: "Show help" },
-    { flag: "--version", description: "Show version" },
-    { flag: "-V", description: "Show version" },
-  ],
   commands: [
     {
       name: "translate",
@@ -160,12 +151,8 @@ export const SPEC: RootSpec = {
     {
       name: "completion",
       description: "Generate shell completion script (bash, zsh, fish)",
-      positionals: [{ name: "shell", required: true, takes: "choice", choices: SHELLS }],
+      positionals: [{ name: "shell", required: true, takes: "choice", choices: SUPPORTED_SHELLS }],
       options: [],
     },
   ],
 };
-
-export const LANGS: readonly string[] = SUPPORTED_LANGUAGES;
-export const SUPPORTED_SHELLS = SHELLS;
-export type SupportedShell = (typeof SHELLS)[number];

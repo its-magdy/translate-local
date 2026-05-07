@@ -29,6 +29,10 @@ Examples:
         case "fish":
           process.stdout.write(generateFish());
           return;
+        default: {
+          const _exhaustive: never = shell;
+          throw new Error(`Unhandled shell: ${String(_exhaustive)}`);
+        }
       }
     });
 }

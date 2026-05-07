@@ -5,7 +5,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { Command } from "commander";
 
-import { SPEC, LANGS } from "../completions/spec";
+import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
+import { SPEC } from "../completions/spec";
 import { generateBash } from "../completions/bash";
 import { generateZsh } from "../completions/zsh";
 import { generateFish } from "../completions/fish";
@@ -19,11 +20,6 @@ import { makeCompletionCommand } from "../commands/completion";
 
 const CLI = join(import.meta.dir, "../../src/index.ts");
 
-function run(args: string[]): { stdout: string; stderr: string; exitCode: number } {
-  const r = spawnSync("bun", ["run", CLI, ...args], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });
-  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exitCode: r.status ?? 1 };
-}
-
 // Try a shell-syntax checker. If the binary isn't installed (typical in CI),
 // the test is skipped — we don't want a missing fish to fail the suite.
 function shellSyntaxCheck(bin: string, args: string[]): "ok" | "fail" | "missing" {
@@ -34,23 +30,27 @@ function shellSyntaxCheck(bin: string, args: string[]): "ok" | "fail" | "missing
 
 describe("tl completion", () => {
   describe("CLI integration", () => {
-    it("rejects unknown shells with non-zero exit", () => {
-      const r = run(["completion", "tcsh"]);
-      expect(r.exitCode).not.toBe(0);
+    it("rejects unknown shells", () => {
+      const cmd = makeCompletionCommand().exitOverride();
+      expect(() => cmd.parse(["tcsh"], { from: "user" })).toThrow();
     });
 
     it("requires a shell argument", () => {
-      const r = run(["completion"]);
-      expect(r.exitCode).not.toBe(0);
+      const cmd = makeCompletionCommand().exitOverride();
+      expect(() => cmd.parse([], { from: "user" })).toThrow();
     });
 
-    for (const shell of ["bash", "zsh", "fish"] as const) {
-      it(`emits a non-empty script for ${shell}`, () => {
-        const r = run(["completion", shell]);
-        expect(r.exitCode).toBe(0);
-        expect(r.stdout.length).toBeGreaterThan(500);
+    // One end-to-end spawn confirms the bin is wired into index.ts and exits 0.
+    // The other shells are exercised in-process below; spawning them all would
+    // pay 3x cold-Bun startup for no extra signal.
+    it("end-to-end: `bun run tl completion bash` produces output and exits 0", () => {
+      const r = spawnSync("bun", ["run", CLI, "completion", "bash"], {
+        encoding: "utf8",
+        env: { ...process.env, NO_COLOR: "1" },
       });
-    }
+      expect(r.status).toBe(0);
+      expect((r.stdout ?? "").length).toBeGreaterThan(500);
+    });
   });
 
   describe.each([
@@ -103,7 +103,7 @@ describe("tl completion", () => {
       const path = join(tmp, "tl.bash");
       writeFileSync(path, generateBash());
       const result = shellSyntaxCheck("bash", ["-n", path]);
-      if (result === "missing") return; // CI without bash — unlikely but possible
+      if (result === "missing") return;
       expect(result).toBe("ok");
     });
 
@@ -125,20 +125,23 @@ describe("tl completion", () => {
   });
 
   describe("language list parity", () => {
-    it("matches SUPPORTED_LANGUAGES exactly", () => {
-      // Catches the case where someone adds a language to constants.ts but the
-      // completion script wasn't regenerated and tested.
+    // Catches the case where someone adds a language to constants.ts but the
+    // completion script wasn't regenerated and tested.
+    it("includes every entry in SUPPORTED_LANGUAGES", () => {
       const bash = generateBash();
-      for (const lang of LANGS) {
+      for (const lang of SUPPORTED_LANGUAGES) {
         expect(bash).toContain(lang);
       }
     });
   });
 
   describe("drift detection vs live Commander tree", () => {
-    // Builds the exact tree wired into apps/cli/src/index.ts and asserts that
-    // every command + option flag has a matching entry in SPEC. This is what
-    // keeps the hand-maintained spec honest.
+    // Asserts spec.ts and the live Commander tree agree on commands and flags.
+    // The program has to be rebuilt here (rather than imported from index.ts)
+    // because index.ts has top-level side effects (auto-launches TUI, calls
+    // parseAsync immediately on argv).
+    type Pair = string; // "translate:--from" or "glossary.add:--source"
+
     function buildLiveProgram(): Command {
       const program = new Command().name("tl");
       program.addCommand(makeTranslateCommand());
@@ -150,7 +153,6 @@ describe("tl completion", () => {
       return program;
     }
 
-    type Pair = string; // "translate:--from" or "glossary.add:--source"
     function liveOptionPairs(program: Command): Set<Pair> {
       const out = new Set<Pair>();
       for (const cmd of program.commands) {
@@ -185,37 +187,35 @@ describe("tl completion", () => {
       return out;
     }
 
+    const program = buildLiveProgram();
+    const live = liveOptionPairs(program);
+    const spec = specOptionPairs();
+
     it("every live --flag has a SPEC entry", () => {
-      const live = liveOptionPairs(buildLiveProgram());
-      const spec = specOptionPairs();
       const missing = [...live].filter((p) => !spec.has(p));
       expect(missing).toEqual([]);
     });
 
     it("every SPEC --flag exists on the live command", () => {
-      const live = liveOptionPairs(buildLiveProgram());
-      const spec = specOptionPairs();
       const extra = [...spec].filter((p) => !live.has(p));
       expect(extra).toEqual([]);
     });
 
     it("top-level command names match", () => {
-      const liveNames = buildLiveProgram().commands.map((c) => c.name()).sort();
+      const liveNames = program.commands.map((c) => c.name()).sort();
       const specNames = SPEC.commands.map((c) => c.name).sort();
       expect(specNames).toEqual(liveNames);
     });
 
     it("subcommand names match for grouped commands", () => {
-      const program = buildLiveProgram();
       for (const cmd of SPEC.commands) {
         if (!cmd.subcommands || cmd.subcommands.length === 0) continue;
-        const live = program.commands.find((c) => c.name() === cmd.name);
-        expect(live).toBeDefined();
-        const liveSubs = live!.commands.map((c) => c.name()).sort();
+        const liveCmd = program.commands.find((c) => c.name() === cmd.name);
+        expect(liveCmd).toBeDefined();
+        const liveSubs = liveCmd!.commands.map((c) => c.name()).sort();
         const specSubs = cmd.subcommands.map((s) => s.name).sort();
         expect(specSubs).toEqual(liveSubs);
       }
     });
   });
 });
-

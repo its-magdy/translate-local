@@ -1,4 +1,5 @@
-import { SPEC, LANGS, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
+import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
+import { SPEC, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
 
 // Escape characters that have special meaning inside a fish single-quoted string.
 function fq(s: string): string {
@@ -6,7 +7,6 @@ function fq(s: string): string {
 }
 
 function flagBareName(flag: string): string {
-  // --foo → foo, -f → f
   return flag.replace(/^-+/, "");
 }
 
@@ -39,6 +39,10 @@ function emitOptionLine(condition: string, opt: OptionSpec): string {
     case "value":
     case "text":
       return `complete -c tl -n '${condition}' ${sw} -x -d '${desc}'`;
+    default: {
+      const _exhaustive: never = opt.takes;
+      throw new Error(`Unhandled ArgKind: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -59,9 +63,9 @@ function topLevelCondition(): string {
   return "__fish_use_subcommand";
 }
 
+// The `not __fish_seen_subcommand_from <subs>` mask prevents subcommand names
+// from being suggested again once one has been chosen.
 function inCommandCondition(cmdName: string, subNames: string[] = []): string {
-  // True when the user has typed `tl <cmdName>` and is past it. If the command
-  // has subcommands, also exclude positions where a subcommand is already chosen.
   if (subNames.length === 0) {
     return `__fish_seen_subcommand_from ${cmdName}`;
   }
@@ -74,18 +78,15 @@ function inSubcommandCondition(parent: string, sub: string): string {
 
 function emitCommand(cmd: CommandSpec): string {
   const lines: string[] = [];
-  // Register the top-level command name
   lines.push(`complete -c tl -n '${topLevelCondition()}' -a '${cmd.name}' -d '${fq(cmd.description)}'`);
 
   if (cmd.subcommands && cmd.subcommands.length > 0) {
     const subNames = cmd.subcommands.map((s) => s.name);
-    // Register each subcommand as a completion when in the parent and no sub chosen
     for (const sub of cmd.subcommands) {
       lines.push(
         `complete -c tl -n '${inCommandCondition(cmd.name, subNames)}' -a '${sub.name}' -d '${fq(sub.description)}'`,
       );
     }
-    // Options/positionals for each subcommand
     for (const sub of cmd.subcommands) {
       const cond = inSubcommandCondition(cmd.name, sub.name);
       for (const opt of sub.options) {
@@ -97,7 +98,6 @@ function emitCommand(cmd: CommandSpec): string {
       }
     }
   } else {
-    // Leaf command: options + positionals attach when the command is seen.
     const cond = inCommandCondition(cmd.name);
     for (const opt of cmd.options) {
       lines.push(emitOptionLine(cond, opt));
@@ -112,7 +112,7 @@ function emitCommand(cmd: CommandSpec): string {
 }
 
 export function generateFish(): string {
-  const langArr = LANGS.join(" ");
+  const langArr = SUPPORTED_LANGUAGES.join(" ");
   const blocks = SPEC.commands.map(emitCommand).join("\n\n");
 
   return `# fish completion for tl
