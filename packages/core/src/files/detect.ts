@@ -1,15 +1,3 @@
-/**
- * File-format detection for translation catalogs.
- *
- * Strategy: extension hints at parse format (json vs yaml). Once parsed, we
- * inspect the content shape to identify special catalogs (ARB, xcstrings,
- * FormatJS, Lingui, i18next-with-plurals) — most of which are refused in v1
- * because they need format-specific handling we haven't built yet.
- *
- * `--format` overrides everything. The `raw-*` formats translate every leaf
- * regardless of metadata — power-user escape hatch for refused formats.
- */
-
 import type { JsonValue } from "./walk";
 
 export type ParseFormat = "json" | "yaml";
@@ -33,11 +21,8 @@ export type FormatOverride =
 export type DetectResult = {
   parse: ParseFormat;
   content: ContentFormat;
-  /** True if this format is supported in v1 (not refused). */
   supported: boolean;
-  /** Reason for refusal, if !supported. Phrased as a hint to the user. */
   refusalHint?: string;
-  /** True if `--format raw-*` was set, meaning bypass content checks and translate every leaf. */
   raw: boolean;
 };
 
@@ -50,19 +35,18 @@ export function parseFormatFromExt(ext: string): ParseFormat | null {
   return null;
 }
 
-/**
- * Detect content format from already-parsed root value.
- *
- * Order of checks: most-specific first. ARB and xcstrings have unmistakable
- * top-level structure; FormatJS/Lingui require deeper inspection.
- */
+export function resolveParseFormat(ext: string, override: FormatOverride): ParseFormat | null {
+  if (override === "json" || override === "raw-json") return "json";
+  if (override === "yaml" || override === "raw-yaml") return "yaml";
+  return parseFormatFromExt(ext);
+}
+
 export function detectContentFormat(root: JsonValue): ContentFormat {
   if (root === null || typeof root !== "object" || Array.isArray(root)) {
     return "vanilla";
   }
   const obj = root as { [k: string]: JsonValue };
 
-  // xcstrings: { sourceLanguage, version, strings: { ... } }
   if (
     typeof obj.sourceLanguage === "string" &&
     "strings" in obj &&
@@ -72,14 +56,12 @@ export function detectContentFormat(root: JsonValue): ContentFormat {
     return "xcstrings";
   }
 
-  // ARB: any top-level key matching @nonempty (e.g. @hello). @@locale alone also signals ARB.
   for (const k of Object.keys(obj)) {
     if (/^@[^@]/.test(k) || k === "@@locale" || k === "@@last_modified") {
       return "arb";
     }
   }
 
-  // FormatJS extracted catalog: at least one value is { defaultMessage: string, ... }
   for (const v of Object.values(obj)) {
     if (
       v !== null &&
@@ -92,7 +74,6 @@ export function detectContentFormat(root: JsonValue): ContentFormat {
     }
   }
 
-  // Lingui full: at least one value is { translation, message } (both strings)
   for (const v of Object.values(obj)) {
     if (
       v !== null &&
@@ -105,7 +86,6 @@ export function detectContentFormat(root: JsonValue): ContentFormat {
     }
   }
 
-  // i18next plural-key style: any leaf key matches the plural suffix pattern
   if (hasI18nextPluralKeys(obj)) return "i18next-plurals";
 
   return "vanilla";
@@ -119,7 +99,6 @@ function hasI18nextPluralKeys(node: JsonValue): boolean {
   }
   for (const key of Object.keys(node)) {
     if (I18NEXT_PLURAL_SUFFIX.test(key)) {
-      // Confirm there's at least one sibling with the same stem
       const stem = key.replace(I18NEXT_PLURAL_SUFFIX, "");
       const siblings = Object.keys(node);
       if (siblings.some((k) => k !== key && k.replace(I18NEXT_PLURAL_SUFFIX, "") === stem)) {
@@ -132,27 +111,17 @@ function hasI18nextPluralKeys(node: JsonValue): boolean {
   return false;
 }
 
-/**
- * Resolve a final detection given the file extension, parsed root, and user override.
- */
 export function detect(ext: string, root: JsonValue, override: FormatOverride): DetectResult {
   const raw = override === "raw-json" || override === "raw-yaml";
-
-  let parse: ParseFormat;
-  if (override === "json" || override === "raw-json") parse = "json";
-  else if (override === "yaml" || override === "raw-yaml") parse = "yaml";
-  else {
-    const fromExt = parseFormatFromExt(ext);
-    if (fromExt === null) {
-      return {
-        parse: "json",
-        content: "vanilla",
-        supported: false,
-        refusalHint: `Unsupported extension "${ext}". Use .json, .yaml, or .yml, or pass --format.`,
-        raw,
-      };
-    }
-    parse = fromExt;
+  const parse = resolveParseFormat(ext, override);
+  if (parse === null) {
+    return {
+      parse: "json",
+      content: "vanilla",
+      supported: false,
+      refusalHint: `Unsupported extension "${ext}". Use .json, .yaml, or .yml, or pass --format.`,
+      raw,
+    };
   }
 
   if (raw) {

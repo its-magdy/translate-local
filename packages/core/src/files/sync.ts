@@ -1,11 +1,3 @@
-/**
- * Sync-mode diff: given a parsed source tree and an existing target tree,
- * compute the list of paths that need translation.
- *
- * Default rule: translate when target value is missing, an empty string, null,
- * or whitespace-only. With `--force`, translate every leaf.
- */
-
 import { walkLeaves, getAtPath, type JsonValue } from "./walk";
 
 export type SyncMode = "missing-only" | "force";
@@ -41,16 +33,12 @@ export function diffForSync(
 function needsTranslation(value: JsonValue | undefined): boolean {
   if (value === undefined) return true;
   if (value === null) return true;
-  if (typeof value !== "string") return false; // non-string existing values are preserved
+  if (typeof value !== "string") return false;
   if (value.length === 0) return true;
   if (value.trim().length === 0) return true;
   return false;
 }
 
-/**
- * Build a setter that writes to the target tree at `path`, materializing
- * intermediate containers as needed (objects for string keys, arrays for numeric).
- */
 function makeTargetSetter(targetRoot: JsonValue, path: (string | number)[]): (next: string) => void {
   return (next: string) => {
     if (path.length === 0) {
@@ -83,11 +71,6 @@ function makeTargetSetter(targetRoot: JsonValue, path: (string | number)[]): (ne
   };
 }
 
-/**
- * Build an empty target tree shaped like the source — used when no existing
- * target file exists. Mirrors structure (objects/arrays) but leaves all string
- * leaves empty so the diff sees them as missing.
- */
 export function makeEmptyTargetLike(sourceRoot: JsonValue): JsonValue {
   if (sourceRoot === null || typeof sourceRoot !== "object") return sourceRoot;
   if (Array.isArray(sourceRoot)) {

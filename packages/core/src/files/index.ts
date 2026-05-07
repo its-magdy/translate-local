@@ -1,28 +1,14 @@
-/**
- * File-translate orchestrator.
- *
- * Reads a source catalog, detects format, loads or seeds the target, computes
- * the sync diff, and translates each pending leaf via the existing pipeline —
- * with placeholder protection and skip heuristics applied per leaf.
- *
- * Adapter and stores are constructed by the caller and passed in. The
- * orchestrator does NOT call adapter.dispose(); the caller owns lifecycle.
- *
- * On success: atomic write of the target file. The original target is intact
- * until the rename succeeds.
- */
-
 import { existsSync, statSync } from "fs";
 import { extname } from "path";
-import type { Adapter } from "@translate-local/shared/types";
+import type { Adapter, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import type { GlossaryStore } from "../glossary";
 import type { ContextStore } from "../context";
 import { runPipeline } from "../pipeline";
-import { detect, type FormatOverride, type ContentFormat } from "./detect";
+import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } from "./detect";
 import { readJson, writeJson, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
-import { diffForSync, makeEmptyTargetLike, type SyncMode, type PendingTranslation } from "./sync";
+import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
 import { mask, unmask, validate, containsICU } from "./placeholders";
 import { classifyValue } from "./skip";
 import type { JsonValue } from "./walk";
@@ -46,7 +32,8 @@ export type FileTranslateOptions = {
   continueOnError?: boolean;
   translateAll?: boolean;
   maxFileBytes?: number;
-  /** Called as each leaf finishes. Useful for stderr progress. */
+  /** When true, classify and count leaves without calling the adapter or writing output. */
+  dryRun?: boolean;
   onProgress?: (info: { done: number; total: number; path: string }) => void;
 };
 
@@ -61,6 +48,9 @@ export type FileTranslateSummary = {
 };
 
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
+
+// 10 retries gives ~99.9% success at ~50% per-attempt rate; cost is paid only on stubborn keys.
+const MAX_PLACEHOLDER_RETRIES = 10;
 
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
   const {
@@ -77,6 +67,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     continueOnError = true,
     translateAll = false,
     maxFileBytes = DEFAULT_MAX_BYTES,
+    dryRun = false,
     onProgress,
   } = opts;
 
@@ -102,23 +93,21 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
 
   const ext = extname(sourcePath);
+  const parseFormat = resolveParseFormat(ext, format);
+  if (parseFormat === null) {
+    throw new TlError(
+      "FILE_INVALID_FORMAT",
+      `Unsupported extension "${ext}"`,
+      "Use .json, .yaml, or .yml, or pass --format.",
+    );
+  }
 
-  // Read source — preliminary parse to feed format detection
   let sourceData: JsonValue;
   let jsonMeta: JsonMeta | undefined;
   let yamlRead: YamlReadResult | undefined;
 
-  const probeFormat =
-    format === "raw-yaml" || format === "yaml"
-      ? "yaml"
-      : format === "raw-json" || format === "json"
-        ? "json"
-        : ext.toLowerCase() === ".yaml" || ext.toLowerCase() === ".yml"
-          ? "yaml"
-          : "json";
-
   try {
-    if (probeFormat === "yaml") {
+    if (parseFormat === "yaml") {
       yamlRead = readYaml(sourcePath);
       sourceData = yamlRead.data;
     } else {
@@ -141,16 +130,13 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  // Read target if it exists
   let targetData: JsonValue;
   if (existsSync(outPath)) {
     try {
-      if (probeFormat === "yaml") {
-        const r = readYaml(outPath);
-        targetData = r.data;
+      if (parseFormat === "yaml") {
+        targetData = readYaml(outPath).data;
       } else {
-        const r = readJson(outPath);
-        targetData = r.data;
+        targetData = readJson(outPath).data;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -178,30 +164,26 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  // Per-leaf translation
   for (let i = 0; i < pending.length; i++) {
     const p = pending[i];
     const pathStr = p.path.map(String).join(".");
     onProgress?.({ done: i, total: pending.length, path: pathStr });
 
-    // Skip heuristics
     if (!translateAll) {
       const cls = classifyValue(p.source);
       if (cls.skip) {
-        // Copy source value through; preserves URL/email/etc. unchanged
-        p.set(p.source);
+        if (!dryRun) p.set(p.source);
         summary.skipped.count++;
         summary.skipped.reasons[cls.reason] = (summary.skipped.reasons[cls.reason] ?? 0) + 1;
         continue;
       }
     }
 
-    // ICU refusal at per-leaf level (in addition to format-level)
     if (containsICU(p.source)) {
       const reason = `Contains ICU MessageFormat at ${pathStr}`;
       if (continueOnError) {
         summary.failed.push({ path: pathStr, reason });
-        p.set(p.source);
+        if (!dryRun) p.set(p.source);
         continue;
       }
       throw new TlError(
@@ -211,42 +193,30 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       );
     }
 
-    // Mask placeholders
+    if (dryRun) {
+      summary.translated++;
+      continue;
+    }
+
     const { masked, placeholders } = mask(p.source);
 
-    // Synthesize glossary hits for each sentinel in the masked text.
-    // The translategemma model is well-trained on <term translation="X">word</term>
-    // tags from the glossary infrastructure — using that path is far more reliable
-    // than naked sentinels for getting the model to preserve a token.
-    const sentinelHits: import("@translate-local/shared/types").GlossaryHit[] = [];
+    // translategemma reliably honors <term> tags from the glossary path; routing
+    // sentinels through that channel preserves them better than naked-token instructions.
+    const sentinelHits: GlossaryHit[] = [];
     for (const ph of placeholders) {
       const tok = `__TLPH_${ph.index}__`;
       const idx = masked.indexOf(tok);
       if (idx >= 0) {
         sentinelHits.push({
-          entry: {
-            id: `__sentinel_${ph.index}`,
-            sourceTerm: tok,
-            targetTerm: tok,
-            sourceLang,
-            targetLang,
-          },
+          entry: { id: `__sentinel_${ph.index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
           startIndex: idx,
           endIndex: idx + tok.length,
         });
       }
     }
 
-    // Retrieve context snippets per-leaf
     const snippets = context.retrieve(p.source, 3).map((s) => s.content);
 
-    // Per-key retry loop. The model is non-deterministic and sometimes drops
-    // sentinel tokens despite the strong prompt instruction. Retrying with
-    // the same input often succeeds because the sampler picks a different
-    // path. We cap at 3 attempts before giving up on the key.
-    // 10 retries: at ~50% per-attempt success, total success rate ~99.9%.
-    // Cost is paid only on stubborn keys (most succeed on attempt 1-2).
-    const MAX_PLACEHOLDER_RETRIES = 10;
     let restored = "";
     let lastReason = "";
     let succeeded = false;
@@ -268,7 +238,6 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       }
 
       restored = unmask(translatedMasked, placeholders);
-      // If no placeholders to validate, accept on first attempt
       if (placeholders.length === 0) {
         succeeded = true;
         break;
@@ -283,9 +252,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
     if (!succeeded) {
       if (continueOnError) {
-        // Fallback: write the source value to the target so the output file
-        // is complete (every key has a value). User can grep for source text
-        // to find failed keys.
+        // Fall back to source so every key has a value; user can grep source text to find failures.
         summary.failed.push({ path: pathStr, reason: lastReason });
         p.set(p.source);
         continue;
@@ -302,25 +269,22 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
   onProgress?.({ done: pending.length, total: pending.length, path: "" });
 
-  // Write — atomic. Preserve source file's metadata (indent / eol / trailing newline)
-  // by copying jsonMeta or yamlRead.meta forward. If target existed, we still use the
-  // source's formatting so en→ar produces consistently formatted siblings.
+  if (dryRun) return summary;
+
   try {
-    if (probeFormat === "yaml") {
-      if (!yamlRead) throw new Error("internal: yamlRead missing");
-      writeYaml(outPath, yamlRead.doc, yamlRead.meta, targetData);
+    if (parseFormat === "yaml") {
+      writeYaml(outPath, yamlRead!.doc, yamlRead!.meta, targetData);
     } else {
-      if (!jsonMeta) throw new Error("internal: jsonMeta missing");
-      writeJson(outPath, targetData, jsonMeta);
+      writeJson(outPath, targetData, jsonMeta!);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_WRITE_FAILED", `Failed to write ${outPath}: ${msg}`, "Check that the output path is writable.", err);
   }
 
-  // Re-parse output to validate it parses cleanly
+  // Re-parse from disk validates that what we wrote actually round-trips.
   try {
-    if (probeFormat === "yaml") readYaml(outPath);
+    if (parseFormat === "yaml") readYaml(outPath);
     else readJson(outPath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

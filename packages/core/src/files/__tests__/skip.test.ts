@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { classifyValue, isNonTranslatable } from "../skip";
+import { classifyValue } from "../skip";
 
 describe("classifyValue", () => {
   test("empty string", () => {
@@ -55,12 +55,5 @@ describe("classifyValue", () => {
 
   test("two-char common abbreviations match", () => {
     expect(classifyValue("OK")).toEqual({ skip: true, reason: "all-caps-short" });
-  });
-});
-
-describe("isNonTranslatable convenience predicate", () => {
-  test("returns boolean", () => {
-    expect(isNonTranslatable("https://example.com")).toBe(true);
-    expect(isNonTranslatable("Hello")).toBe(false);
   });
 });

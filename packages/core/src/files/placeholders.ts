@@ -1,39 +1,23 @@
-/**
- * Placeholder protection for file translation.
- *
- * Strategy: hybrid mask + validate. Replace placeholders with ASCII sentinels
- * (`__TLPH_N__`) before sending to the model, restore after, then re-extract
- * from the model's output and check multiset equality against the source.
- *
- * Why ASCII sentinels: tested with translategemma (the default backend),
- * Unicode Private Use Area chars (U+E000/U+E001) get stripped from the
- * model output entirely. Plain ASCII tokens with a distinctive shape survive
- * translation reliably. The `__TLPH_` prefix is unlikely to appear in real
- * i18n content.
- *
- * Order in COMBINED matters: longer/more-specific patterns first so the regex
- * engine matches `{{name}}` as one placeholder rather than `{name}` plus stray braces.
- */
-
+// ASCII sentinels survive translategemma reliably; PUA chars (U+E000/U+E001) get
+// stripped from the model output entirely. The `__TLPH_` prefix is unlikely to
+// appear in real i18n content.
 const SENTINEL_PREFIX = "__TLPH_";
 const SENTINEL_SUFFIX = "__";
 
+// Order matters: longer/more-specific patterns first so `{{name}}` matches as one token.
 const PATTERN_SOURCES = [
-  /\{\{\s*[\w.]+\s*\}\}/.source,        // i18next / mustache: {{name}}
-  /%\{[\w.]+\}/.source,                  // Rails: %{name}
-  /\$t\([^)]+\)/.source,                 // i18next nesting: $t(key)
-  /@(?:\.\w+)?:[\w.]+/.source,           // Vue I18n linked: @:key, @.upper:key
-  /\{\s*[\w.]+\s*\}/.source,             // ICU simple / Vue: {name}, {0}
-  /%\d+\$[sdif]/.source,                  // Positional printf: %1$s, %2$d
-  /%[sdif]/.source,                       // printf: %s, %d, %f
-  /<\/?[a-zA-Z][^>]*>/.source,            // HTML tags: <b>, </a>, <br/>
+  /\{\{\s*[\w.]+\s*\}\}/.source,
+  /%\{[\w.]+\}/.source,
+  /\$t\([^)]+\)/.source,
+  /@(?:\.\w+)?:[\w.]+/.source,
+  /\{\s*[\w.]+\s*\}/.source,
+  /%\d+\$[sdif]/.source,
+  /%[sdif]/.source,
+  /<\/?[a-zA-Z][^>]*>/.source,
 ];
 
 const COMBINED = new RegExp(PATTERN_SOURCES.map((s) => `(?:${s})`).join("|"), "g");
 
-// ICU MessageFormat detector: plural, select, selectordinal, number/date/time formats.
-// We refuse strings containing these in v1 — partial translation is a footgun without
-// a full ICU AST parser.
 const ICU = /\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*,/;
 
 const SENTINEL_RE = new RegExp(`${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}`, "g");

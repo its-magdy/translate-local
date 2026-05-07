@@ -1,14 +1,6 @@
-/**
- * YAML round-trip via the `yaml` package's Document API.
- *
- * Preserves: comments (above and inline), key order, block scalar style
- * (literal `|`, folded `>`), quoting style, and indentation. Refuses files
- * with anchors/aliases, custom tags, multi-document streams, or YAML 1.1
- * directives — these have edge cases that v1 doesn't handle safely.
- *
- * Mutation rule: assign to `Scalar.value` directly when updating a leaf.
- * `setIn()` would reset the scalar style.
- */
+// Mutate Scalar.value directly when updating a leaf — setIn() would reset the
+// scalar style (block `|`, folded `>`, quoting). Refuses files with anchors/aliases,
+// custom tags, multi-document streams, or YAML 1.1 directives.
 
 import { readFileSync } from "fs";
 import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLMap, YAMLSeq } from "yaml";
@@ -29,7 +21,6 @@ export type YamlReadResult = {
 };
 
 function detectIndent(text: string): number {
-  // Find the first line with leading whitespace
   const m = text.match(/^( +)\S/m);
   if (!m) return 2;
   return m[1].length;
@@ -42,7 +33,6 @@ function detectEol(text: string): "\n" | "\r\n" {
 }
 
 function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
-  // YAML 1.1 directive
   const directiveMatch = src.match(/^%YAML\s+(\d+\.\d+)/m);
   if (directiveMatch && directiveMatch[1] === "1.1") {
     throw new TlError(
@@ -52,7 +42,6 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
     );
   }
 
-  // Walk the tree to detect anchors/aliases and custom tags
   const stack: unknown[] = [doc.contents];
   while (stack.length > 0) {
     const node = stack.pop();
@@ -72,15 +61,19 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
         );
       }
       const tag = (node as Scalar).tag;
-      if (tag && typeof tag === "string" && tag !== "tag:yaml.org,2002:str" && tag !== "tag:yaml.org,2002:null" && !tag.startsWith("?")) {
-        // Allow nulls and implicit string tags; refuse explicit binary/timestamp etc.
-        if (tag.includes("binary") || tag.includes("timestamp")) {
-          throw new TlError(
-            "FILE_INVALID_FORMAT",
-            `YAML scalar with explicit tag ${tag}`,
-            "Custom tags on scalars are not supported.",
-          );
-        }
+      if (
+        tag &&
+        typeof tag === "string" &&
+        tag !== "tag:yaml.org,2002:str" &&
+        tag !== "tag:yaml.org,2002:null" &&
+        !tag.startsWith("?") &&
+        (tag.includes("binary") || tag.includes("timestamp"))
+      ) {
+        throw new TlError(
+          "FILE_INVALID_FORMAT",
+          `YAML scalar with explicit tag ${tag}`,
+          "Custom tags on scalars are not supported.",
+        );
       }
       continue;
     }
@@ -106,7 +99,6 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
 export function readYaml(path: string): YamlReadResult {
   const raw = readFileSync(path, "utf8");
 
-  // Refuse multi-document streams (separator outside of strings is the canonical signal)
   if (/^---\s*$/m.test(raw) && /^---/m.test(raw.split(/^---/m).slice(1).join(""))) {
     throw new TlError(
       "FILE_INVALID_FORMAT",
@@ -139,11 +131,6 @@ export function readYaml(path: string): YamlReadResult {
   return { data, doc, meta };
 }
 
-/**
- * Apply translated leaf values from `data` back into the YAML Document by
- * walking both in lock-step. We mutate `Scalar.value` in place to preserve
- * the scalar's `type` (block style / quoting), comment, and spaceBefore.
- */
 function applyToDoc(doc: Document.Parsed, data: JsonValue): void {
   apply(doc.contents, data);
 }
@@ -179,7 +166,6 @@ function apply(node: unknown, value: JsonValue): void {
     }
     return;
   }
-  // Scalar at root — uncommon but possible; replace value directly
   if (isScalar(node) && typeof value === "string") {
     (node as Scalar).value = value;
   }
@@ -189,7 +175,6 @@ export function writeYaml(path: string, doc: Document.Parsed, meta: YamlMeta, da
   applyToDoc(doc, data);
   let text = doc.toString({ indent: meta.indent, lineWidth: 0 });
   if (meta.eol === "\r\n") text = text.replace(/\n/g, "\r\n");
-  // doc.toString() emits a trailing newline by default; respect meta.trailingNewline
   if (!meta.trailingNewline) {
     if (text.endsWith("\r\n")) text = text.slice(0, -2);
     else if (text.endsWith("\n")) text = text.slice(0, -1);

@@ -11,8 +11,7 @@ export interface PipelineOptions {
   contextSnippets?: string[];
   imageBase64?: string;
   onChunk?: (chunk: string) => void;
-  /** When provided, skip the in-pipeline glossary lookup and use these hits directly.
-   * Used by file-translate to inject synthetic hits that protect masked placeholders. */
+  /** Caller-supplied glossary hits merged with the in-pipeline lookup. */
   extraGlossaryHits?: GlossaryHit[];
 }
 
@@ -27,10 +26,7 @@ export async function runPipeline(
   const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [] } = options;
   const isImageMode = !!imageBase64;
 
-  // Preprocess: skip glossary tag injection for images (can't tag pixels)
   const realHits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
-  // Merge real glossary hits with caller-supplied synthetic hits (e.g. placeholder-preservation hits from file mode).
-  // Sort by startIndex; throw if overlapping (caller's responsibility to ensure non-overlap).
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
@@ -46,18 +42,14 @@ export async function runPipeline(
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
-      // Only stream on the first attempt; retries are silent to avoid concatenating
-      // partial output from attempt N with tokens from attempt N+1.
+      // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
       onChunk: retries === 0 ? onChunk : undefined,
       options: { glossaryMode },
     };
 
     const raw = await adapter.translate(request);
 
-    // Postprocess: strip tags and normalize
     const translated = normalizeWhitespace(stripGlossaryTags(raw.translated));
-
-    // Validate glossary coverage
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(hits, translated);
     const result: TranslationResult = {
       ...raw,
