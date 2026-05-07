@@ -14,8 +14,8 @@ export function makeCompletionCommand(): Command {
 Examples:
   $ eval "$(tl completion bash)"                          # bash, current shell
   $ tl completion bash >> ~/.bashrc                       # bash, persistent
-  $ tl completion zsh > "\${fpath[1]}/_tl"                # zsh
-  $ tl completion fish > ~/.config/fish/completions/tl.fish
+  $ mkdir -p ~/.zsh/completions && tl completion zsh > ~/.zsh/completions/_tl
+  $ mkdir -p ~/.config/fish/completions && tl completion fish > ~/.config/fish/completions/tl.fish
 `,
     )
     .action((shell: SupportedShell) => {

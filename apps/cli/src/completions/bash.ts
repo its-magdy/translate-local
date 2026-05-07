@@ -1,24 +1,38 @@
 import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
 import { SPEC, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
 
+// Tokens emitted into bash unquoted (compgen -W "...") or into case patterns
+// (case "$prev" in <token>)) must not contain shell metacharacters. Limit to
+// flag-name / choice-value characters so a future SPEC entry with a quote, $,
+// backtick, or glob char fails the build instead of silently injecting.
+const SAFE_BASH_TOKEN = /^[A-Za-z0-9_.\-]+$/;
+function assertSafeBashToken(s: string, kind: string): string {
+  if (!SAFE_BASH_TOKEN.test(s)) {
+    throw new Error(`Unsafe bash token (${kind}): ${JSON.stringify(s)}`);
+  }
+  return s;
+}
+
 function optionWordList(opts: OptionSpec[]): string {
-  return opts.map((o) => o.flag).join(" ");
+  return opts.map((o) => assertSafeBashToken(o.flag, "flag")).join(" ");
 }
 
 function emitValueArms(cmd: CommandSpec, indent: string): string {
   const lines: string[] = [];
   for (const opt of cmd.options) {
     if (!opt.takes || opt.takes === "text") continue;
+    const flag = assertSafeBashToken(opt.flag, "flag");
     if (opt.takes === "lang") {
-      lines.push(`${indent}${opt.flag})`);
+      lines.push(`${indent}${flag})`);
       lines.push(`${indent}  COMPREPLY=( $(compgen -W "$__tl_langs" -- "$cur") )`);
       lines.push(`${indent}  return ;;`);
     } else if (opt.takes === "choice" && opt.choices) {
-      lines.push(`${indent}${opt.flag})`);
-      lines.push(`${indent}  COMPREPLY=( $(compgen -W "${opt.choices.join(" ")}" -- "$cur") )`);
+      const choices = opt.choices.map((c) => assertSafeBashToken(c, "choice")).join(" ");
+      lines.push(`${indent}${flag})`);
+      lines.push(`${indent}  COMPREPLY=( $(compgen -W "${choices}" -- "$cur") )`);
       lines.push(`${indent}  return ;;`);
     } else if (opt.takes === "path") {
-      lines.push(`${indent}${opt.flag})`);
+      lines.push(`${indent}${flag})`);
       lines.push(`${indent}  compopt -o default 2>/dev/null; COMPREPLY=(); return ;;`);
     }
     // "value" takes any string — fall through to no completion.
@@ -29,7 +43,8 @@ function emitValueArms(cmd: CommandSpec, indent: string): string {
 function emitPositionalGuard(pos: PositionalSpec | undefined): string {
   if (!pos) return "";
   if (pos.takes === "choice" && pos.choices) {
-    return `  if [[ "$cur" != -* ]]; then COMPREPLY=( $(compgen -W "${pos.choices.join(" ")}" -- "$cur") ); return; fi`;
+    const choices = pos.choices.map((c) => assertSafeBashToken(c, "choice")).join(" ");
+    return `  if [[ "$cur" != -* ]]; then COMPREPLY=( $(compgen -W "${choices}" -- "$cur") ); return; fi`;
   }
   if (pos.takes === "path") {
     return `  if [[ "$cur" != -* ]]; then compopt -o default 2>/dev/null; COMPREPLY=(); return; fi`;
@@ -38,6 +53,8 @@ function emitPositionalGuard(pos: PositionalSpec | undefined): string {
 }
 
 function emitSubcommandHandler(parent: string, sub: CommandSpec): string {
+  assertSafeBashToken(parent, "command");
+  assertSafeBashToken(sub.name, "subcommand");
   const fnName = `_tl_${parent}_${sub.name}`;
   const allFlags = optionWordList(sub.options);
   const valueArms = emitValueArms(sub, "    ");
@@ -53,19 +70,33 @@ ${positionalArm}
 }
 
 function emitCommandHandler(cmd: CommandSpec): string {
+  assertSafeBashToken(cmd.name, "command");
   const fnName = `_tl_${cmd.name}`;
 
   if (cmd.subcommands && cmd.subcommands.length > 0) {
-    const subNames = cmd.subcommands.map((s) => s.name).join(" ");
+    const subNames = cmd.subcommands.map((s) => assertSafeBashToken(s.name, "subcommand")).join(" ");
     const subDispatchArms = cmd.subcommands
       .map((s) => `      ${s.name}) _tl_${cmd.name}_${s.name}; return ;;`)
       .join("\n");
     const subHandlers = cmd.subcommands.map((s) => emitSubcommandHandler(cmd.name, s)).join("\n\n");
 
+    // Find the parent command's position (skipping any leading top-level flags),
+    // then look for the first non-flag word AFTER it. Mirrors the top-level _tl()
+    // loop so future top-level flags (e.g. `tl --verbose glossary add`) don't
+    // misalign subcommand detection.
     return `${fnName}() {
+  local parent_idx=-1
+  local j
+  for ((j=1; j < cword; j++)); do
+    case "\${words[j]}" in
+      -*) ;;
+      ${cmd.name}) parent_idx=$j; break ;;
+      *) ;;
+    esac
+  done
   local sub=""
   local i
-  for ((i=2; i < cword; i++)); do
+  for ((i=parent_idx+1; i < cword; i++)); do
     case "\${words[i]}" in
       -*) ;;
       *) sub="\${words[i]}"; break ;;
@@ -96,7 +127,7 @@ ${positionalArm}
 }
 
 export function generateBash(): string {
-  const topNames = SPEC.commands.map((c) => c.name).join(" ");
+  const topNames = SPEC.commands.map((c) => assertSafeBashToken(c.name, "command")).join(" ");
   const topDispatch = SPEC.commands
     .map((c) => `    ${c.name}) _tl_${c.name}; return ;;`)
     .join("\n");

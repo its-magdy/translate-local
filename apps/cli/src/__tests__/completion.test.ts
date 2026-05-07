@@ -60,32 +60,40 @@ describe("tl completion", () => {
   ] as const)("%s output", (_shell, generate) => {
     const out = generate();
 
+    // Word-boundary regex avoids false positives — bare `toContain("ar")`
+    // would match `_arguments`, `cargs`, `share`; `toContain("en")` matches
+    // `completion`/`Open`; `toContain("fr")` matches `from`. If the language
+    // list were dropped from output entirely, those substring checks would
+    // still pass.
+    const hasToken = (s: string, token: string) =>
+      new RegExp(`(?<![A-Za-z0-9_-])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_-])`).test(s);
+
     it("includes every top-level command name", () => {
       for (const cmd of SPEC.commands) {
-        expect(out).toContain(cmd.name);
+        expect(hasToken(out, cmd.name)).toBe(true);
       }
     });
 
     it("includes every glossary subcommand", () => {
       for (const sub of ["add", "list", "remove", "import", "export"]) {
-        expect(out).toContain(sub);
+        expect(hasToken(out, sub)).toBe(true);
       }
     });
 
     it("includes a sample of language codes", () => {
       for (const lang of ["ar", "en", "fr", "ja", "zh-tw"]) {
-        expect(out).toContain(lang);
+        expect(hasToken(out, lang)).toBe(true);
       }
     });
 
     it("includes glossary mode choices", () => {
-      expect(out).toContain("prefer");
-      expect(out).toContain("strict");
+      expect(hasToken(out, "prefer")).toBe(true);
+      expect(hasToken(out, "strict")).toBe(true);
     });
 
     it("includes file format choices", () => {
       for (const fmt of ["raw-json", "raw-yaml"]) {
-        expect(out).toContain(fmt);
+        expect(hasToken(out, fmt)).toBe(true);
       }
     });
   });
@@ -125,21 +133,27 @@ describe("tl completion", () => {
   });
 
   describe("language list parity", () => {
-    // Catches the case where someone adds a language to constants.ts but the
-    // completion script wasn't regenerated and tested.
-    it("includes every entry in SUPPORTED_LANGUAGES", () => {
-      const bash = generateBash();
+    // Catches the case where someone adds a language to constants.ts but a
+    // generator's lang embedding wasn't updated. All three generators embed
+    // the list independently, so a regression in any of them must fail here.
+    it.each([
+      ["bash", generateBash],
+      ["zsh", generateZsh],
+      ["fish", generateFish],
+    ] as const)("%s includes every entry in SUPPORTED_LANGUAGES", (_shell, gen) => {
+      const out = gen();
       for (const lang of SUPPORTED_LANGUAGES) {
-        expect(bash).toContain(lang);
+        const re = new RegExp(`(?<![A-Za-z0-9_-])${lang.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_-])`);
+        expect(re.test(out)).toBe(true);
       }
     });
   });
 
   describe("drift detection vs live Commander tree", () => {
-    // Asserts spec.ts and the live Commander tree agree on commands and flags.
-    // The program has to be rebuilt here (rather than imported from index.ts)
-    // because index.ts has top-level side effects (auto-launches TUI, calls
-    // parseAsync immediately on argv).
+    // Asserts spec.ts and the live Commander tree agree on commands, flags,
+    // option choices, and positional arguments. The program has to be rebuilt
+    // here (rather than imported from index.ts) because index.ts has top-level
+    // side effects (auto-launches TUI, calls parseAsync immediately on argv).
     type Pair = string; // "translate:--from" or "glossary.add:--source"
 
     function buildLiveProgram(): Command {
@@ -187,6 +201,77 @@ describe("tl completion", () => {
       return out;
     }
 
+    function liveChoicePairs(program: Command): Map<string, readonly string[]> {
+      const out = new Map<string, readonly string[]>();
+      const collect = (path: string, cmd: Command) => {
+        for (const opt of cmd.options) {
+          const longFlag = opt.long ?? opt.short;
+          if (longFlag && opt.argChoices && opt.argChoices.length > 0) {
+            out.set(`${path}:${longFlag}`, [...opt.argChoices].sort());
+          }
+        }
+        for (const arg of cmd.registeredArguments ?? []) {
+          if (arg.argChoices && arg.argChoices.length > 0) {
+            out.set(`${path}<${arg.name()}>`, [...arg.argChoices].sort());
+          }
+        }
+      };
+      for (const cmd of program.commands) {
+        collect(cmd.name(), cmd);
+        for (const sub of cmd.commands) collect(`${cmd.name()}.${sub.name()}`, sub);
+      }
+      return out;
+    }
+
+    function specChoicePairs(): Map<string, readonly string[]> {
+      const out = new Map<string, readonly string[]>();
+      const collect = (path: string, cmd: typeof SPEC.commands[number]) => {
+        for (const opt of cmd.options) {
+          if (opt.flag.startsWith("--") && opt.takes === "choice" && opt.choices) {
+            out.set(`${path}:${opt.flag}`, [...opt.choices].sort());
+          }
+        }
+        for (const pos of cmd.positionals ?? []) {
+          if (pos.takes === "choice" && pos.choices) {
+            out.set(`${path}<${pos.name}>`, [...pos.choices].sort());
+          }
+        }
+      };
+      for (const cmd of SPEC.commands) {
+        collect(cmd.name, cmd);
+        for (const sub of cmd.subcommands ?? []) collect(`${cmd.name}.${sub.name}`, sub);
+      }
+      return out;
+    }
+
+    type PositionalShape = { name: string; required: boolean };
+
+    function livePositionals(program: Command): Map<string, PositionalShape[]> {
+      const out = new Map<string, PositionalShape[]>();
+      const collect = (path: string, cmd: Command) => {
+        const args = (cmd.registeredArguments ?? []).map((a) => ({ name: a.name(), required: a.required }));
+        if (args.length > 0) out.set(path, args);
+      };
+      for (const cmd of program.commands) {
+        collect(cmd.name(), cmd);
+        for (const sub of cmd.commands) collect(`${cmd.name()}.${sub.name()}`, sub);
+      }
+      return out;
+    }
+
+    function specPositionals(): Map<string, PositionalShape[]> {
+      const out = new Map<string, PositionalShape[]>();
+      const collect = (path: string, cmd: typeof SPEC.commands[number]) => {
+        const args = (cmd.positionals ?? []).map((p) => ({ name: p.name, required: p.required }));
+        if (args.length > 0) out.set(path, args);
+      };
+      for (const cmd of SPEC.commands) {
+        collect(cmd.name, cmd);
+        for (const sub of cmd.subcommands ?? []) collect(`${cmd.name}.${sub.name}`, sub);
+      }
+      return out;
+    }
+
     const program = buildLiveProgram();
     const live = liveOptionPairs(program);
     const spec = specOptionPairs();
@@ -215,6 +300,27 @@ describe("tl completion", () => {
         const liveSubs = liveCmd!.commands.map((c) => c.name()).sort();
         const specSubs = cmd.subcommands.map((s) => s.name).sort();
         expect(specSubs).toEqual(liveSubs);
+      }
+    });
+
+    it("argChoices match between SPEC and live tree", () => {
+      const liveChoices = liveChoicePairs(program);
+      const specChoices = specChoicePairs();
+      // Guard against the harmless empty-equals-empty pass.
+      expect(specChoices.size).toBeGreaterThan(0);
+      expect([...specChoices.keys()].sort()).toEqual([...liveChoices.keys()].sort());
+      for (const [key, choices] of specChoices) {
+        expect({ key, choices }).toEqual({ key, choices: liveChoices.get(key) ?? [] });
+      }
+    });
+
+    it("positional arguments match between SPEC and live tree", () => {
+      const livePos = livePositionals(program);
+      const specPos = specPositionals();
+      expect(specPos.size).toBeGreaterThan(0);
+      expect([...specPos.keys()].sort()).toEqual([...livePos.keys()].sort());
+      for (const [key, args] of specPos) {
+        expect({ key, args }).toEqual({ key, args: livePos.get(key) ?? [] });
       }
     });
   });
