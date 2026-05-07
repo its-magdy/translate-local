@@ -155,4 +155,31 @@ describe("atomicWriteFile", () => {
     expect(() => atomicWriteFile(bad, "new")).toThrow();
     expect(readFileSync(p, "utf8")).toBe("original");
   });
+
+  test("validate runs before rename: failed validation preserves existing target", () => {
+    const p = join(dir, "x.json");
+    writeFileSync(p, "original");
+    const tmp = join(dir, `.x.json.tmp-${process.pid}`);
+    expect(() =>
+      atomicWriteFile(p, "garbage", () => {
+        throw new Error("malformed");
+      }),
+    ).toThrow(/malformed/);
+    expect(readFileSync(p, "utf8")).toBe("original");
+    expect(existsSync(tmp)).toBe(false);
+  });
+
+  test("writeJson: malformed serialization is caught before replacing existing target", () => {
+    // Simulate a corrupt write by calling atomicWriteFile with non-JSON text and the
+    // same validator writeJson uses. The existing target must not be replaced.
+    const p = join(dir, "out.json");
+    writeFileSync(p, '{"hello":"world"}');
+    expect(() =>
+      atomicWriteFile(p, "this is not JSON", (tmpPath) => {
+        // Same call writeJson makes — readJson throws on non-JSON.
+        readJson(tmpPath);
+      }),
+    ).toThrow();
+    expect(readFileSync(p, "utf8")).toBe('{"hello":"world"}');
+  });
 });

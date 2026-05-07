@@ -116,7 +116,7 @@ Override the database path in config:
 
 ## Glossary in file mode
 
-`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. Strict mode causes per-key retries when terms are missing; if all retries fail on a key, the whole file aborts (or the key is skipped with `--continue-on-error`).
+`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. Strict mode causes per-key retries when terms are missing; if all retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
 
 In a typical file translation of N keys, glossary matching runs N times. Each match is fast (indexed SQLite query in-process), but for very large catalogs you may notice the cumulative cost. This is acceptable for v1; revisit if it becomes a bottleneck.
 

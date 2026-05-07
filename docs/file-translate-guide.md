@@ -105,7 +105,7 @@ The prompt also includes few-shot examples showing the model how source-with-sen
 
 **Failure mode (default):** a placeholder mismatch is recorded in the run summary and the source value is written to the target as a fallback (so the output file remains complete and you can grep for un-translated source text). The exit code is non-zero (`2`) if any keys failed, so CI catches it. Pass `--strict` to switch to abort-on-first-failure (the original target file is then left untouched).
 
-**ICU MessageFormat** — strings containing `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}`, or ICU number/date format directives are refused. Partial-ICU translation requires a full ICU AST parser, which is deferred to a future phase. Use `--continue-on-error` to skip these strings.
+**ICU MessageFormat** — strings containing `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}`, or ICU number/date format directives are refused. Partial-ICU translation requires a full ICU AST parser, which is deferred to a future phase. Under the default (continue-on-failure) behavior these keys fall back to the source value; pass `--strict` to abort instead.
 
 ---
 
@@ -157,6 +157,8 @@ For YAML (via the `yaml` package's Document API), additionally preserved:
 
 Long translated strings are not reflowed — the writer is configured with `lineWidth: 0` so the content you put in is the content that comes out. Anchors and aliases are not supported (refused at read time).
 
+**Re-translation note (YAML).** On a re-run, only the existing target's data values are read; the *write template* (comments, scalar styles, key order) is taken from the source file. If you've hand-edited comments or scalar styles in the target file, they will be replaced by the source's on the next run. This is intentional — keep authoritative formatting in the source.
+
 ---
 
 ## Edge case behavior
@@ -166,7 +168,7 @@ Long translated strings are not reflowed — the writer is configured with `line
 | BOM in source | Stripped on read, not emitted. |
 | CRLF source | Preserved on write. |
 | File > 20 MB | Refused with `FILE_TOO_LARGE`. Override with `--max-size`. |
-| Source file is a symlink | Read/written at the symlinked path; the link is not dereferenced. |
+| Source file is a symlink, FIFO, socket, or device node | Refused with `FILE_INVALID_FORMAT`. Pass a regular file. |
 | Same source and target locale (`--from en --to en`) | Refused with `SAME_LOCALE`. |
 | Source file does not exist | Refused with `FILE_NOT_FOUND`. |
 | Existing target is invalid JSON | Refused with `FILE_PARSE_FAILED`. Fix or delete the target before re-running. |
@@ -198,7 +200,7 @@ Context retrieval also runs per leaf, with the source value as the query. If you
 | **Multi-document YAML** (`---` separator) | Phase B refusal — uncommon in i18n catalogs; supporting it cleanly needs work we haven't done. | Split the file. |
 | **YAML 1.1 directive** (`%YAML 1.1`) | The Norway problem (`no` → `false`) and other implicit-typing bugs make round-trip unreliable. | Re-save as YAML 1.2 (modern editors default to this). |
 | **YAML anchors / aliases** | Modifying an anchored value mutates all aliases. Translating once propagates everywhere — sometimes desirable, sometimes not. Detecting "shared between translatable and non-translatable contexts" is hard to do safely. | Inline the alias. |
-| **Strings containing ICU plural/select** | Without a real ICU parser, we cannot reliably translate the natural-language fragments inside while leaving the keywords (`plural`, `=0`, `one`, `other`) unchanged. | `--continue-on-error` skips them; or pre-extract them into a separate non-ICU file. |
+| **Strings containing ICU plural/select** | Without a real ICU parser, we cannot reliably translate the natural-language fragments inside while leaving the keywords (`plural`, `=0`, `one`, `other`) unchanged. | The default run records them as failed and falls back to the source value; or pre-extract them into a separate non-ICU file. |
 
 ---
 
@@ -210,11 +212,9 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 |---|---|
 | `FILE_NOT_FOUND` | Source file does not exist. |
 | `FILE_TOO_LARGE` | Source exceeds `--max-size`. |
-| `FILE_INVALID_TYPE` | Extension not recognized; pass `--format`. |
 | `FILE_PARSE_FAILED` | JSON / YAML parse error. |
-| `FILE_INVALID_FORMAT` | Refused content shape (ARB, xcstrings, ICU, etc.). |
-| `FILE_WRITE_FAILED` | Output write or post-write re-parse failed. |
-| `FILE_EMPTY` | The file has no translatable leaves. |
+| `FILE_INVALID_FORMAT` | Refused content shape (ARB, xcstrings, ICU, etc.), unsupported extension, or non-regular file (symlink, FIFO, device). |
+| `FILE_WRITE_FAILED` | Output write or pre-rename re-parse failed. |
 | `PLACEHOLDER_MISMATCH` | The model's output dropped or altered placeholders. |
 | `SAME_LOCALE` | `--from` and `--to` are the same. |
 

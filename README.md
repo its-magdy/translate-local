@@ -93,8 +93,8 @@ cd apps/cli && bun run build:bin
 ## Setup
 
 ```bash
-ollama pull translate-gemma-12b
-tl config connect --model translate-gemma-12b
+ollama pull translategemma:latest
+tl config connect --model translategemma:latest
 ```
 
 ---
@@ -149,7 +149,7 @@ tl translate --file en.json --to ar --dry-run
 
 Recognized layouts: `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`. Pass `--out <path>` when no locale token can be inferred.
 
-Supports vanilla JSON (flat or nested) and i18next plural-key files. ARB, xcstrings, and FormatJS-with-ICU are refused by default — use `--format raw-json` to bypass at your own risk. YAML support is coming in the next release.
+Supports vanilla JSON (flat or nested), YAML (Rails / Hugo / Symfony non-ICU), and i18next plural-key files. ARB, xcstrings, and FormatJS-with-ICU are refused by default — use `--format raw-json` to bypass at your own risk.
 
 See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) for sync semantics, placeholder protection, edge-case behavior, and refused-format rationales.
 

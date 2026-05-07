@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "fs";
+import { existsSync, lstatSync } from "fs";
 import { extname } from "path";
 import type { Adapter, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
@@ -83,7 +83,16 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
   }
 
-  const stat = statSync(sourcePath);
+  // lstat (not stat) so symlinks are inspected, not followed: a symlink to /dev/zero
+  // would sail past the size guard and OOM the process; a FIFO would hang readFileSync.
+  const stat = lstatSync(sourcePath);
+  if (!stat.isFile()) {
+    throw new TlError(
+      "FILE_INVALID_FORMAT",
+      `Source path is not a regular file: ${sourcePath}`,
+      "Pass a regular file (no symlinks, FIFOs, sockets, or device nodes).",
+    );
+  }
   if (stat.size > maxFileBytes) {
     throw new TlError(
       "FILE_TOO_LARGE",
@@ -148,6 +157,12 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   const pending = diffForSync(sourceData, targetData, mode);
 
+  // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
+  // for every leaf — at N leaves with M entries that's N round-trips and N*M row
+  // materializations. We hand the entries through PipelineOptions and let the
+  // pipeline match them in-process. Same lang-pair filter as findMatches uses.
+  const glossaryEntries = glossary.list(sourceLang, targetLang);
+
   const summary: FileTranslateSummary = {
     contentFormat: detected.content,
     totalLeaves: pending.length,
@@ -189,7 +204,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       throw new TlError(
         "FILE_INVALID_FORMAT",
         reason,
-        "ICU plural/select bodies are not translated in v1. Use --continue-on-error to skip these keys.",
+        "ICU plural/select bodies are not translated in v1. The default run continues and falls back to source for these keys; pass --strict to abort instead.",
       );
     }
 
@@ -228,6 +243,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
           glossaryMode,
           contextSnippets: snippets,
           extraGlossaryHits: sentinelHits,
+          glossaryEntries,
         });
         translatedMasked = result.translated;
       } catch (err) {
@@ -271,6 +287,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   if (dryRun) return summary;
 
+  // writeJson/writeYaml re-parse the tmp file before the rename, so a malformed
+  // serialization never replaces the existing target.
   try {
     if (parseFormat === "yaml") {
       writeYaml(outPath, yamlRead!.doc, yamlRead!.meta, targetData);
@@ -280,15 +298,6 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_WRITE_FAILED", `Failed to write ${outPath}: ${msg}`, "Check that the output path is writable.", err);
-  }
-
-  // Re-parse from disk validates that what we wrote actually round-trips.
-  try {
-    if (parseFormat === "yaml") readYaml(outPath);
-    else readJson(outPath);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new TlError("FILE_WRITE_FAILED", `Output file failed re-parse validation: ${msg}`, "This is a bug in tl — please report.", err);
   }
 
   return summary;

@@ -21,10 +21,8 @@ describe("TlError", () => {
     const tags: ErrorTag[] = [
       "FILE_NOT_FOUND",
       "FILE_TOO_LARGE",
-      "FILE_INVALID_TYPE",
       "FILE_PARSE_FAILED",
       "FILE_WRITE_FAILED",
-      "FILE_EMPTY",
       "FILE_INVALID_FORMAT",
       "PLACEHOLDER_MISMATCH",
       "SAME_LOCALE",

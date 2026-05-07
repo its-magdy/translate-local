@@ -7,14 +7,10 @@ import { ContextStore } from "../context";
 import { MockAdapter } from "@translate-local/adapters/mock";
 import { translateFile } from "../files";
 
-const TEST_INTEGRATION = process.env.TEST_INTEGRATION === "1";
+// MockAdapter-only — no Ollama needed. Runs by default; the TEST_INTEGRATION gate
+// previously here was hiding the whole orchestrator suite from default `bun run test`.
 
 describe("translateFile", () => {
-  if (!TEST_INTEGRATION) {
-    it.skip("integration tests require TEST_INTEGRATION=1", () => {});
-    return;
-  }
-
   let dir: string;
   let glossary: GlossaryStore;
   let context: ContextStore;
@@ -308,7 +304,7 @@ describe("translateFile", () => {
     expect(after.g).toBe("Hello {{name}}"); // source-fallback
   });
 
-  it("--continue-on-error skips placeholder-mismatch keys", async () => {
+  it("continueOnError=true records failure and falls back to source for the bad key", async () => {
     class DropSentinelAdapter extends MockAdapter {
       async translate(req: { source: string; sourceLang: string; targetLang: string }) {
         const re = /__TLPH_\d+__/g;

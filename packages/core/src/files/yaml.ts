@@ -179,5 +179,5 @@ export function writeYaml(path: string, doc: Document.Parsed, meta: YamlMeta, da
     if (text.endsWith("\r\n")) text = text.slice(0, -2);
     else if (text.endsWith("\n")) text = text.slice(0, -1);
   }
-  atomicWriteFile(path, text);
+  atomicWriteFile(path, text, (tmp) => { readYaml(tmp); });
 }

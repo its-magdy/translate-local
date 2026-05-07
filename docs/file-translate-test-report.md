@@ -203,7 +203,7 @@ These are documented behaviors, not bugs. Each is described in `docs/file-transl
 | Limitation | Impact | Recommended workaround |
 |---|---|---|
 | **i18next plural categories not regenerated for target locale** | en→ar produces only `_one`/`_other` (English's CLDR categories), missing the other 4 Arabic forms (`zero`, `two`, `few`, `many`). Warning emitted. | Manually add the missing forms post-translate, or wait for Phase C plural-regeneration. |
-| **ICU plural/select bodies refused** | Strings containing `{n, plural, ...}` or `{x, select, ...}` are refused. | Skip with `--continue-on-error` (or accept the source-fallback under the new default behavior). |
+| **ICU plural/select bodies refused** | Strings containing `{n, plural, ...}` or `{x, select, ...}` are refused. | Default behavior: source-fallback for these keys; pass `--strict` to abort instead. |
 | **Shared YAML anchors refused** | Files using `&anchor` / `*alias` are refused. | Inline the anchor before translating. |
 | **Multi-document YAML refused** | Files with `---` document separators are refused. | Split into separate single-document files. |
 | **Source-changed detection unsupported** | If a source string changed but the target key still exists, `tl` cannot tell — there is no translation memory in v1. | Use `--force` to retranslate everything; or delete the target key. |

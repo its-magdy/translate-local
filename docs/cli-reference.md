@@ -106,7 +106,7 @@ tl translate --file en.json --to ar --strict
 | YAML 1.1 directive (`%YAML 1.1`) | ❌ refused | Norway problem and other implicit-typing edge cases. Re-save as 1.2. |
 | Multi-document YAML | ❌ refused | Split into separate files. |
 
-**Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` blocks are refused (use `--continue-on-error` to skip them).
+**Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` blocks are refused; under the default (continue-on-failure) behavior these keys fall back to the source value, or pass `--strict` to abort.
 
 **Skip heuristics.** Values that look like URLs (`https?://...`), email addresses, semver versions, single characters, or ALL-CAPS short tokens (`OK`, `API`, `ID_X`) are passed through unchanged. Override with `--translate-all`.
 
@@ -254,11 +254,11 @@ Configure the adapter backend.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--backend <type>` | `local` | `local` (Ollama) |
-| `--model <name>` | `translate-gemma-12b` | Model name |
+| `--model <name>` | `translategemma:latest` | Model name |
 | `--endpoint <url>` | `http://localhost:11434` | Ollama API URL |
 
 ```bash
-tl config connect --backend local --model translate-gemma-12b
+tl config connect --backend local --model translategemma:latest
 ```
 
 #### `tl config status`

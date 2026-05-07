@@ -16,11 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - Placeholder protection (hybrid mask + multiset validation) for: `{{name}}` (i18next), `{name}` (Vue/ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags.
   - Non-translatable skip heuristics for URLs, emails, semver, single chars, and ALL-CAPS short tokens. Override with `--translate-all`.
   - `--dry-run` reports what would be translated without writing.
-  - `--continue-on-error` skips keys that fail validation (e.g. placeholder mismatch) instead of aborting the run.
+  - On validation failure (e.g. placeholder mismatch) the default behavior is to record the key in the failed list, fall back to the source value, and continue the run. Pass `--strict` to abort on the first failure instead.
   - `--format auto|json|yaml|raw-json|raw-yaml`: format override; `raw-*` bypasses content-shape refusal.
   - `--max-size <mb>` controls source file size cap (default 20 MB).
   - Refused-by-default formats: Flutter ARB (`@key` metadata + ICU), Apple `.xcstrings`, FormatJS-with-ICU, Lingui full mode, YAML with anchors/aliases, YAML 1.1 directive, multi-document YAML.
-  - 9 new typed errors: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_INVALID_TYPE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_EMPTY`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`.
+  - 7 new typed errors: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`.
   - New core subpath export: `@translate-local/core/files`.
 - New docs: [`docs/file-translate-guide.md`](docs/file-translate-guide.md).
 

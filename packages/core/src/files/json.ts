@@ -52,11 +52,18 @@ export function serializeJson(data: JsonValue, meta: JsonMeta): string {
 }
 
 // Write to a sibling .tmp then rename: a crash mid-write leaves the original intact.
-export function atomicWriteFile(path: string, text: string): void {
+// If `validate` is provided, it runs against the tmp path BEFORE the rename — a throw
+// aborts the commit so a malformed serialization never replaces an existing target.
+export function atomicWriteFile(
+  path: string,
+  text: string,
+  validate?: (tmpPath: string) => void,
+): void {
   const dir = dirname(path);
   const tmpPath = join(dir, `.${basename(path)}.tmp-${process.pid}`);
   try {
     writeFileSync(tmpPath, text, "utf8");
+    if (validate) validate(tmpPath);
     renameSync(tmpPath, path);
   } catch (err) {
     try {
@@ -70,5 +77,5 @@ export function atomicWriteFile(path: string, text: string): void {
 
 export function writeJson(path: string, data: JsonValue, meta: JsonMeta): void {
   const text = serializeJson(data, meta);
-  atomicWriteFile(path, text);
+  atomicWriteFile(path, text, (tmp) => { readJson(tmp); });
 }

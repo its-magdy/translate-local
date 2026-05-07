@@ -1,7 +1,7 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError } from "@translate-local/shared/errors";
-import type { GlossaryStore } from "./glossary";
+import { matchTerms, type GlossaryStore } from "./glossary";
 
 import type { GlossaryHit } from "@translate-local/shared/types";
 
@@ -13,6 +13,12 @@ export interface PipelineOptions {
   onChunk?: (chunk: string) => void;
   /** Caller-supplied glossary hits merged with the in-pipeline lookup. */
   extraGlossaryHits?: GlossaryHit[];
+  /**
+   * Pre-fetched glossary entries to match against. When provided, the pipeline
+   * matches in-process instead of calling glossaryStore.findMatches (which would
+   * re-query SQLite per call). Use this when running the pipeline in a hot loop.
+   */
+  glossaryEntries?: GlossaryEntry[];
 }
 
 export async function runPipeline(
@@ -23,10 +29,14 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [] } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [], glossaryEntries } = options;
   const isImageMode = !!imageBase64;
 
-  const realHits = isImageMode ? [] : glossaryStore.findMatches(text, sourceLang, targetLang);
+  const realHits = isImageMode
+    ? []
+    : glossaryEntries
+      ? matchTerms(text, glossaryEntries)
+      : glossaryStore.findMatches(text, sourceLang, targetLang);
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 

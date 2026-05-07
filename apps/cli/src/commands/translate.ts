@@ -43,6 +43,7 @@ export function makeTranslateCommand(): Command {
       file?: string; out?: string; force?: boolean; dryRun?: boolean;
       format: FormatOpt; strict?: boolean; translateAll?: boolean; maxSize: string;
     }) => {
+      let exitCode = 0;
       try {
         const config = loadConfig();
         const sourceLang = opts.from ?? config.defaults.sourceLang;
@@ -156,7 +157,8 @@ export function makeTranslateCommand(): Command {
               for (const w of result.warnings) console.error(`Warning: ${w}`);
             }
             // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it.
-            if (!opts.dryRun && result.failed.length > 0) process.exit(2);
+            // Set exitCode here and let `finally` run dispose() before we actually exit.
+            if (!opts.dryRun && result.failed.length > 0) exitCode = 2;
             return;
           }
 
@@ -214,8 +216,9 @@ export function makeTranslateCommand(): Command {
         } else {
           console.error(formatError(err));
         }
-        process.exit(1);
+        exitCode = 1;
       }
+      if (exitCode !== 0) process.exit(exitCode);
     });
 
   return cmd;
