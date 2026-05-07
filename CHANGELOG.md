@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `tl completion <shell>` command: generates a static shell completion script for `bash`, `zsh`, or `fish`. Completes top-level commands, subcommands, all long flags, the 60+ language codes for `--from`/`--to`, and choice values for `--glossary` and `--format`. Path-arg flags (`--image`, `--file`, `--out`, `glossary import`, `context add|remove`) defer to the shell's default file completion. Installation instructions per shell live in [`docs/cli-reference.md`](docs/cli-reference.md). See improvements roadmap item #37.
+
 ## [0.4.0] - 2026-05-06
 
 ### Added

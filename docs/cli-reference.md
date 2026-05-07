@@ -299,6 +299,80 @@ tl languages --json   # output as JSON object { "ar": "Arabic", ... }
 
 ---
 
+### `tl completion <shell>`
+
+Print a shell completion script for `bash`, `zsh`, or `fish` to stdout. The
+generator emits a fully static script — language codes, glossary modes, and
+format choices are baked in at generate time, so completions work without
+calling back into `tl` on every Tab press.
+
+```bash
+tl completion bash
+tl completion zsh
+tl completion fish
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<shell>` | One of `bash`, `zsh`, `fish` |
+
+**What gets completed:**
+- Top-level commands (`translate`, `glossary`, `context`, `config`, `languages`, `completion`).
+- Subcommands of `glossary`, `context`, and `config`.
+- All long flags for each (sub)command.
+- Language codes (60+) on `--from` and `--to`.
+- Choice values: `--glossary {prefer,strict}`, `--format {auto,json,yaml,raw-json,raw-yaml}`, completion `<shell>`.
+- File path completion for `--image`, `--file`, `--out`, `glossary import <file>`, `context add|remove <path>`. Path completion is delegated to the shell's built-in file completion — bash/zsh additionally restrict by extension where useful.
+
+#### Install — bash
+
+```bash
+# Current shell only:
+eval "$(tl completion bash)"
+
+# Persistent (per-user):
+tl completion bash >> ~/.bashrc
+
+# System-wide (requires sudo):
+tl completion bash | sudo tee /etc/bash_completion.d/tl > /dev/null
+```
+
+#### Install — zsh
+
+```bash
+# Persistent: drop into a directory on your fpath
+tl completion zsh > "${fpath[1]}/_tl"
+
+# Or keep your own completions dir
+mkdir -p ~/.zsh/completions
+tl completion zsh > ~/.zsh/completions/_tl
+# Then in ~/.zshrc:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -U compinit && compinit
+
+# Current shell only:
+eval "$(tl completion zsh)"
+```
+
+After installing, run `compinit` (or open a new shell) to activate.
+
+#### Install — fish
+
+```bash
+tl completion fish > ~/.config/fish/completions/tl.fish
+```
+
+Fish auto-loads completion files from that directory. Open a new shell or
+`source` the file to activate immediately.
+
+#### Notes
+
+- The completion script does **not** require `tl` to be on `PATH` at completion time — language codes and choices are baked in at generate time.
+- Re-run `tl completion <shell>` after upgrading `tl` if new commands or flags were added.
+- PowerShell is not supported.
+
+---
+
 ## Environment Variables
 
 | Variable | Description |
