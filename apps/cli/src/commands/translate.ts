@@ -159,8 +159,7 @@ export function makeTranslateCommand(): Command {
             // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it.
             // Set exitCode here and let `finally` run dispose() before we actually exit.
             if (!opts.dryRun && result.failed.length > 0) exitCode = 2;
-            return;
-          }
+          } else {
 
           let imageBase64: string | undefined;
           if (opts.image) {
@@ -203,6 +202,7 @@ export function makeTranslateCommand(): Command {
             // Streaming already wrote the translation; reuse the formatter for metadata only.
             const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
             process.stdout.write(`\n${meta}\n`);
+          }
           }
         } finally {
           glossaryStore.close();
