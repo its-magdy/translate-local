@@ -23,11 +23,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - 7 new typed errors: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`.
   - New core subpath export: `@translate-local/core/files`.
 - New docs: [`docs/file-translate-guide.md`](docs/file-translate-guide.md).
+- `tl languages` command: lists supported language codes and names.
 
 ### Changed
 - `yaml@^2` added as a dependency of `@translate-local/core`.
 - `DEFAULT_MODEL` constant updated from `translate-gemma-12b` to `translategemma:latest` to match the model name in current Ollama registry. This unblocks `TEST_ADAPTER=1` gated tests (was failing for all users since the old tag was retired).
 - Prompt builder now appends explicit placeholder-preservation instructions and few-shot examples when the source contains `__TLPH_N__` sentinels (file mode). Combined with synthetic glossary hits and 10-attempt retries, this brings multi-placeholder preservation from ~30-60% to >99% across every tested family.
+
+### Fixed
+- Glossary `add` lang pickers now read defaults from config instead of hardcoding `en`/`fr`.
+- Ollama HTTP fetch calls now use `AbortSignal` timeouts so requests don't hang forever when the daemon is unreachable.
 
 ## [0.3.5] - 2026-05-02
 
