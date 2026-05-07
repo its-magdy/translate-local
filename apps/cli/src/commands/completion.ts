@@ -1,6 +1,7 @@
 import { Argument, Command } from "commander";
 import { generateBash } from "../completions/bash";
 import { generateZsh } from "../completions/zsh";
+import { generateFish } from "../completions/fish";
 import { SUPPORTED_SHELLS, type SupportedShell } from "../completions/spec";
 
 export function makeCompletionCommand(): Command {
@@ -26,9 +27,8 @@ Examples:
           process.stdout.write(generateZsh());
           return;
         case "fish":
-          // Wired in follow-up commit.
-          console.error(`tl: completion for ${shell} is not yet available`);
-          process.exit(1);
+          process.stdout.write(generateFish());
+          return;
       }
     });
 }
