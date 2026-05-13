@@ -1,7 +1,13 @@
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { PALETTE } from "../theme";
-import { interFamily, monoFamily, arabicFamily } from "../fonts";
-import { TerminalWindow, typeSlice } from "../components/Terminal";
+import { interFamily, monoFamily } from "../fonts";
+import { typeSlice } from "../components/Terminal";
+import {
+  MacTerminalChrome,
+  TlTuiTranslate,
+  TlTuiGlossary,
+  GlossaryRow,
+} from "../components/TlTui";
 
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_IN = Easing.bezier(0.55, 0, 0.7, 0);
@@ -288,55 +294,38 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
   );
 };
 
-const TuiPane: React.FC<{
-  title: string;
-  children: React.ReactNode;
-  active?: boolean;
-  rtl?: boolean;
-  arabic?: boolean;
-}> = ({ title, children, active = false, rtl = false, arabic = false }) => {
-  return (
-    <div
-      style={{
-        flex: 1,
-        border: `1px solid ${active ? PALETTE.accent : PALETTE.border}`,
-        borderRadius: 10,
-        background: PALETTE.bgElevated,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          padding: "8px 16px",
-          fontFamily: monoFamily,
-          fontSize: 14,
-          color: active ? PALETTE.accent : PALETTE.textMuted,
-          letterSpacing: 1.4,
-          textTransform: "uppercase",
-          borderBottom: `1px solid ${PALETTE.border}`,
-        }}
-      >
-        {title}
-      </div>
-      <div
-        style={{
-          flex: 1,
-          padding: "24px 28px",
-          fontFamily: arabic ? arabicFamily : monoFamily,
-          fontSize: arabic ? 38 : 28,
-          color: PALETTE.text,
-          direction: rtl ? "rtl" : "ltr",
-          textAlign: rtl ? "right" : "left",
-          lineHeight: 1.5,
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-};
+const GLOSSARY_ROWS: GlossaryRow[] = [
+  {
+    id: "8288d756",
+    source: "machine learning",
+    translation: "تعلم الآلة",
+    pair: "[en→ar]",
+  },
+  {
+    id: "af586251",
+    source: "neural network",
+    translation: "شبكة عصبية",
+    pair: "[en→ar]",
+  },
+  {
+    id: "e00290ea",
+    source: "login",
+    translation: "تسجيل الدخول",
+    pair: "[en→ar]",
+  },
+  {
+    id: "3c2b9c3b",
+    source: "signup",
+    translation: "التسجيل",
+    pair: "[en→ar]",
+  },
+  {
+    id: "79912c12",
+    source: "dashboard",
+    translation: "لوحة التحكم",
+    pair: "[en→ar]",
+  },
+];
 
 const TuiMode: React.FC<{ frame: number; opacity: number }> = ({
   frame,
@@ -355,107 +344,28 @@ const TuiMode: React.FC<{ frame: number; opacity: number }> = ({
     charFrames: TUI_STREAM_CHAR_FRAMES,
   });
   const tabSwitched = frame >= TAB_SWITCH;
+  const caretOn = frame % 16 < 8;
 
   return (
     <AbsoluteFill
       style={{ alignItems: "center", justifyContent: "center", opacity }}
     >
-      <TerminalWindow width={1500} height={760} title="tl — interactive">
-        <div
-          style={{
-            display: "flex",
-            gap: 28,
-            marginBottom: 22,
-            fontFamily: monoFamily,
-            fontSize: 18,
-          }}
-        >
-          <span
-            style={{
-              color: tabSwitched ? PALETTE.textMuted : PALETTE.text,
-              borderBottom: tabSwitched
-                ? "2px solid transparent"
-                : `2px solid ${PALETTE.accent}`,
-              paddingBottom: 6,
-              fontWeight: tabSwitched ? 400 : 700,
-            }}
-          >
-            ◉ Translate
-          </span>
-          <span
-            style={{
-              color: tabSwitched ? PALETTE.text : PALETTE.textMuted,
-              borderBottom: tabSwitched
-                ? `2px solid ${PALETTE.accent}`
-                : "2px solid transparent",
-              paddingBottom: 6,
-              fontWeight: tabSwitched ? 700 : 400,
-            }}
-          >
-            ◯ Glossary
-          </span>
-          <div style={{ flex: 1 }} />
-          <span style={{ color: PALETTE.textMuted }}>
-            en → ar · translategemma:latest
-          </span>
-        </div>
+      <MacTerminalChrome width={1500} height={820}>
         {tabSwitched ? (
-          <div
-            style={{
-              border: `1px solid ${PALETTE.border}`,
-              borderRadius: 10,
-              padding: "20px 24px",
-              fontFamily: monoFamily,
-              fontSize: 20,
-              color: PALETTE.text,
-              lineHeight: 1.7,
-            }}
-          >
-            <div
-              style={{
-                color: PALETTE.textMuted,
-                fontSize: 13,
-                letterSpacing: 1.5,
-                textTransform: "uppercase",
-                marginBottom: 12,
-              }}
-            >
-              5 terms · en → ar
-            </div>
-            <div>machine learning → <span style={{ fontFamily: arabicFamily, color: PALETTE.highlight }}>تعلم الآلة</span></div>
-            <div>neural network → <span style={{ fontFamily: arabicFamily, color: PALETTE.highlight }}>شبكة عصبية</span></div>
-            <div>login → <span style={{ fontFamily: arabicFamily, color: PALETTE.highlight }}>تسجيل الدخول</span></div>
-            <div>signup → <span style={{ fontFamily: arabicFamily, color: PALETTE.highlight }}>التسجيل</span></div>
-            <div>dashboard → <span style={{ fontFamily: arabicFamily, color: PALETTE.highlight }}>لوحة التحكم</span></div>
-          </div>
+          <TlTuiGlossary rows={GLOSSARY_ROWS} highlightIndex={0} />
         ) : (
-          <div style={{ display: "flex", gap: 22, height: 560 }}>
-            <TuiPane title="SOURCE · EN" active>
-              {typed}
-              {frame < TUI_TYPE_END ? (
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: "0.55em",
-                    height: "1em",
-                    background: PALETTE.accent,
-                    verticalAlign: "-0.12em",
-                    marginLeft: 2,
-                    opacity: frame % 16 < 8 ? 1 : 0,
-                  }}
-                />
-              ) : null}
-            </TuiPane>
-            <TuiPane title="TARGET · AR" rtl arabic>
-              {arabicTyped}
-            </TuiPane>
-          </div>
+          <TlTuiTranslate
+            sourceText={typed}
+            targetText={arabicTyped}
+            showSourceCaret={frame < TUI_TYPE_END}
+            caretOn={caretOn}
+          />
         )}
-      </TerminalWindow>
+      </MacTerminalChrome>
       <div
         style={{
           position: "absolute",
-          top: 80,
+          top: 64,
           left: 0,
           right: 0,
           textAlign: "center",
