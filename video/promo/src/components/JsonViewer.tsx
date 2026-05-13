@@ -18,13 +18,13 @@ export const renderJson = ({
   visibleKey?: (path: string) => { typed: string; flashPlaceholders: boolean };
   placeholderPulse?: number;
 }): React.ReactNode => {
+  const indentPx = indent * 22;
   if (node.kind === "object") {
-    const pad = "  ".repeat(indent);
     const trailing = isLast ? "" : ",";
     if (node.key === undefined) {
       return (
         <>
-          <div>{pad}{"{"}</div>
+          <div style={{ paddingLeft: indentPx }}>{"{"}</div>
           {node.entries.map((child, i) => (
             <div key={i}>
               {renderJson({
@@ -36,14 +36,13 @@ export const renderJson = ({
               })}
             </div>
           ))}
-          <div>{pad}{"}"}</div>
+          <div style={{ paddingLeft: indentPx }}>{"}"}</div>
         </>
       );
     }
     return (
       <>
-        <div>
-          {pad}
+        <div style={{ paddingLeft: indentPx }}>
           <span style={{ color: PALETTE.accent }}>&quot;{node.key}&quot;</span>: {"{"}
         </div>
         {node.entries.map((child, i) => (
@@ -57,22 +56,19 @@ export const renderJson = ({
             })}
           </div>
         ))}
-        <div>
-          {pad}
+        <div style={{ paddingLeft: indentPx }}>
           {"}"}
           {trailing}
         </div>
       </>
     );
   }
-  const pad = "  ".repeat(indent);
   const trailing = isLast ? "" : ",";
   const path = node.key;
   const view = visibleKey?.(path);
   const typed = view ? view.typed : node.value;
   return (
-    <div>
-      {pad}
+    <div style={{ paddingLeft: indentPx }}>
       <span style={{ color: PALETTE.accent }}>&quot;{node.key}&quot;</span>:{" "}
       <span style={{ fontFamily: node.arabic ? arabicFamily : monoFamily }}>
         &quot;
