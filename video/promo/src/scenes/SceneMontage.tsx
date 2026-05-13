@@ -32,77 +32,134 @@ const MenuPhoto: React.FC = () => {
   return (
     <div
       style={{
-        width: 540,
-        height: 700,
-        borderRadius: 18,
-        background:
-          "linear-gradient(140deg, #2b2114 0%, #3d2f1e 40%, #1f1810 100%)",
-        boxShadow:
-          "0 30px 80px rgba(0,0,0,0.7), 0 2px 0 rgba(255,255,255,0.03) inset",
-        border: `1px solid ${PALETTE.border}`,
-        padding: "60px 48px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 18,
-        transform: "rotate(-2.5deg)",
         position: "relative",
+        transform: "rotate(-4deg)",
+        filter: "drop-shadow(0 32px 60px rgba(0,0,0,0.7))",
       }}
     >
       <div
         style={{
-          fontFamily: interFamily,
-          fontSize: 42,
-          fontWeight: 800,
-          color: "#f4e1b8",
-          letterSpacing: -0.5,
-          textAlign: "center",
-          marginBottom: 22,
+          width: 560,
+          background: "#f7f3ea",
+          padding: "22px 22px 80px 22px",
+          position: "relative",
         }}
       >
-        EL MESÓN
+        <div
+          style={{
+            width: "100%",
+            height: 660,
+            background:
+              "linear-gradient(140deg, #2b2114 0%, #3d2f1e 40%, #1f1810 100%)",
+            position: "relative",
+            overflow: "hidden",
+            padding: "54px 44px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 18,
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(ellipse at 30% 20%, rgba(255,220,160,0.12) 0%, transparent 55%), radial-gradient(ellipse at 80% 90%, rgba(0,0,0,0.45) 0%, transparent 60%)",
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage:
+                "repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px), repeating-linear-gradient(90deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 3px)",
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            style={{
+              fontFamily: interFamily,
+              fontSize: 42,
+              fontWeight: 800,
+              color: "#f4e1b8",
+              letterSpacing: -0.5,
+              textAlign: "center",
+              marginBottom: 22,
+              textShadow: "0 2px 6px rgba(0,0,0,0.4)",
+              position: "relative",
+            }}
+          >
+            EL MESÓN
+          </div>
+          <div
+            style={{
+              height: 1,
+              background: "#7a5a2e",
+              marginBottom: 14,
+              position: "relative",
+            }}
+          />
+          {[
+            ["Gazpacho andaluz", "8 €"],
+            ["Tortilla española", "10 €"],
+            ["Paella valenciana", "18 €"],
+            ["Pulpo a la gallega", "16 €"],
+            ["Crema catalana", "7 €"],
+          ].map(([dish, price], i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontFamily: interFamily,
+                fontSize: 22,
+                color: "#e9d6a8",
+                position: "relative",
+              }}
+            >
+              <span>{dish}</span>
+              <span style={{ opacity: 0.7 }}>{price}</span>
+            </div>
+          ))}
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 18,
+            textAlign: "center",
+            fontFamily: monoFamily,
+            fontSize: 16,
+            color: "#7a7167",
+            letterSpacing: 0.3,
+          }}
+        >
+          IMG_2421.jpg · 13 May · 4032×3024 · 1.4 MB
+        </div>
       </div>
       <div
         style={{
-          height: 1,
-          background: "#7a5a2e",
-          marginBottom: 14,
-        }}
-      />
-      {[
-        ["Gazpacho andaluz", "8 €"],
-        ["Tortilla española", "10 €"],
-        ["Paella valenciana", "18 €"],
-        ["Pulpo a la gallega", "16 €"],
-        ["Crema catalana", "7 €"],
-      ].map(([dish, price], i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontFamily: interFamily,
-            fontSize: 22,
-            color: "#e9d6a8",
-          }}
-        >
-          <span>{dish}</span>
-          <span style={{ opacity: 0.7 }}>{price}</span>
-        </div>
-      ))}
-      <div
-        style={{
           position: "absolute",
-          top: 18,
-          right: 24,
-          fontFamily: monoFamily,
-          fontSize: 12,
-          color: PALETTE.textMuted,
-          background: "rgba(0,0,0,0.4)",
-          padding: "3px 8px",
-          borderRadius: 4,
+          top: -22,
+          left: -16,
+          fontFamily: interFamily,
+          fontSize: 14,
+          fontWeight: 700,
+          color: "#0b0d10",
+          background: "#f4e1b8",
+          padding: "5px 14px",
+          borderRadius: 999,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          transform: "rotate(-3deg)",
         }}
       >
-        IMG_2421.jpg
+        <span style={{ marginRight: 6 }}>📷</span>
+        Your photo
       </div>
     </div>
   );
