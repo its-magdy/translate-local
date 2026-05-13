@@ -12,8 +12,9 @@ import {
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_IN = Easing.bezier(0.55, 0, 0.7, 0);
 
-const IMAGE_END = 130;
-const TUI_START = 125;
+const IMAGE_HOLD_END = 120;
+const IMAGE_FADE_OUT_FRAMES = 12;
+const TUI_START = IMAGE_HOLD_END + IMAGE_FADE_OUT_FRAMES;
 const TUI_TYPE_START = TUI_START + 30;
 const TUI_TYPE_TEXT = "Welcome back to your account";
 const TUI_TYPE_CHAR_FRAMES = 1.4;
@@ -391,11 +392,16 @@ export const SceneMontage: React.FC = () => {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     }) -
-    interpolate(frame, [IMAGE_END, IMAGE_END + 15], [0, 1], {
-      easing: EASE_IN,
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    });
+    interpolate(
+      frame,
+      [IMAGE_HOLD_END, IMAGE_HOLD_END + IMAGE_FADE_OUT_FRAMES],
+      [0, 1],
+      {
+        easing: EASE_IN,
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      },
+    );
 
   const tuiOpacity = interpolate(
     frame,
@@ -410,12 +416,11 @@ export const SceneMontage: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: PALETTE.bg }}>
-      {frame <= IMAGE_END + 15 ? (
+      {frame < TUI_START ? (
         <ImageMode frame={frame} opacity={imageOpacity} />
-      ) : null}
-      {frame >= TUI_START ? (
+      ) : (
         <TuiMode frame={frame} opacity={tuiOpacity} />
-      ) : null}
+      )}
     </AbsoluteFill>
   );
 };
