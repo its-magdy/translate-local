@@ -1,0 +1,37 @@
+{
+  "name": "promo",
+  "version": "1.0.0",
+  "description": "tl promo video (Remotion)",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.460",
+    "@remotion/google-fonts": "4.0.460",
+    "@remotion/zod-types": "4.0.460",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.460",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.460",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "render": "remotion render TlPromo60 out/tl-promo-60s.mp4",
+    "render:30": "remotion render TlPromo30 out/tl-promo-30s.mp4",
+    "still": "remotion still TlPromo60",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}
