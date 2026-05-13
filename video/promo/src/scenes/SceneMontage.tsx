@@ -17,7 +17,7 @@ import {
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_IN = Easing.bezier(0.55, 0, 0.7, 0);
 
-const IMAGE_HOLD_END = 120;
+const IMAGE_HOLD_END = 150;
 const IMAGE_FADE_OUT_FRAMES = 12;
 const TUI_START = IMAGE_HOLD_END + IMAGE_FADE_OUT_FRAMES;
 const TUI_TYPE_START = TUI_START + 30;

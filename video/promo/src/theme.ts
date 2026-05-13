@@ -25,9 +25,9 @@ export const FONTS = {
 export const SCENE_FRAMES = {
   HOOK: { start: 0, duration: 6 * FPS },
   COLD_OPEN: { start: 6 * FPS, duration: 8 * FPS },
-  GLOSSARY: { start: 14 * FPS, duration: 12 * FPS },
-  FILE_MODE: { start: 26 * FPS, duration: 16 * FPS },
-  MONTAGE: { start: 42 * FPS, duration: 12 * FPS },
+  GLOSSARY: { start: 14 * FPS, duration: 10 * FPS },
+  FILE_MODE: { start: 24 * FPS, duration: 16 * FPS },
+  MONTAGE: { start: 40 * FPS, duration: 14 * FPS },
   CTA: { start: 54 * FPS, duration: 6 * FPS },
 } as const;
 

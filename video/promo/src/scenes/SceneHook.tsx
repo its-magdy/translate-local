@@ -159,19 +159,13 @@ export const SceneHook: React.FC = () => {
   return (
     <AbsoluteFill style={{ backgroundColor: PALETTE.bg }}>
       <FadeLine
-        text="Translation APIs are expensive."
-        start={6}
-        hold={1.4 * FPS}
-        out={10}
+        text="Translation APIs see everything you send."
+        start={8}
+        hold={2.4 * FPS}
+        out={12}
+        size={68}
       />
-      <FadeLine
-        text="And they read your data."
-        start={Math.round(1.7 * FPS)}
-        hold={1.4 * FPS}
-        out={10}
-        color={PALETTE.danger}
-      />
-      <LogoLockup start={Math.round(3.5 * FPS)} />
+      <LogoLockup start={Math.round(3.0 * FPS)} />
     </AbsoluteFill>
   );
 };

@@ -226,6 +226,17 @@ export const SceneCta: React.FC = () => {
             local-first
           </span>
         </div>
+        <div
+          style={{
+            fontFamily: monoFamily,
+            fontSize: 18,
+            color: PALETTE.textMuted,
+            letterSpacing: 0.3,
+            marginTop: 6,
+          }}
+        >
+          powered by Ollama + TranslateGemma
+        </div>
       </div>
     </AbsoluteFill>
   );
