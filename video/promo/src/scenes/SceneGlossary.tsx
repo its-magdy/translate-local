@@ -67,10 +67,6 @@ const OUT_TOKENS: Array<{ text: string; glossary?: boolean }> = [
   { text: "إلى" },
   { text: " " },
   { text: "لوحة التحكم" },
-  { text: " " },
-  { text: "الخاصة" },
-  { text: " " },
-  { text: "بك" },
   { text: "." },
 ];
 const STREAM_PER = 12;

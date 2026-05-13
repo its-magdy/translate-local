@@ -53,7 +53,7 @@ const AR_TREE: JsonNode = {
       kind: "object",
       key: "cart",
       entries: [
-        { kind: "leaf", key: "title", value: "سلتك", arabic: true },
+        { kind: "leaf", key: "title", value: "سلة التسوق", arabic: true },
         {
           kind: "leaf",
           key: "items",
@@ -65,7 +65,7 @@ const AR_TREE: JsonNode = {
     {
       kind: "leaf",
       key: "checkout",
-      value: "متابعة الدفع",
+      value: "إتمام الشراء",
       arabic: true,
     },
     {
@@ -86,9 +86,9 @@ const AR_TREE: JsonNode = {
 const LEAF_KEYS = ["welcome", "title", "items", "checkout", "network"];
 const LEAF_VALUES: Record<string, string> = {
   welcome: "مرحبًا بعودتك، {username}",
-  title: "سلتك",
+  title: "سلة التسوق",
   items: "{count} عنصر",
-  checkout: "متابعة الدفع",
+  checkout: "إتمام الشراء",
   network: "خطأ في الشبكة. حاول مرة أخرى.",
 };
 
