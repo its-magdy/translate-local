@@ -6,8 +6,8 @@ import { TerminalWindow, typeSlice } from "../components/Terminal";
 const EASE_OUT = Easing.bezier(0.16, 1, 0.3, 1);
 const EASE_IN = Easing.bezier(0.55, 0, 0.7, 0);
 
-const IMAGE_END = 120;
-const TUI_START = 115;
+const IMAGE_END = 130;
+const TUI_START = 125;
 const TUI_TYPE_START = TUI_START + 30;
 const TUI_TYPE_TEXT = "Welcome back to your account";
 const TUI_TYPE_CHAR_FRAMES = 1.4;
@@ -15,11 +15,11 @@ const TUI_TYPE_END =
   TUI_TYPE_START + Math.ceil(TUI_TYPE_TEXT.length * TUI_TYPE_CHAR_FRAMES);
 const TUI_STREAM_START = TUI_TYPE_END + 10;
 const TUI_AR_TEXT = "مرحبًا بعودتك إلى حسابك";
-const TUI_STREAM_CHAR_FRAMES = 2.4;
+const TUI_STREAM_CHAR_FRAMES = 1.8;
 const TUI_STREAM_END =
   TUI_STREAM_START +
   Math.ceil(TUI_AR_TEXT.length * TUI_STREAM_CHAR_FRAMES);
-const TAB_SWITCH = TUI_STREAM_END + 12;
+const TAB_SWITCH = TUI_STREAM_END + 55;
 
 const MenuPhoto: React.FC = () => {
   return (
