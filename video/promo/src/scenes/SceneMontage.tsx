@@ -1,7 +1,12 @@
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { PALETTE } from "../theme";
 import { interFamily, monoFamily } from "../fonts";
-import { typeSlice } from "../components/Terminal";
+import {
+  BlinkCursor,
+  Prompt,
+  TerminalWindow,
+  typeSlice,
+} from "../components/Terminal";
 import {
   MacTerminalChrome,
   TlTuiTranslate,
@@ -165,88 +170,38 @@ const MenuPhoto: React.FC = () => {
   );
 };
 
-const TranslatedCard: React.FC<{ opacity: number; x: number }> = ({
-  opacity,
-  x,
-}) => {
-  return (
-    <div
-      style={{
-        width: 480,
-        background: PALETTE.surface,
-        border: `1px solid ${PALETTE.border}`,
-        borderRadius: 14,
-        padding: "28px 30px",
-        boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
-        opacity,
-        transform: `translateX(${x}px)`,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: monoFamily,
-          fontSize: 13,
-          color: PALETTE.accent,
-          letterSpacing: 1.5,
-          marginBottom: 14,
-          textTransform: "uppercase",
-        }}
-      >
-        ↪ translated · es → en
-      </div>
-      <div
-        style={{
-          fontFamily: interFamily,
-          fontSize: 32,
-          fontWeight: 700,
-          color: PALETTE.text,
-          marginBottom: 16,
-          letterSpacing: -0.4,
-        }}
-      >
-        EL MESÓN
-      </div>
-      {[
-        ["Andalusian gazpacho", "€8"],
-        ["Spanish omelette", "€10"],
-        ["Valencian paella", "€18"],
-        ["Galician octopus", "€16"],
-        ["Catalan custard", "€7"],
-      ].map(([dish, price], i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontFamily: interFamily,
-            fontSize: 20,
-            color: PALETTE.text,
-            padding: "4px 0",
-          }}
-        >
-          <span>{dish}</span>
-          <span style={{ color: PALETTE.textDim }}>{price}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
+const OUTPUT_LINES = [
+  "Andalusian gazpacho",
+  "Spanish omelette",
+  "Valencian paella",
+  "Galician octopus",
+  "Catalan custard",
+];
+
+const IMAGE_CMD = "tl translate --image IMG_2421.jpg --to en";
+const IMG_TERMINAL_IN = 8;
+const IMG_CMD_START = 20;
+const IMG_CMD_CHAR_FRAMES = 0.9;
+const IMG_CMD_END =
+  IMG_CMD_START + Math.ceil(IMAGE_CMD.length * IMG_CMD_CHAR_FRAMES);
+const IMG_OUTPUT_START = IMG_CMD_END + 10;
+const IMG_LINE_FRAMES = 6;
+const IMG_OUTPUT_END = IMG_OUTPUT_START + OUTPUT_LINES.length * IMG_LINE_FRAMES;
+const IMG_FOOTER_AT = IMG_OUTPUT_END + 4;
 
 const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
   frame,
   opacity,
 }) => {
-  const IMAGE_CMD = "tl translate --image IMG_2421.jpg --to en";
   const cmdTyped = typeSlice({
     frame,
     text: IMAGE_CMD,
-    start: 18,
-    charFrames: 1.0,
+    start: IMG_CMD_START,
+    charFrames: IMG_CMD_CHAR_FRAMES,
   });
-  const cmdTypeEnd = 18 + Math.ceil(IMAGE_CMD.length * 1.0);
-  const cardOpacity = interpolate(
+  const terminalOpacity = interpolate(
     frame,
-    [cmdTypeEnd + 4, cmdTypeEnd + 22],
+    [IMG_TERMINAL_IN, IMG_TERMINAL_IN + 14],
     [0, 1],
     {
       easing: EASE_OUT,
@@ -254,9 +209,9 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
       extrapolateRight: "clamp",
     },
   );
-  const cardX = interpolate(
+  const terminalX = interpolate(
     frame,
-    [cmdTypeEnd + 4, cmdTypeEnd + 22],
+    [IMG_TERMINAL_IN, IMG_TERMINAL_IN + 14],
     [40, 0],
     {
       easing: EASE_OUT,
@@ -269,11 +224,19 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const cmdOpacity = interpolate(frame, [12, 24], [0, 1], {
-    easing: EASE_OUT,
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+
+  const linesVisible = Math.max(
+    0,
+    Math.min(
+      OUTPUT_LINES.length,
+      Math.floor((frame - IMG_OUTPUT_START) / IMG_LINE_FRAMES),
+    ),
+  );
+
+  const showThinking =
+    frame >= IMG_CMD_END + 2 && frame < IMG_OUTPUT_START;
+  const dotCount = Math.floor((frame - IMG_CMD_END - 2) / 4) % 4;
+
   return (
     <AbsoluteFill
       style={{
@@ -282,14 +245,67 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
         opacity,
       }}
     >
-      <div style={{ display: "flex", gap: 64, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 56, alignItems: "center" }}>
         <MenuPhoto />
-        <TranslatedCard opacity={cardOpacity} x={cardX} />
+        <div
+          style={{
+            opacity: terminalOpacity,
+            transform: `translateX(${terminalX}px)`,
+          }}
+        >
+          <TerminalWindow width={780} height={620} title="~ — tl translate">
+            <div style={{ fontSize: 22, marginBottom: 18 }}>
+              <Prompt>
+                <span style={{ color: PALETTE.text }}>{cmdTyped}</span>
+                {frame < IMG_CMD_END ? <BlinkCursor frame={frame} /> : null}
+              </Prompt>
+            </div>
+            {showThinking ? (
+              <div
+                style={{
+                  fontFamily: monoFamily,
+                  fontSize: 18,
+                  color: PALETTE.textMuted,
+                  marginBottom: 12,
+                }}
+              >
+                analyzing image{".".repeat(dotCount)}
+              </div>
+            ) : null}
+            <div
+              style={{
+                fontFamily: monoFamily,
+                fontSize: 26,
+                color: PALETTE.text,
+                lineHeight: 1.55,
+                minHeight: 260,
+              }}
+            >
+              {OUTPUT_LINES.slice(0, linesVisible).map((line, i) => (
+                <div key={i}>{line}</div>
+              ))}
+            </div>
+            <div
+              style={{
+                marginTop: 22,
+                fontFamily: monoFamily,
+                fontSize: 16,
+                color: PALETTE.textMuted,
+                opacity: frame >= IMG_FOOTER_AT ? 1 : 0,
+              }}
+            >
+              <div>↳ translate-gemma-local · 10.4s</div>
+              <div style={{ color: PALETTE.highlight, marginTop: 4 }}>
+                ✓ Glossary: 100% covered
+              </div>
+            </div>
+          </TerminalWindow>
+        </div>
       </div>
       <div
         style={{
           position: "absolute",
-          top: 70,
+          top: 60,
           left: 0,
           right: 0,
           textAlign: "center",
@@ -304,49 +320,6 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
         <span style={{ color: PALETTE.accent }}>━━━━━</span>{" "}
         Translate from a photo{" "}
         <span style={{ color: PALETTE.accent }}>━━━━━</span>
-      </div>
-      <div
-        style={{
-          position: "absolute",
-          bottom: 80,
-          left: 0,
-          right: 0,
-          display: "flex",
-          justifyContent: "center",
-          opacity: cmdOpacity,
-        }}
-      >
-        <div
-          style={{
-            background: PALETTE.surface,
-            border: `1px solid ${PALETTE.border}`,
-            borderRadius: 10,
-            padding: "14px 24px",
-            fontFamily: monoFamily,
-            fontSize: 22,
-            color: PALETTE.text,
-            letterSpacing: 0.4,
-            boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-          }}
-        >
-          <span style={{ color: PALETTE.accent }}>$</span>
-          <span>{cmdTyped}</span>
-          {frame < cmdTypeEnd ? (
-            <span
-              style={{
-                display: "inline-block",
-                width: "0.55em",
-                height: "1em",
-                background: PALETTE.accent,
-                verticalAlign: "-0.12em",
-                opacity: frame % 16 < 8 ? 1 : 0,
-              }}
-            />
-          ) : null}
-        </div>
       </div>
     </AbsoluteFill>
   );
