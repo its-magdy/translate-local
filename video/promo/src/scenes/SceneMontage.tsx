@@ -172,17 +172,40 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
   frame,
   opacity,
 }) => {
-  const cardOpacity = interpolate(frame, [40, 60], [0, 1], {
+  const IMAGE_CMD = "tl translate --image IMG_2421.jpg --to en";
+  const cmdTyped = typeSlice({
+    frame,
+    text: IMAGE_CMD,
+    start: 18,
+    charFrames: 1.0,
+  });
+  const cmdTypeEnd = 18 + Math.ceil(IMAGE_CMD.length * 1.0);
+  const cardOpacity = interpolate(
+    frame,
+    [cmdTypeEnd + 4, cmdTypeEnd + 22],
+    [0, 1],
+    {
+      easing: EASE_OUT,
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    },
+  );
+  const cardX = interpolate(
+    frame,
+    [cmdTypeEnd + 4, cmdTypeEnd + 22],
+    [40, 0],
+    {
+      easing: EASE_OUT,
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    },
+  );
+  const labelOpacity = interpolate(frame, [6, 22], [0, 1], {
     easing: EASE_OUT,
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const cardX = interpolate(frame, [40, 60], [40, 0], {
-    easing: EASE_OUT,
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const labelOpacity = interpolate(frame, [10, 28], [0, 1], {
+  const cmdOpacity = interpolate(frame, [12, 24], [0, 1], {
     easing: EASE_OUT,
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
@@ -202,7 +225,7 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
       <div
         style={{
           position: "absolute",
-          top: 80,
+          top: 70,
           left: 0,
           right: 0,
           textAlign: "center",
@@ -215,7 +238,51 @@ const ImageMode: React.FC<{ frame: number; opacity: number }> = ({
         }}
       >
         <span style={{ color: PALETTE.accent }}>━━━━━</span>{" "}
-        Image mode <span style={{ color: PALETTE.accent }}>━━━━━</span>
+        Translate from a photo{" "}
+        <span style={{ color: PALETTE.accent }}>━━━━━</span>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 80,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          opacity: cmdOpacity,
+        }}
+      >
+        <div
+          style={{
+            background: PALETTE.surface,
+            border: `1px solid ${PALETTE.border}`,
+            borderRadius: 10,
+            padding: "14px 24px",
+            fontFamily: monoFamily,
+            fontSize: 22,
+            color: PALETTE.text,
+            letterSpacing: 0.4,
+            boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+          }}
+        >
+          <span style={{ color: PALETTE.accent }}>$</span>
+          <span>{cmdTyped}</span>
+          {frame < cmdTypeEnd ? (
+            <span
+              style={{
+                display: "inline-block",
+                width: "0.55em",
+                height: "1em",
+                background: PALETTE.accent,
+                verticalAlign: "-0.12em",
+                opacity: frame % 16 < 8 ? 1 : 0,
+              }}
+            />
+          ) : null}
+        </div>
       </div>
     </AbsoluteFill>
   );
