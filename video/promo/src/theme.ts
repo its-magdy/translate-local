@@ -25,10 +25,10 @@ export const FONTS = {
 export const SCENE_FRAMES = {
   HOOK: { start: 0, duration: 6 * FPS },
   COLD_OPEN: { start: 6 * FPS, duration: 8 * FPS },
-  GLOSSARY: { start: 14 * FPS, duration: 14 * FPS },
-  FILE_MODE: { start: 28 * FPS, duration: 16 * FPS },
-  MONTAGE: { start: 44 * FPS, duration: 12 * FPS },
-  CTA: { start: 56 * FPS, duration: 6 * FPS },
+  GLOSSARY: { start: 14 * FPS, duration: 12 * FPS },
+  FILE_MODE: { start: 26 * FPS, duration: 16 * FPS },
+  MONTAGE: { start: 42 * FPS, duration: 12 * FPS },
+  CTA: { start: 54 * FPS, duration: 6 * FPS },
 } as const;
 
-export const TOTAL_FRAMES = 62 * FPS;
+export const TOTAL_FRAMES = 60 * FPS;
