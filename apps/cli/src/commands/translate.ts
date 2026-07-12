@@ -189,19 +189,29 @@ export function makeTranslateCommand(): Command {
             .map((s) => s.content);
 
           const isJson = opts.json ?? false;
+          let streamed = false;
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
             imageBase64,
-            onChunk: isJson ? undefined : (chunk) => process.stdout.write(chunk),
+            onChunk: isJson ? undefined : (chunk) => { streamed = true; process.stdout.write(chunk); },
           });
           if (isJson) {
             console.log(formatTranslationResult(result, true));
           } else {
-            // Streaming already wrote the translation; reuse the formatter for metadata only.
+            if (!streamed) {
+              // Adapter didn't stream (e.g. mock) — nothing is on stdout yet.
+              process.stdout.write(`${result.translated}\n`);
+            } else if (result.metadata.retries > 0) {
+              // Streamed tokens were the first attempt; retries changed the final text.
+              process.stdout.write(`\n${result.translated}\n`);
+            } else {
+              process.stdout.write("\n");
+            }
+            // Metadata on stderr so stdout carries only the translation (pipe-safe).
             const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
-            process.stdout.write(`\n${meta}\n`);
+            process.stderr.write(`${meta}\n`);
           }
           }
         } finally {

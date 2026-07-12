@@ -211,9 +211,24 @@ describe("tl CLI", () => {
     it("translates text using mock adapter", () => {
       const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock" });
       expect(r.exitCode).toBe(0);
-      // MockAdapter doesn't stream, so non-JSON output shows metadata only
-      expect(r.stdout).toContain("mock");
-      expect(r.stdout).toContain("Glossary:");
+      // MockAdapter doesn't stream — the final translation must still be printed
+      expect(r.stdout).toContain("[ar] hello world");
+      expect(r.stderr).toContain("mock");
+      expect(r.stderr).toContain("Glossary:");
+    });
+
+    it("keeps stdout pipe-safe: translation only, metadata on stderr", () => {
+      const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("[ar] hello world");
+      expect(r.stdout).not.toContain("Glossary:");
+      expect(r.stdout).not.toContain("· ");
+    });
+
+    it("accepts flag-first invocation: tl --to ar <text>", () => {
+      const r = run(["--to", "ar", "hello world"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("[ar] hello world");
     });
 
     it("translates with --json flag using mock adapter", () => {

@@ -40,11 +40,14 @@ if (process.argv.length <= 2) {
     process.exit(1);
   }
 } else {
-  // Support: `tl <text>` as shorthand for `tl translate <text>`
+  // Support: `tl <text>` and `tl --to fr <text>` as shorthand for `tl translate ...`
   // Derive command names dynamically so new subcommands are picked up automatically.
+  // Only root-level flags stay with the root program; any other leading flag
+  // belongs to translate (previously `tl --to fr "hi"` died with "unknown option").
   const registeredCommands = new Set(program.commands.map((c) => c.name()));
+  const rootFlags = new Set(["-h", "--help", "-V", "--version"]);
   const firstArg = process.argv[2];
-  if (firstArg && !registeredCommands.has(firstArg) && !firstArg.startsWith("-")) {
+  if (firstArg && !registeredCommands.has(firstArg) && !rootFlags.has(firstArg)) {
     process.argv.splice(2, 0, "translate");
   }
 
