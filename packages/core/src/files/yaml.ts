@@ -6,7 +6,7 @@ import { readFileSync } from "fs";
 import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
-import { atomicWriteFile } from "./json";
+import { atomicWriteFile, detectEol } from "./json";
 
 export type YamlMeta = {
   indent: number;
@@ -24,12 +24,6 @@ function detectIndent(text: string): number {
   const m = text.match(/^( +)\S/m);
   if (!m) return 2;
   return m[1].length;
-}
-
-function detectEol(text: string): "\n" | "\r\n" {
-  const idx = text.indexOf("\n");
-  if (idx > 0 && text[idx - 1] === "\r") return "\r\n";
-  return "\n";
 }
 
 function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
@@ -61,14 +55,7 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
         );
       }
       const tag = (node as Scalar).tag;
-      if (
-        tag &&
-        typeof tag === "string" &&
-        tag !== "tag:yaml.org,2002:str" &&
-        tag !== "tag:yaml.org,2002:null" &&
-        !tag.startsWith("?") &&
-        (tag.includes("binary") || tag.includes("timestamp"))
-      ) {
+      if (tag && !tag.startsWith("?") && (tag.includes("binary") || tag.includes("timestamp"))) {
         throw new TlError(
           "FILE_INVALID_FORMAT",
           `YAML scalar with explicit tag ${tag}`,

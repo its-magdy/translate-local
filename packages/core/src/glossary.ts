@@ -1,9 +1,8 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
-import { mkdirSync, chmodSync } from "fs";
-import { dirname } from "path";
 import type { GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { ensurePrivateDir } from "./fsutil";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -18,12 +17,23 @@ const LATIN_END = /[a-zA-Z0-9_]$/;
  * For ASCII word characters, plain \b works. For non-Latin characters
  * (CJK, Arabic, etc.), we use Unicode-aware negative lookbehind/lookahead
  * with \p{L} so the term is not matched as a substring of a longer word.
+ *
+ * Compiled patterns are cached: file mode calls matchTerms once per leaf with
+ * the same entries, and recompiling per call dominated the non-model cost.
+ * (matchAll clones the regex, so sharing a cached instance is safe.)
  */
+const patternCache = new Map<string, RegExp>();
+
 function termPattern(term: string): RegExp {
-  const escaped = escapeRegex(term);
-  const start = LATIN_START.test(term) ? "\\b" : "(?<!\\p{L})";
-  const end = LATIN_END.test(term) ? "\\b" : "(?!\\p{L})";
-  return new RegExp(`${start}${escaped}${end}`, "giu");
+  let pattern = patternCache.get(term);
+  if (!pattern) {
+    const escaped = escapeRegex(term);
+    const start = LATIN_START.test(term) ? "\\b" : "(?<!\\p{L})";
+    const end = LATIN_END.test(term) ? "\\b" : "(?!\\p{L})";
+    pattern = new RegExp(`${start}${escaped}${end}`, "giu");
+    patternCache.set(term, pattern);
+  }
+  return pattern;
 }
 
 /**
@@ -50,7 +60,7 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[
     for (const match of text.matchAll(pattern)) {
       const start = match.index;
       const end = start + match[0].length;
-      if (!occupied.slice(start, end).some(Boolean)) {
+      if (!occupied.subarray(start, end).some(Boolean)) {
         hits.push({ entry, startIndex: start, endIndex: end });
         occupied.fill(1, start, end);
       }
@@ -65,8 +75,7 @@ export class GlossaryStore {
 
   constructor(dbPath: string) {
     try {
-      mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
-      try { chmodSync(dirname(dbPath), 0o700); } catch { /* may fail on system dirs like /tmp */ }
+      ensurePrivateDir(dbPath);
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS glossary (

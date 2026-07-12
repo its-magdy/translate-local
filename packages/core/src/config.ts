@@ -1,8 +1,18 @@
 import { z } from "zod";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
-import { dirname, join } from "path";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { homedir } from "os";
 import { TlError } from "@translate-local/shared/errors";
+import type { AdapterBackend, AdapterConfig } from "@translate-local/shared/types";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_OLLAMA_URL,
+  DEFAULT_CONFIG_PATH,
+  DEFAULT_GLOSSARY_DB_PATH,
+  DEFAULT_CONTEXT_DB_PATH,
+  DEFAULT_GLOSSARY_MODE,
+} from "@translate-local/shared/constants";
+import { ensurePrivateDir } from "./fsutil";
 
 function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -81,41 +91,48 @@ function stripJsoncComments(src: string): string {
   return result;
 }
 
+// .prefault({}) parses the empty object through the inner schema, so each
+// per-field .default() is the single source of truth for that default.
 export const configSchema = z.object({
   adapter: z.object({
     type: z.literal("translate-gemma").default("translate-gemma"),
     backend: z.literal("local").default("local"),
     local: z.object({
       command: z.string().default("ollama"),
-      model: z.string().default("translategemma:latest"),
-      endpoint: z.string().default("http://localhost:11434"),
+      model: z.string().default(DEFAULT_MODEL),
+      endpoint: z.string().default(DEFAULT_OLLAMA_URL),
       keepAlive: z.boolean().default(false),
-    }).default({ command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false }),
-  }).default({
-    type: "translate-gemma",
-    backend: "local",
-    local: { command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false },
-  }),
+    }).prefault({}),
+  }).prefault({}),
   glossary: z.object({
-    mode: z.enum(["strict", "prefer"]).default("prefer"),
+    mode: z.enum(["strict", "prefer"]).default(DEFAULT_GLOSSARY_MODE),
     maxRetries: z.number().int().min(0).max(10).default(2),
-    dbPath: z.string().default("~/.config/tl/glossary.db"),
-  }).default({ mode: "prefer", maxRetries: 2, dbPath: "~/.config/tl/glossary.db" }),
+    dbPath: z.string().default(DEFAULT_GLOSSARY_DB_PATH),
+  }).prefault({}),
   context: z.object({
-    dbPath: z.string().default("~/.config/tl/context.db"),
+    dbPath: z.string().default(DEFAULT_CONTEXT_DB_PATH),
     maxSnippets: z.number().int().min(0).default(3),
     minRelevance: z.number().min(0).max(1).default(0.3),
-  }).default({ dbPath: "~/.config/tl/context.db", maxSnippets: 3, minRelevance: 0.3 }),
+  }).prefault({}),
   defaults: z.object({
     sourceLang: z.string().default("auto"),
     targetLang: z.string().default("ar"),
-  }).default({ sourceLang: "auto", targetLang: "ar" }),
+  }).prefault({}),
 });
 
 export type CoreConfig = z.infer<typeof configSchema>;
 
+/** Map the loaded config to the adapter factory's input. */
+export function toAdapterConfig(config: CoreConfig, backend: AdapterBackend = "ollama"): AdapterConfig {
+  return {
+    backend,
+    model: config.adapter.local.model,
+    ollamaUrl: config.adapter.local.endpoint,
+  };
+}
+
 export function getConfigPath(configPath?: string): string {
-  return expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+  return expandTilde(configPath ?? DEFAULT_CONFIG_PATH);
 }
 
 export function loadConfig(configPath?: string): CoreConfig {
@@ -168,7 +185,6 @@ export function loadConfig(configPath?: string): CoreConfig {
 
 export function saveConfig(config: CoreConfig, configPath?: string): void {
   const p = getConfigPath(configPath);
-  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
-  try { chmodSync(dirname(p), 0o700); } catch { /* may fail on system dirs */ }
+  ensurePrivateDir(p);
   writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
 }

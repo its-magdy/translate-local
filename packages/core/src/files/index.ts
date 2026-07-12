@@ -9,7 +9,7 @@ import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } f
 import { readJson, writeJson, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
-import { mask, unmask, validate, containsICU } from "./placeholders";
+import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
 import { classifyValue } from "./skip";
 import type { JsonValue } from "./walk";
 
@@ -219,7 +219,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     // sentinels through that channel preserves them better than naked-token instructions.
     const sentinelHits: GlossaryHit[] = [];
     for (const ph of placeholders) {
-      const tok = `__TLPH_${ph.index}__`;
+      const tok = sentinelFor(ph.index);
       const idx = masked.indexOf(tok);
       if (idx >= 0) {
         sentinelHits.push({
