@@ -4,9 +4,9 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { ContextStore } from "../context";
 
-const IS_INTEGRATION = !!process.env.TEST_INTEGRATION;
-
-const testFn = IS_INTEGRATION ? test : test.skip;
+// Temp SQLite + local files only — no external services, so run by default.
+// The former TEST_INTEGRATION gate hid the whole suite from plain `bun run test`.
+const testFn = test;
 
 describe("ContextStore", () => {
   let tmpDir: string;
