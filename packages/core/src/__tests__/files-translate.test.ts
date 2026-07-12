@@ -378,6 +378,21 @@ describe("translateFile", () => {
     expect(lines[2]).toMatch(/^m:/);
   });
 
+  it("keeps target-only keys when syncing into an existing YAML target", async () => {
+    const src = writeSrc("en.yml", "greeting: hi\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "greeting: EXISTING\nlegacy: kept\n");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.translated).toBe(0);
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("legacy: kept");
+    expect(text).toContain("greeting: EXISTING");
+  });
+
   it("refuses YAML with anchors", async () => {
     const src = writeSrc("en.yml", "shared: &s hello\nx: *s\n");
     const out = join(dir, "ar.yml");

@@ -132,23 +132,30 @@ export function readYaml(path: string): YamlReadResult {
 }
 
 function applyToDoc(doc: Document.Parsed, data: JsonValue): void {
-  apply(doc.contents, data);
+  apply(doc, doc.contents, data);
 }
 
-function apply(node: unknown, value: JsonValue): void {
+function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
   if (isMap(node)) {
     const m = node as YAMLMap;
     if (typeof value !== "object" || value === null || Array.isArray(value)) return;
     const v = value as { [k: string]: JsonValue };
+    const docKeys = new Set<string>();
     for (const item of m.items) {
       const k = isScalar(item.key) ? String((item.key as Scalar).value) : String(item.key);
+      docKeys.add(k);
       if (!(k in v)) continue;
       const child = v[k];
       if (typeof child === "string" && isScalar(item.value)) {
         (item.value as Scalar).value = child;
       } else if (item.value !== undefined && item.value !== null) {
-        apply(item.value, child);
+        apply(doc, item.value, child);
       }
+    }
+    // The doc being mutated is the SOURCE document; data may carry keys that only
+    // exist in the existing target file. Append them or they are silently dropped.
+    for (const [k, child] of Object.entries(v)) {
+      if (!docKeys.has(k)) m.items.push(doc.createPair(k, child));
     }
     return;
   }
@@ -161,8 +168,11 @@ function apply(node: unknown, value: JsonValue): void {
       if (typeof child === "string" && isScalar(item)) {
         (item as Scalar).value = child;
       } else if (item !== undefined && item !== null) {
-        apply(item, child);
+        apply(doc, item, child);
       }
+    }
+    for (let i = s.items.length; i < value.length; i++) {
+      s.items.push(doc.createNode(value[i]));
     }
     return;
   }

@@ -117,6 +117,35 @@ describe("writeYaml round-trip", () => {
     expect(written).toContain("مرحبا");
   });
 
+  test("keys present only in data survive the write (existing-target sync)", () => {
+    const original = "# top comment\ngreeting: hi\nnested:\n  a: one\n";
+    const p = w("in.yml", original);
+    const r = readYaml(p);
+    const data = {
+      greeting: "marhaba",
+      nested: { a: "wahid", b: "extra-nested" },
+      legacy: "kept",
+    };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("legacy: kept");
+    expect(written).toContain("b: extra-nested");
+    expect(written).toContain("# top comment");
+    const roundTrip = readYaml(out);
+    expect(roundTrip.data).toEqual(data as never);
+  });
+
+  test("array elements beyond the doc's length survive the write", () => {
+    const original = "items:\n  - one\n  - two\n";
+    const p = w("in.yml", original);
+    const r = readYaml(p);
+    const data = { items: ["uno", "dos", "tres"] };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
   test("preserves block scalar style |", () => {
     const original = "longtext: |\n  line one\n  line two\n";
     const p = w("in.yml", original);
