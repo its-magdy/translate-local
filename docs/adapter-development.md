@@ -24,7 +24,6 @@ export interface TranslationRequest {
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
   options?: {
-    formality?: "formal" | "informal";
     glossaryMode?: "strict" | "prefer";
   };
 }

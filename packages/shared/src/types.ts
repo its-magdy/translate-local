@@ -9,7 +9,6 @@ export interface TranslationRequest {
   contextSnippets?: string[];
   onChunk?: (chunk: string) => void;
   options?: {
-    formality?: "formal" | "informal";
     glossaryMode?: "strict" | "prefer";
   };
 }
@@ -75,10 +74,4 @@ export interface AdapterConfig {
   backend: AdapterBackend;
   model: string;
   ollamaUrl?: string;
-}
-
-export interface TlConfig {
-  adapter: AdapterConfig;
-  glossaryDb?: string;
-  contextDb?: string;
 }
