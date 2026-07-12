@@ -6,11 +6,12 @@
 tl [command] [options]
 ```
 
-Running `tl` with no arguments launches the interactive TUI. Passing text directly is shorthand for `tl translate`:
+Running `tl` with no arguments launches the interactive TUI. Passing text directly is shorthand for `tl translate`, and flag-first invocations route there too:
 
 ```bash
 tl "hello world" --from en --to ar
-# equivalent to:
+tl --to ar "hello world"
+# both equivalent to:
 tl translate "hello world" --from en --to ar
 ```
 
@@ -42,6 +43,12 @@ tl "hello" --to de --json
 tl translate --image screenshot.png --to ar
 tl translate --file en.json --to ar          # see File mode
 ```
+
+**Output streams:** the translation is written to **stdout**; metadata (adapter,
+timing, glossary coverage) goes to **stderr**. Token-by-token streaming happens
+only when stdout is an interactive terminal — piped or redirected stdout
+(`tl ... > out.txt`, `tl ... | grep`) receives exactly the final translation,
+once, so pipes and `$(tl ...)` substitution are always safe.
 
 **JSON output shape (string / image mode):**
 
@@ -246,6 +253,13 @@ tl context index
 ### `tl config`
 
 Manage the configuration file at `~/.config/tl/config.jsonc`.
+
+String values in the config may reference environment variables with `${VAR}`
+(e.g. `"endpoint": "${OLLAMA_URL}"`); referencing an unset variable fails with
+`CONFIG_INVALID`. The reference must be inside a quoted string. A value that is
+exactly one `"${VAR}"` adopts the variable's scalar type, so numeric and
+boolean fields work: `"maxRetries": "${TL_RETRIES}"` with `TL_RETRIES=3` loads
+as the number `3`.
 
 #### `tl config connect`
 

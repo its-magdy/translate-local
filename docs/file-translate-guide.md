@@ -172,6 +172,8 @@ Long translated strings are not reflowed — the writer is configured with `line
 | Same source and target locale (`--from en --to en`) | Refused with `SAME_LOCALE`. |
 | Source file does not exist | Refused with `FILE_NOT_FOUND`. |
 | Existing target is invalid JSON | Refused with `FILE_PARSE_FAILED`. Fix or delete the target before re-running. |
+| Source YAML is empty or comments-only | The existing target's keys are preserved in the output (nothing to translate). |
+| Key shape differs between source and target (e.g. source string vs target plural map) | The target's value wins and its structure is kept in the output. |
 | Duplicate keys in JSON source | `JSON.parse` last-wins (warning future v1). |
 | Keys with dots (`"section.title"`) | Treated as opaque string keys, not split paths. |
 | Numeric values (number, boolean, null) | Preserved verbatim. |
