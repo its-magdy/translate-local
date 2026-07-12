@@ -11,7 +11,7 @@ import { makeLanguagesCommand } from "./commands/languages";
 const program = new Command()
   .name("tl")
   .description("Translation CLI — glossary-aware, context-rich, model-agnostic")
-  .version("0.4.0")
+  .version("0.4.1")
   .allowExcessArguments(false);
 
 // `tl <text>` — translate is the default action when a positional argument is passed

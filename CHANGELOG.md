@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-07-12
+
+### Fixed
+- **YAML file mode no longer deletes target-only keys.** `writeYaml` re-serializes the source document; keys present only in the existing target file (e.g. entries kept after the source dropped them) were silently removed on every sync. They are now appended to the output. Extra array elements in the target survive the same way. The JSON path was unaffected.
+- **Empty glossary terms can no longer hang translations.** An empty `sourceTerm` produced a zero-width regex that spun `matchTerms` forever on any text containing punctuation or digits. `matchTerms` now skips empty terms and iterates with `matchAll`, and `GlossaryStore.add` rejects empty/whitespace terms with `INVALID_INPUT`.
+- **Non-streaming adapters now print the translation.** Non-JSON CLI output relied entirely on streaming; adapters that don't stream produced metadata with no translation text. The final translation is now printed when nothing was streamed, and after strict-mode retries the corrected final text is printed as well.
+- **Translation metadata moved from stdout to stderr.** `tl "text" --to fr > out.txt` no longer captures adapter/timing/glossary-coverage lines; stdout carries only the translation.
+- **Flag-first invocation works:** `tl --to fr "hello"` now routes to `translate` instead of failing with `unknown option`.
+- **Config env vars with backslashes or quotes no longer break parsing.** `${VAR}` substitution now happens on parsed string values instead of the raw JSON text, so Windows paths and quoted values round-trip intact.
+
+### Changed
+- The pipeline and context test suites now run in the default `bun run test` (they use MockAdapter and temp SQLite only); previously they were skipped unless `TEST_INTEGRATION=1`.
+
 ## [0.4.0] - 2026-05-06
 
 ### Added
