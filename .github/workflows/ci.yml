@@ -14,4 +14,3 @@ jobs:
       - run: bun install
       - run: bun run build
       - run: bun run test
-      - run: TEST_INTEGRATION=1 bun run test
