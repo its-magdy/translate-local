@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-07-12
+
+### Fixed
+- **Empty or comments-only source YAML no longer wipes the target file.** A source document with no content nodes made the write path a silent no-op and replaced the existing target with an empty document, deleting every key. The target data is now materialized into the output.
+- **YAML shape mismatches no longer drop target data.** A key present in both files but with different shapes (e.g. source scalar vs target plural map, or an empty `key:`) was silently dropped on sync; the node is now replaced wholesale so the target's structure survives.
+- **Piped stdout is now truly pipe-safe.** Tokens stream to stdout only when it is an interactive terminal; piped output receives exactly the final postprocessed translation once. Previously a pipe could capture raw glossary `<term>` tags, unnormalized whitespace, or — with strict-mode retries — two concatenated translations. When streaming, the final text is reprinted whenever it differs from what was streamed.
+- **Typed env substitution restored for config values.** 0.4.1 moved `${VAR}` substitution after JSON parsing, which broke previously-working unquoted references like `"maxRetries": ${TL_RETRIES}`. A value that is exactly one quoted `"${VAR}"` now adopts the env value's number/boolean type, and the parse error for the unquoted form explains the migration.
+- **`tl help` prints usage** instead of translating the literal word "help". Root-level flags are now derived from the program's registered options instead of a hardcoded list.
+- **Metadata color now follows stderr.** ANSI codes for the metadata block gate on stderr's TTY-ness, so `2> err.log` no longer captures raw escape bytes and metadata stays colored when stdout is piped. Metadata indentation is also consistent between color and NO_COLOR runs.
+
+### Changed
+- Removed stale `TEST_INTEGRATION` references from docs, `turbo.json`, and CI — no code has read the variable since 0.4.1 un-gated the pipeline/context suites. `TEST_ADAPTER=1` (real Ollama) remains.
+
 ## [0.4.1] - 2026-07-12
 
 ### Fixed
