@@ -42,9 +42,12 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[
   const occupied = new Uint8Array(text.length);
 
   for (const entry of sorted) {
+    // An empty term builds a zero-width pattern; a manual exec() loop would never
+    // advance lastIndex and hang forever. matchAll steps past zero-width matches,
+    // and empty terms are skipped outright (add() rejects them, but old rows may exist).
+    if (entry.sourceTerm.trim().length === 0) continue;
     const pattern = termPattern(entry.sourceTerm);
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
+    for (const match of text.matchAll(pattern)) {
       const start = match.index;
       const end = start + match[0].length;
       if (!occupied.slice(start, end).some(Boolean)) {
@@ -90,6 +93,13 @@ export class GlossaryStore {
   }
 
   add(entry: Omit<GlossaryEntry, "id">): GlossaryEntry {
+    if (entry.sourceTerm.trim().length === 0 || entry.targetTerm.trim().length === 0) {
+      throw new TlError(
+        "INVALID_INPUT",
+        "Glossary source and target terms must be non-empty",
+        "Provide non-empty --source and --target values.",
+      );
+    }
     const id = randomUUID();
     try {
       const result = this.db.run(
