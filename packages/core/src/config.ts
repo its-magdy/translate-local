@@ -8,22 +8,33 @@ function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
+function lookupEnv(key: string): string {
+  const val = process.env[key];
+  if (val === undefined) {
+    throw new TlError(
+      "CONFIG_INVALID",
+      `Environment variable "${key}" is not set`,
+      `Set the ${key} environment variable before running tl`,
+    );
+  }
+  return val;
+}
+
 // Substitutes ${VAR} in already-parsed string values, not in the raw JSON text —
 // a value containing `\` (Windows paths) or `"` would otherwise break JSON.parse
 // or inject structure.
 function resolveEnvVars(value: unknown): unknown {
   if (typeof value === "string") {
-    return value.replace(/\$\{([^}]+)\}/g, (_, key) => {
-      const val = process.env[key];
-      if (val === undefined) {
-        throw new TlError(
-          "CONFIG_INVALID",
-          `Environment variable "${key}" is not set`,
-          `Set the ${key} environment variable before running tl`,
-        );
-      }
+    // A value that is exactly one ${VAR} adopts the env value's scalar type, so
+    // numeric/boolean fields work: "maxRetries": "${TL_RETRIES}" with
+    // TL_RETRIES=3 loads as the number 3. Everything else stays a string.
+    const whole = value.match(/^\$\{([^}]+)\}$/);
+    if (whole) {
+      const val = lookupEnv(whole[1]);
+      if (/^(?:-?\d+(?:\.\d+)?|true|false|null)$/.test(val.trim())) return JSON.parse(val.trim());
       return val;
-    });
+    }
+    return value.replace(/\$\{([^}]+)\}/g, (_, key) => lookupEnv(key));
   }
   if (Array.isArray(value)) return value.map(resolveEnvVars);
   if (value !== null && typeof value === "object") {
@@ -129,10 +140,15 @@ export function loadConfig(configPath?: string): CoreConfig {
     raw = stripJsoncComments(raw);
     parsed = JSON.parse(raw);
   } catch (err: any) {
+    // Unquoted ${VAR} substitution (pre-0.4.1) fails JSON.parse here; point at
+    // the migration instead of leaving a bare syntax error.
+    const hint = /\$\{[^}]*\}/.test(raw)
+      ? `Fix the syntax in ${p}. \${VAR} must be inside a quoted string ("\${VAR}") — a value that is exactly one \${VAR} still loads numbers and booleans with the right type.`
+      : `Fix the syntax in ${p}`;
     throw new TlError(
       "CONFIG_INVALID",
       `Config file is not valid JSONC: ${err.message}`,
-      `Fix the syntax in ${p}`,
+      hint,
       err,
     );
   }
