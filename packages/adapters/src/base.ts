@@ -1,5 +1,15 @@
 import type { TranslationRequest } from "@translate-local/shared/types";
-import { LANG_NAMES } from "@translate-local/shared/constants";
+import {
+  LANG_NAMES,
+  PLACEHOLDER_SENTINEL_PREFIX,
+  PLACEHOLDER_SENTINEL_SUFFIX,
+} from "@translate-local/shared/constants";
+
+// File mode masks placeholders with these sentinels (see core files/placeholders);
+// the prompt must enforce the exact same token format.
+const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`;
+const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
+const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
 
 function langLabel(code: string): string {
   const name = LANG_NAMES[code.toLowerCase()];
@@ -34,8 +44,8 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   }
 
   // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
-  if (!isImageMode && /__TLPH_\d+__/.test(request.source)) {
-    const tokens = (request.source.match(/__TLPH_\d+__/g) ?? []);
+  if (!isImageMode && SENTINEL_TEST_RE.test(request.source)) {
+    const tokens = (request.source.match(SENTINEL_MATCH_RE) ?? []);
     const uniqueTokens = [...new Set(tokens)];
     lines.push(
       `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,

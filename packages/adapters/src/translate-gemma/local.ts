@@ -1,6 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
-import { computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { DEFAULT_OLLAMA_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { buildStructuredPrompt } from "../base";
 
@@ -82,10 +81,28 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
       }
       const MAX_ACCUMULATED_CHARS = 10 * 1024 * 1024; // 10M character safety limit
+      const onChunk = request.onChunk;
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let lineBuffer = "";
       let accumulated = "";
+
+      const handleLine = (line: string): void => {
+        if (!line.trim()) return;
+        let chunk: OllamaStreamChunk;
+        try {
+          chunk = JSON.parse(line) as OllamaStreamChunk;
+        } catch {
+          throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
+        }
+        if (chunk.response) {
+          onChunk(chunk.response);
+          accumulated += chunk.response;
+          if (accumulated.length > MAX_ACCUMULATED_CHARS) {
+            throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
+          }
+        }
+      };
 
       try {
         while (true) {
@@ -94,22 +111,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           lineBuffer += decoder.decode(value, { stream: true });
           const lines = lineBuffer.split("\n");
           lineBuffer = lines.pop() ?? "";
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            let chunk: OllamaStreamChunk;
-            try {
-              chunk = JSON.parse(line) as OllamaStreamChunk;
-            } catch {
-              throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
-            }
-            if (chunk.response) {
-              request.onChunk(chunk.response);
-              accumulated += chunk.response;
-              if (accumulated.length > MAX_ACCUMULATED_CHARS) {
-                throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
-              }
-            }
-          }
+          for (const line of lines) handleLine(line);
         }
       } catch (err) {
         if (err instanceof TlError) throw err;
@@ -122,36 +124,21 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       } finally {
         reader.releaseLock();
       }
-      // flush remaining buffer
-      if (lineBuffer.trim()) {
-        let chunk: OllamaStreamChunk;
-        try {
-          chunk = JSON.parse(lineBuffer) as OllamaStreamChunk;
-        } catch {
-          throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${lineBuffer}`, "Check Ollama version or restart Ollama");
-        }
-        if (chunk.response) {
-          request.onChunk(chunk.response);
-          accumulated += chunk.response;
-        }
-      }
+      handleLine(lineBuffer); // flush remaining buffer
       translated = accumulated.trim();
     } else {
       const data = (await response.json()) as OllamaGenerateResponse;
       translated = data.response.trim();
     }
 
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(
-      request.glossaryHits ?? [],
-      translated
-    );
-
     return {
       translated,
       sourceLang: request.sourceLang,
       targetLang: request.targetLang,
-      glossaryCoverage,
-      missingTerms,
+      // Real coverage is computed by the pipeline on the postprocessed text;
+      // an adapter only sees the pre-strip output.
+      glossaryCoverage: 1,
+      missingTerms: [],
       metadata: {
         adapter: this.name,
         durationMs: Date.now() - start,
