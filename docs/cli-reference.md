@@ -72,7 +72,7 @@ Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**,
 | `--file <path>` | string | — | **Required** for file mode. Source catalog path. |
 | `--out <path>` | string | inferred | Output path. If omitted, inferred by locale-token replacement (e.g. `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`). |
 | `--force` | flag | off | Re-translate every leaf, overwriting existing target values. |
-| `--dry-run` | flag | off | Report what would be translated; write nothing. |
+| `--dry-run` | flag | off | Report what would be translated; write nothing and never contact the model. |
 | `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
 | `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
 | `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |

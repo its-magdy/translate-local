@@ -116,8 +116,8 @@ export class MyServiceAdapter implements Adapter {
       translated: text,
       sourceLang: request.sourceLang,
       targetLang: request.targetLang,
-      glossaryCoverage: 0,   // pipeline computes this
-      missingTerms: [],       // pipeline computes this
+      glossaryCoverage: 1,   // placeholder — the pipeline computes the real value
+      missingTerms: [],       // placeholder — the pipeline computes the real value
       metadata: {
         adapter: "my-service",
         durationMs: Date.now() - start,
