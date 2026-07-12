@@ -59,6 +59,18 @@ describe("loadConfig", () => {
     rmSync(dir, { recursive: true });
   });
 
+  it("env values containing backslashes and quotes round-trip intact", () => {
+    const dir = join(tmpdir(), `tl-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, "config.jsonc");
+    process.env.TEST_TL_WINPATH = 'C:\\models\\a "quoted" name';
+    writeFileSync(p, '{ "adapter": { "local": { "model": "${TEST_TL_WINPATH}" } } }');
+    const cfg = loadConfig(p);
+    expect(cfg.adapter.local.model).toBe('C:\\models\\a "quoted" name');
+    delete process.env.TEST_TL_WINPATH;
+    rmSync(dir, { recursive: true });
+  });
+
   it("throws CONFIG_INVALID for unset env var", () => {
     const dir = join(tmpdir(), `tl-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

@@ -8,18 +8,28 @@ function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
-function resolveEnvVars(s: string): string {
-  return s.replace(/\$\{([^}]+)\}/g, (_, key) => {
-    const val = process.env[key];
-    if (val === undefined) {
-      throw new TlError(
-        "CONFIG_INVALID",
-        `Environment variable "${key}" is not set`,
-        `Set the ${key} environment variable before running tl`,
-      );
-    }
-    return val;
-  });
+// Substitutes ${VAR} in already-parsed string values, not in the raw JSON text —
+// a value containing `\` (Windows paths) or `"` would otherwise break JSON.parse
+// or inject structure.
+function resolveEnvVars(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([^}]+)\}/g, (_, key) => {
+      const val = process.env[key];
+      if (val === undefined) {
+        throw new TlError(
+          "CONFIG_INVALID",
+          `Environment variable "${key}" is not set`,
+          `Set the ${key} environment variable before running tl`,
+        );
+      }
+      return val;
+    });
+  }
+  if (Array.isArray(value)) return value.map(resolveEnvVars);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveEnvVars(v)]));
+  }
+  return value;
 }
 
 function stripJsoncComments(src: string): string {
@@ -117,7 +127,6 @@ export function loadConfig(configPath?: string): CoreConfig {
   let parsed: unknown;
   try {
     raw = stripJsoncComments(raw);
-    raw = resolveEnvVars(raw);
     parsed = JSON.parse(raw);
   } catch (err: any) {
     throw new TlError(
@@ -127,6 +136,7 @@ export function loadConfig(configPath?: string): CoreConfig {
       err,
     );
   }
+  parsed = resolveEnvVars(parsed);
 
   const result = configSchema.safeParse(parsed);
   if (!result.success) {
