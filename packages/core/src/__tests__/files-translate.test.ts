@@ -393,6 +393,35 @@ describe("translateFile", () => {
     expect(text).toContain("greeting: EXISTING");
   });
 
+  it("comments-only source YAML does not clobber an existing target", async () => {
+    const src = writeSrc("en.yml", "# nothing here yet\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "legacy: kept\ngreeting: EXISTING\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("legacy: kept");
+    expect(text).toContain("greeting: EXISTING");
+  });
+
+  it("keeps a target map where the source has a scalar (shape mismatch)", async () => {
+    const src = writeSrc("en.yml", "title: My Title\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "title:\n  one: un titre\n  other: des titres\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("one: un titre");
+    expect(text).toContain("other: des titres");
+    expect(text).not.toContain("My Title");
+  });
+
   it("refuses YAML with anchors", async () => {
     const src = writeSrc("en.yml", "shared: &s hello\nx: *s\n");
     const out = join(dir, "ar.yml");

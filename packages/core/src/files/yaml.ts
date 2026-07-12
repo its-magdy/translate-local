@@ -132,7 +132,22 @@ export function readYaml(path: string): YamlReadResult {
 }
 
 function applyToDoc(doc: Document.Parsed, data: JsonValue): void {
+  // A comments-only or empty source parses to contents === null; apply() would
+  // no-op and the write would silently drop every key in `data`.
+  if (doc.contents === null || doc.contents === undefined) {
+    if (data !== null) doc.contents = doc.createNode(data) as Document.Parsed["contents"];
+    return;
+  }
   apply(doc, doc.contents, data);
+}
+
+// Whether the doc node can absorb `value` in place. Non-string primitives return
+// true: they never come from translation, so the source node is left untouched.
+function shapeMatches(node: unknown, value: JsonValue): boolean {
+  if (typeof value === "string") return isScalar(node);
+  if (Array.isArray(value)) return isSeq(node);
+  if (typeof value === "object" && value !== null) return isMap(node);
+  return true;
 }
 
 function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
@@ -148,8 +163,12 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
       const child = v[k];
       if (typeof child === "string" && isScalar(item.value)) {
         (item.value as Scalar).value = child;
-      } else if (item.value !== undefined && item.value !== null) {
-        apply(doc, item.value, child);
+      } else if (shapeMatches(item.value, child)) {
+        if (item.value !== undefined && item.value !== null) apply(doc, item.value, child);
+      } else {
+        // Shape mismatch (e.g. source scalar vs target map, or an empty `key:`):
+        // replace wholesale, otherwise the target's structure is silently dropped.
+        item.value = doc.createNode(child);
       }
     }
     // The doc being mutated is the SOURCE document; data may carry keys that only
@@ -167,8 +186,10 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
       const item = s.items[i];
       if (typeof child === "string" && isScalar(item)) {
         (item as Scalar).value = child;
-      } else if (item !== undefined && item !== null) {
-        apply(doc, item, child);
+      } else if (shapeMatches(item, child)) {
+        if (item !== undefined && item !== null) apply(doc, item, child);
+      } else {
+        s.items[i] = doc.createNode(child);
       }
     }
     for (let i = s.items.length; i < value.length; i++) {

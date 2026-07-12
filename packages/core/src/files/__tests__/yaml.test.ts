@@ -146,6 +146,44 @@ describe("writeYaml round-trip", () => {
     expect(readYaml(out).data).toEqual(data as never);
   });
 
+  test("comments-only source doc (contents === null): data survives the write", () => {
+    const p = w("in.yml", "# nothing here yet\n");
+    const r = readYaml(p);
+    const data = { legacy: "kept", nested: { a: "one" } };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("# nothing here yet");
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("shape mismatch: source scalar vs data map is replaced, not dropped", () => {
+    const p = w("in.yml", "title: My Title\ngreeting: hi\n");
+    const r = readYaml(p);
+    const data = { title: { one: "un titre", other: "des titres" }, greeting: "marhaba" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("shape mismatch: source map vs data string is replaced, not dropped", () => {
+    const p = w("in.yml", "title:\n  one: a\n  other: b\n");
+    const r = readYaml(p);
+    const data = { title: "flattened" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("empty `key:` (null value node) accepts a string", () => {
+    const p = w("in.yml", "greeting:\n");
+    const r = readYaml(p);
+    const data = { greeting: "marhaba" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
   test("preserves block scalar style |", () => {
     const original = "longtext: |\n  line one\n  line two\n";
     const p = w("in.yml", original);
