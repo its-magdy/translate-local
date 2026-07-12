@@ -16,12 +16,18 @@ function color(s: string, c: string, stream: NodeJS.WriteStream = process.stdout
 
 // `stream` is the stream the caller will write to — color must gate on ITS
 // TTY-ness (metadata goes to stderr, so gating on stdout would leak ANSI codes
-// into redirected stderr logs).
-export function formatTranslationResult(result: TranslationResult, json: boolean, stream: NodeJS.WriteStream = process.stdout): string {
+// into redirected stderr logs). includeTranslation: false emits metadata only,
+// for callers that already streamed the translation to stdout.
+export function formatTranslationResult(
+  result: TranslationResult,
+  json: boolean,
+  stream: NodeJS.WriteStream = process.stdout,
+  { includeTranslation = true } = {},
+): string {
   if (json) return JSON.stringify(result, null, 2);
 
   const lines: string[] = [];
-  lines.push(result.translated);
+  if (includeTranslation) lines.push(result.translated);
 
   const pct = Math.round(result.glossaryCoverage * 100);
   const covStr = result.missingTerms.length === 0

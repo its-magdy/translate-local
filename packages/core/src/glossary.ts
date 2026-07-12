@@ -131,6 +131,14 @@ export class GlossaryStore {
     return { id, ...entry };
   }
 
+  /** Add many entries in one transaction — bulk import pays one commit instead of one per row. */
+  addMany(entries: Omit<GlossaryEntry, "id">[]): number {
+    this.db.transaction(() => {
+      for (const e of entries) this.add(e);
+    })();
+    return entries.length;
+  }
+
   remove(id: string): boolean {
     try {
       const result = this.db.run(`DELETE FROM glossary WHERE id = ?`, [id]);

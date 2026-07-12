@@ -1,20 +1,17 @@
 import { Command, Option } from "commander";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { loadConfig } from "@translate-local/core/config";
+import { loadConfig, toAdapterConfig } from "@translate-local/core/config";
 import { GlossaryStore } from "@translate-local/core/glossary";
 import { ContextStore } from "@translate-local/core/context";
 import { runPipeline } from "@translate-local/core/pipeline";
 import { translateFile } from "@translate-local/core/files";
 import { createAdapter } from "@translate-local/adapters/factory";
-import type { AdapterConfig } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { IMAGE_EXT_RE, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 import { inferOutputPath } from "../utils/locale-path";
-
-const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
-const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024;
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
@@ -69,13 +66,7 @@ export function makeTranslateCommand(): Command {
           console.warn(`Warning: unknown TL_ADAPTER "${process.env.TL_ADAPTER}", falling back to "ollama"`);
         }
         const adapterBackend = process.env.TL_ADAPTER === "mock" ? "mock" : "ollama";
-        const adapterCfg: AdapterConfig = {
-          backend: adapterBackend,
-          model: config.adapter.local.model,
-          ollamaUrl: config.adapter.local.endpoint,
-        };
-
-        const adapter = createAdapter(adapterCfg);
+        const adapter = createAdapter(toAdapterConfig(config, adapterBackend));
         const glossaryStore = new GlossaryStore(config.glossary.dbPath);
         const contextStore = new ContextStore(config.context.dbPath);
 
@@ -164,14 +155,14 @@ export function makeTranslateCommand(): Command {
           let imageBase64: string | undefined;
           if (opts.image) {
             opts.image = resolve(opts.image);
-            if (!IMAGE_EXTS.test(opts.image)) {
+            if (!IMAGE_EXT_RE.test(opts.image)) {
               throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
             }
             const file = Bun.file(opts.image);
             if (!(await file.exists())) {
               throw new TlError("IMAGE_NOT_FOUND", `Image not found: ${opts.image}`, "Check the file path and try again.");
             }
-            if (file.size > IMAGE_SIZE_LIMIT) {
+            if (file.size > IMAGE_MAX_BYTES) {
               throw new TlError("IMAGE_TOO_LARGE", `Image exceeds 10 MB: ${opts.image}`, "Use a smaller image file.");
             }
             try {
@@ -216,16 +207,15 @@ export function makeTranslateCommand(): Command {
               process.stdout.write("\n");
             }
             // Metadata on stderr so stdout carries only the translation (pipe-safe).
-            // Strip only the empty translated line — trimStart() would also eat the
-            // metadata indent whenever color is off.
-            const meta = formatTranslationResult({ ...result, translated: "" }, false, process.stderr).replace(/^\n/, "");
+            const meta = formatTranslationResult(result, false, process.stderr, { includeTranslation: false });
             process.stderr.write(`${meta}\n`);
           }
           }
         } finally {
           glossaryStore.close();
           contextStore.close();
-          await adapter.dispose();
+          // Dry run never loads the model — skip the unload round-trip to Ollama.
+          if (!opts.dryRun) await adapter.dispose();
         }
       } catch (err) {
         if (opts.json) {
