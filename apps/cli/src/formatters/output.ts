@@ -9,12 +9,15 @@ const CYAN = "\x1b[36m";
 const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 
-function color(s: string, c: string): string {
-  if (!process.stdout.isTTY || process.env.NO_COLOR !== undefined) return s;
+function color(s: string, c: string, stream: NodeJS.WriteStream = process.stdout): string {
+  if (!stream.isTTY || process.env.NO_COLOR !== undefined) return s;
   return `${c}${s}${RESET}`;
 }
 
-export function formatTranslationResult(result: TranslationResult, json: boolean): string {
+// `stream` is the stream the caller will write to — color must gate on ITS
+// TTY-ness (metadata goes to stderr, so gating on stdout would leak ANSI codes
+// into redirected stderr logs).
+export function formatTranslationResult(result: TranslationResult, json: boolean, stream: NodeJS.WriteStream = process.stdout): string {
   if (json) return JSON.stringify(result, null, 2);
 
   const lines: string[] = [];
@@ -22,13 +25,13 @@ export function formatTranslationResult(result: TranslationResult, json: boolean
 
   const pct = Math.round(result.glossaryCoverage * 100);
   const covStr = result.missingTerms.length === 0
-    ? color(`Glossary: ${pct}% covered ✓`, GREEN)
-    : color(`Glossary: ${pct}% covered (missing: ${result.missingTerms.join(", ")})`, YELLOW);
+    ? color(`Glossary: ${pct}% covered ✓`, GREEN, stream)
+    : color(`Glossary: ${pct}% covered (missing: ${result.missingTerms.join(", ")})`, YELLOW, stream);
 
   if (result.metadata.retries > 0) {
-    lines.push(color(`  retried ${result.metadata.retries}x`, DIM));
+    lines.push(color(`  retried ${result.metadata.retries}x`, DIM, stream));
   }
-  lines.push(color(`  ${result.metadata.adapter} · ${result.metadata.durationMs}ms`, DIM));
+  lines.push(color(`  ${result.metadata.adapter} · ${result.metadata.durationMs}ms`, DIM, stream));
   lines.push(covStr);
 
   return lines.join("\n");

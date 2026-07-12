@@ -189,28 +189,36 @@ export function makeTranslateCommand(): Command {
             .map((s) => s.content);
 
           const isJson = opts.json ?? false;
-          let streamed = false;
+          // Stream only to an interactive terminal. Piped stdout must carry
+          // exactly the final translation once: streamed chunks are raw
+          // pre-postprocess tokens (glossary tags, unnormalized whitespace),
+          // and strict-mode retries would concatenate two attempts.
+          const streamLive = !isJson && process.stdout.isTTY === true;
+          let streamedText = "";
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
             imageBase64,
-            onChunk: isJson ? undefined : (chunk) => { streamed = true; process.stdout.write(chunk); },
+            onChunk: streamLive ? (chunk) => { streamedText += chunk; process.stdout.write(chunk); } : undefined,
           });
           if (isJson) {
             console.log(formatTranslationResult(result, true));
           } else {
-            if (!streamed) {
-              // Adapter didn't stream (e.g. mock) — nothing is on stdout yet.
+            if (!streamedText) {
+              // Nothing streamed (piped stdout, or a non-streaming adapter).
               process.stdout.write(`${result.translated}\n`);
-            } else if (result.metadata.retries > 0) {
-              // Streamed tokens were the first attempt; retries changed the final text.
+            } else if (streamedText.trim() !== result.translated) {
+              // Streamed tokens were raw first-attempt output; postprocessing
+              // or retries changed the final text, so print the real one.
               process.stdout.write(`\n${result.translated}\n`);
             } else {
               process.stdout.write("\n");
             }
             // Metadata on stderr so stdout carries only the translation (pipe-safe).
-            const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
+            // Strip only the empty translated line — trimStart() would also eat the
+            // metadata indent whenever color is off.
+            const meta = formatTranslationResult({ ...result, translated: "" }, false, process.stderr).replace(/^\n/, "");
             process.stderr.write(`${meta}\n`);
           }
           }
