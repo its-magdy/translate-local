@@ -61,6 +61,20 @@ describe("tl CLI", () => {
     });
   });
 
+  describe("help command", () => {
+    it("tl help shows usage instead of translating the word 'help'", () => {
+      const r = run(["help"], { TL_ADAPTER: "mock" });
+      expect(r.stdout).toContain("Usage: tl");
+      expect(r.stdout).not.toContain("[ar]");
+    });
+
+    it("tl help <subcommand> shows that subcommand's usage", () => {
+      const r = run(["help", "glossary"], { TL_ADAPTER: "mock" });
+      expect(r.stdout).toContain("Usage:");
+      expect(r.stdout).toContain("glossary");
+    });
+  });
+
   describe("config path", () => {
     it("prints config path", () => {
       const r = run(["config", "path"]);

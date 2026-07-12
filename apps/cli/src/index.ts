@@ -42,12 +42,18 @@ if (process.argv.length <= 2) {
 } else {
   // Support: `tl <text>` and `tl --to fr <text>` as shorthand for `tl translate ...`
   // Derive command names dynamically so new subcommands are picked up automatically.
-  // Only root-level flags stay with the root program; any other leading flag
+  // Only root-level tokens stay with the root program; any other leading flag
   // belongs to translate (previously `tl --to fr "hi"` died with "unknown option").
+  // Root flags are derived from program.options (like the command names) so future
+  // program.option() calls are picked up; the help flags and the implicit `help`
+  // command don't appear there and are added explicitly.
   const registeredCommands = new Set(program.commands.map((c) => c.name()));
-  const rootFlags = new Set(["-h", "--help", "-V", "--version"]);
+  const rootTokens = new Set([
+    ...program.options.flatMap((o) => [o.short, o.long].filter((f): f is string => !!f)),
+    "-h", "--help", "help",
+  ]);
   const firstArg = process.argv[2];
-  if (firstArg && !registeredCommands.has(firstArg) && !rootFlags.has(firstArg)) {
+  if (firstArg && !registeredCommands.has(firstArg) && !rootTokens.has(firstArg)) {
     process.argv.splice(2, 0, "translate");
   }
 
