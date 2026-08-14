@@ -33,17 +33,12 @@ function lookupEnv(key: string): string {
 // Substitutes ${VAR} in already-parsed string values, not in the raw JSON text —
 // a value containing `\` (Windows paths) or `"` would otherwise break JSON.parse
 // or inject structure.
+// Substitution always yields a string: the env value's *shape* says nothing about
+// the field's type, so `"model": "${TL_MODEL}"` with TL_MODEL=2 must stay "2".
+// Number/boolean fields opt into coercion in configSchema instead (envNumber /
+// envBoolean), where the target type is actually known.
 function resolveEnvVars(value: unknown): unknown {
   if (typeof value === "string") {
-    // A value that is exactly one ${VAR} adopts the env value's scalar type, so
-    // numeric/boolean fields work: "maxRetries": "${TL_RETRIES}" with
-    // TL_RETRIES=3 loads as the number 3. Everything else stays a string.
-    const whole = value.match(/^\$\{([^}]+)\}$/);
-    if (whole) {
-      const val = lookupEnv(whole[1]);
-      if (/^(?:-?\d+(?:\.\d+)?|true|false|null)$/.test(val.trim())) return JSON.parse(val.trim());
-      return val;
-    }
     return value.replace(/\$\{([^}]+)\}/g, (_, key) => lookupEnv(key));
   }
   if (Array.isArray(value)) return value.map(resolveEnvVars);
@@ -91,6 +86,17 @@ function stripJsoncComments(src: string): string {
   return result;
 }
 
+// Scalar fields accept the string a `${VAR}` substitution leaves behind and
+// convert it to the declared type. Booleans are matched literally — z.coerce
+// .boolean() is truthiness-based, so it would read "false" as true.
+const envNumber = (inner: z.ZodNumber) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : v),
+    inner,
+  );
+const envBoolean = () =>
+  z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean());
+
 // .prefault({}) parses the empty object through the inner schema, so each
 // per-field .default() is the single source of truth for that default.
 export const configSchema = z.object({
@@ -101,18 +107,18 @@ export const configSchema = z.object({
       command: z.string().default("ollama"),
       model: z.string().default(DEFAULT_MODEL),
       endpoint: z.string().default(DEFAULT_OLLAMA_URL),
-      keepAlive: z.boolean().default(false),
+      keepAlive: envBoolean().default(false),
     }).prefault({}),
   }).prefault({}),
   glossary: z.object({
     mode: z.enum(["strict", "prefer"]).default(DEFAULT_GLOSSARY_MODE),
-    maxRetries: z.number().int().min(0).max(10).default(2),
+    maxRetries: envNumber(z.number().int().min(0).max(10)).default(2),
     dbPath: z.string().default(DEFAULT_GLOSSARY_DB_PATH),
   }).prefault({}),
   context: z.object({
     dbPath: z.string().default(DEFAULT_CONTEXT_DB_PATH),
-    maxSnippets: z.number().int().min(0).default(3),
-    minRelevance: z.number().min(0).max(1).default(0.3),
+    maxSnippets: envNumber(z.number().int().min(0)).default(3),
+    minRelevance: envNumber(z.number().min(0).max(1)).default(0.3),
   }).prefault({}),
   defaults: z.object({
     sourceLang: z.string().default("auto"),
