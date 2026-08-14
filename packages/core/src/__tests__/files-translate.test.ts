@@ -195,6 +195,26 @@ describe("translateFile", () => {
     })).rejects.toThrow(/SAME_LOCALE|both/);
   });
 
+  it("refuses to write over the source file when sourceLang is auto", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const before = readFileSync(src, "utf8");
+    await expect(translateFile({
+      sourcePath: src, outPath: src,
+      sourceLang: "auto", targetLang: "en",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+    expect(readFileSync(src, "utf8")).toBe(before);
+  });
+
+  it("refuses an --out that resolves to the source path", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, ".", "en.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+  });
+
   it("refuses missing source file", async () => {
     await expect(translateFile({
       sourcePath: join(dir, "nope.json"), outPath: join(dir, "out.json"),

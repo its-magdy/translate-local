@@ -195,6 +195,34 @@ describe("writeYaml round-trip", () => {
     expect(written).toContain("longtext: |");
   });
 
+  test("block scalar chomping survives a value with no trailing newline", () => {
+    // Translation returns text without the trailing newline; `|` must not
+    // silently become `|-`.
+    const p = w("in.yml", "longtext: |\n  line one\n  line two\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد\nسطر اثنان" } as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("longtext: |\n");
+    expect(written).not.toContain("|-");
+  });
+
+  test("block scalar keep indicator |+ survives", () => {
+    const p = w("in.yml", "longtext: |+\n  line one\n\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
+    expect(readFileSync(out, "utf8")).toContain("|+");
+  });
+
+  test("strip indicator |- is not turned into |", () => {
+    const p = w("in.yml", "longtext: |-\n  line one\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
+    expect(readFileSync(out, "utf8")).toContain("|-");
+  });
+
   test("CRLF preserved", () => {
     const original = "a: 1\r\nb: 2\r\n";
     const p = w("in.yml", original);

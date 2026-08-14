@@ -1,5 +1,5 @@
 import { existsSync, lstatSync } from "fs";
-import { extname } from "path";
+import { extname, resolve } from "path";
 import type { Adapter, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import type { GlossaryStore } from "../glossary";
@@ -76,6 +76,17 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       "SAME_LOCALE",
       `Source and target language are both "${sourceLang}"`,
       "Pass --from and --to with different language codes.",
+    );
+  }
+
+  // The language check above can't fire when sourceLang is "auto", so an
+  // en→en run (or an --out aimed at the input) would write the translation
+  // back over the source file. Compare the paths directly instead.
+  if (resolve(sourcePath) === resolve(outPath)) {
+    throw new TlError(
+      "SAME_LOCALE",
+      `Output path is the same file as the source: ${sourcePath}`,
+      "Pass --to with a different language, or --out with a different path.",
     );
   }
 

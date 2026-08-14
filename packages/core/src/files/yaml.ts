@@ -137,6 +137,20 @@ function shapeMatches(node: unknown, value: JsonValue): boolean {
   return true;
 }
 
+// A block scalar's chomping indicator is derived from its value's trailing
+// newlines: `|` keeps one, `|-` strips them, `|+` keeps all. Translated text
+// comes back with none, which would silently rewrite `|` as `|-`, so carry the
+// original trailing run over onto the new value.
+function setScalarValue(node: Scalar, next: string): void {
+  const prev = node.value;
+  const isBlock = node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+  if (isBlock && typeof prev === "string") {
+    node.value = next.replace(/\n*$/, "") + (prev.match(/\n*$/)?.[0] ?? "");
+    return;
+  }
+  node.value = next;
+}
+
 function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
   if (isMap(node)) {
     const m = node as YAMLMap;
@@ -149,7 +163,7 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
       if (!(k in v)) continue;
       const child = v[k];
       if (typeof child === "string" && isScalar(item.value)) {
-        (item.value as Scalar).value = child;
+        setScalarValue(item.value as Scalar, child);
       } else if (shapeMatches(item.value, child)) {
         if (item.value !== undefined && item.value !== null) apply(doc, item.value, child);
       } else {
@@ -172,7 +186,7 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
       const child = value[i];
       const item = s.items[i];
       if (typeof child === "string" && isScalar(item)) {
-        (item as Scalar).value = child;
+        setScalarValue(item as Scalar, child);
       } else if (shapeMatches(item, child)) {
         if (item !== undefined && item !== null) apply(doc, item, child);
       } else {
@@ -185,7 +199,7 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
     return;
   }
   if (isScalar(node) && typeof value === "string") {
-    (node as Scalar).value = value;
+    setScalarValue(node as Scalar, value);
   }
 }
 
