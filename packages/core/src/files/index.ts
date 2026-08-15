@@ -1,5 +1,5 @@
-import { existsSync, lstatSync } from "fs";
-import { extname, resolve } from "path";
+import { existsSync, lstatSync, realpathSync } from "fs";
+import { extname, resolve, dirname, basename, join } from "path";
 import type { Adapter, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import type { GlossaryStore } from "../glossary";
@@ -52,6 +52,29 @@ const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 // 10 retries gives ~99.9% success at ~50% per-attempt rate; cost is paid only on stubborn keys.
 const MAX_PLACEHOLDER_RETRIES = 10;
 
+// True when both paths name one file on disk. resolve() alone compares strings,
+// so it misses symlinked path components ("/tmp/x" vs "/private/tmp/x" on macOS)
+// and would let a run overwrite its own source. The output usually does not
+// exist yet, so fall back to realpath'ing its directory and re-appending the
+// basename; if that directory is missing too, no collision is possible.
+function sameFile(sourcePath: string, outPath: string): boolean {
+  const real = (p: string): string | null => {
+    try {
+      return realpathSync(p);
+    } catch {
+      try {
+        return join(realpathSync(dirname(p)), basename(p));
+      } catch {
+        return null;
+      }
+    }
+  };
+  const a = real(sourcePath);
+  const b = real(outPath);
+  if (a === null || b === null) return resolve(sourcePath) === resolve(outPath);
+  return a === b;
+}
+
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
   const {
     sourcePath,
@@ -79,19 +102,21 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
+  if (!existsSync(sourcePath)) {
+    throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
+  }
+
   // The language check above can't fire when sourceLang is "auto", so an
   // en→en run (or an --out aimed at the input) would write the translation
-  // back over the source file. Compare the paths directly instead.
-  if (resolve(sourcePath) === resolve(outPath)) {
+  // back over the source file. Compare the paths instead — via realpath, since
+  // resolve() only joins against cwd and leaves symlinked components alone:
+  // on macOS "/tmp/x" and "/private/tmp/x" are one file but two strings.
+  if (sameFile(sourcePath, outPath)) {
     throw new TlError(
       "SAME_LOCALE",
       `Output path is the same file as the source: ${sourcePath}`,
       "Pass --to with a different language, or --out with a different path.",
     );
-  }
-
-  if (!existsSync(sourcePath)) {
-    throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
   }
 
   // lstat (not stat) so symlinks are inspected, not followed: a symlink to /dev/zero

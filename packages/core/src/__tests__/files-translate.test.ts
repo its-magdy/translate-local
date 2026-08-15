@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { GlossaryStore } from "../glossary";
@@ -204,6 +204,34 @@ describe("translateFile", () => {
       adapter, glossary, context,
     })).rejects.toThrow(/SAME_LOCALE|same file/);
     expect(readFileSync(src, "utf8")).toBe(before);
+  });
+
+  it("refuses an --out that reaches the source through a symlinked directory", async () => {
+    // resolve() compares strings, so a symlinked path component (macOS
+    // /tmp -> /private/tmp) makes one file look like two paths.
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const before = readFileSync(src, "utf8");
+    const linkDir = join(dir, "link");
+    symlinkSync(dir, linkDir, "dir");
+    await expect(translateFile({
+      sourcePath: src, outPath: join(linkDir, "en.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+    expect(readFileSync(src, "utf8")).toBe(before);
+  });
+
+  it("still allows a genuinely different out path in a symlinked directory", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const linkDir = join(dir, "link2");
+    symlinkSync(dir, linkDir, "dir");
+    const res = await translateFile({
+      sourcePath: src, outPath: join(linkDir, "fr.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    });
+    expect(res).toBeDefined();
+    expect(existsSync(join(dir, "fr.json"))).toBe(true);
   });
 
   it("refuses an --out that resolves to the source path", async () => {
