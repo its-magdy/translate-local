@@ -1,0 +1,193 @@
+import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
+import { SPEC, type CommandSpec, type OptionSpec, type PositionalSpec } from "./spec";
+
+// Escape characters that have special meaning inside a zsh `_arguments` spec
+// like `'--flag[description]:label:action'`. Single quotes terminate the
+// surrounding string and `]` terminates the description; both must be escaped.
+// `:` is safe inside the `[...]` description (it only separates fields outside
+// the brackets), but must NOT appear in a positional `name` field — see
+// emitPositional, which validates that.
+function zq(s: string): string {
+  return s.replace(/'/g, "'\\''").replace(/]/g, "\\]");
+}
+
+// Tokens that land in zsh _arguments field positions (positional names and
+// choice values) must not contain `:` (field separator) or `]` (terminator).
+function assertSafeZshField(s: string, kind: string): string {
+  if (/[:\]]/.test(s)) {
+    throw new Error(`Unsafe zsh field (${kind}): ${JSON.stringify(s)}`);
+  }
+  return s;
+}
+
+function pathSpec(opt: OptionSpec | PositionalSpec): string {
+  if (opt.pathExts && opt.pathExts.length > 0) {
+    return `_files -g '*.(${opt.pathExts.join("|")})'`;
+  }
+  return "_files";
+}
+
+function emitOptionLine(opt: OptionSpec): string {
+  const desc = zq(opt.description);
+  if (!opt.takes) {
+    return `'${opt.flag}[${desc}]'`;
+  }
+  switch (opt.takes) {
+    case "lang":
+      return `'${opt.flag}[${desc}]:lang:->langs'`;
+    case "choice":
+      return `'${opt.flag}[${desc}]:value:(${(opt.choices ?? []).map((c) => assertSafeZshField(c, "choice")).join(" ")})'`;
+    case "path":
+      return `'${opt.flag}[${desc}]:path:${pathSpec(opt)}'`;
+    case "value":
+    case "text":
+      return `'${opt.flag}[${desc}]:value:'`;
+    default: {
+      const _exhaustive: never = opt.takes;
+      throw new Error(`Unhandled ArgKind: ${String(_exhaustive)}`);
+    }
+  }
+}
+
+function emitPositional(pos: PositionalSpec, index: number): string {
+  const tag = pos.required ? `${index}` : `${index}::`;
+  const name = assertSafeZshField(pos.name, "positional name");
+  if (pos.takes === "choice" && pos.choices) {
+    const choices = pos.choices.map((c) => assertSafeZshField(c, "choice")).join(" ");
+    return `'${tag}:${name}:(${choices})'`;
+  }
+  if (pos.takes === "path") {
+    return `'${tag}:${name}:${pathSpec(pos)}'`;
+  }
+  if (pos.takes === "lang") {
+    return `'${tag}:${name}:->langs'`;
+  }
+  return `'${tag}:${name}:'`;
+}
+
+function functionName(parents: string[], name: string): string {
+  return `_tl_${[...parents, name].join("_")}`;
+}
+
+function emitLeafFunction(parents: string[], cmd: CommandSpec): string {
+  const fn = functionName(parents, cmd.name);
+  const optionLines = cmd.options.map(emitOptionLine);
+  const positionalLines = (cmd.positionals ?? []).map((p, i) => emitPositional(p, i + 1));
+  const argSpecs = [...optionLines, ...positionalLines].join(" \\\n    ");
+  const usesLangs =
+    cmd.options.some((o) => o.takes === "lang") ||
+    (cmd.positionals ?? []).some((p) => p.takes === "lang");
+
+  const langCase = usesLangs
+    ? `
+  case $state in
+    langs) compadd -a __tl_langs ;;
+  esac`
+    : "";
+
+  return `${fn}() {
+  local context state line
+  _arguments -C \\
+    ${argSpecs || "':: :->none'"}${langCase}
+}`;
+}
+
+function emitGroupFunction(parents: string[], cmd: CommandSpec): string {
+  const fn = functionName(parents, cmd.name);
+  const subDescriptors = (cmd.subcommands ?? [])
+    .map((s) => `    '${s.name}:${zq(s.description)}'`)
+    .join("\n");
+  const dispatchArms = (cmd.subcommands ?? [])
+    .map((s) => `      ${s.name}) ${functionName([...parents, cmd.name], s.name)} ;;`)
+    .join("\n");
+
+  return `${fn}() {
+  local context state line
+  _arguments -C \\
+    '1: :->subcommand' \\
+    '*::arg:->subargs'
+
+  case $state in
+    subcommand)
+      local -a __subs
+      __subs=(
+${subDescriptors}
+      )
+      _describe 'subcommand' __subs
+      ;;
+    subargs)
+      case $line[1] in
+${dispatchArms}
+      esac
+      ;;
+  esac
+}`;
+}
+
+function emitCommandFunctions(parents: string[], cmd: CommandSpec): string[] {
+  const out: string[] = [];
+  if (cmd.subcommands && cmd.subcommands.length > 0) {
+    out.push(emitGroupFunction(parents, cmd));
+    for (const sub of cmd.subcommands) {
+      out.push(...emitCommandFunctions([...parents, cmd.name], sub));
+    }
+  } else {
+    out.push(emitLeafFunction(parents, cmd));
+  }
+  return out;
+}
+
+export function generateZsh(): string {
+  const langArr = SUPPORTED_LANGUAGES.join(" ");
+  const topDescriptors = SPEC.commands
+    .map((c) => `    '${c.name}:${zq(c.description)}'`)
+    .join("\n");
+  const topDispatch = SPEC.commands
+    .map((c) => `      ${c.name}) _tl_${c.name} ;;`)
+    .join("\n");
+  const handlers = SPEC.commands.flatMap((c) => emitCommandFunctions([], c)).join("\n\n");
+
+  return `#compdef tl
+# zsh completion for tl
+# Generated by \`tl completion zsh\`. Do not edit manually.
+#
+# Install (one of):
+#   mkdir -p ~/.zsh/completions
+#   tl completion zsh > ~/.zsh/completions/_tl    # then add that dir to fpath
+#   tl completion zsh > "\${fpath[1]}/_tl"        # may need sudo (system-owned)
+#   eval "$(tl completion zsh)"                   # current shell only
+
+_tl() {
+  local context state line
+  local -a __tl_langs
+  __tl_langs=(${langArr})
+
+  _arguments -C \\
+    '(- *)--help[Show help]' \\
+    '(- *)-h[Show help]' \\
+    '(- *)--version[Show version]' \\
+    '(- *)-V[Show version]' \\
+    '1: :->command' \\
+    '*::arg:->args'
+
+  case $state in
+    command)
+      local -a __cmds
+      __cmds=(
+${topDescriptors}
+      )
+      _describe 'command' __cmds
+      ;;
+    args)
+      case $line[1] in
+${topDispatch}
+      esac
+      ;;
+  esac
+}
+
+${handlers}
+
+_tl "$@"
+`;
+}

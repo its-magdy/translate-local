@@ -48,6 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - New core subpath export: `@translate-local/core/files`.
 - New docs: [`docs/file-translate-guide.md`](docs/file-translate-guide.md).
 - `tl languages` command: lists supported language codes and names.
+- `tl completion <shell>` command: generates a static shell completion script for `bash`, `zsh`, or `fish`. Completes top-level commands, subcommands, all long flags, every supported language code for `--from`/`--to`, and choice values for `--glossary` and `--format`. Path-arg flags (`--image`, `--file`, `--out`, `glossary import`, `context add|remove`) defer to the shell's default file completion. Installation instructions per shell live in [`docs/cli-reference.md`](docs/cli-reference.md). Closes improvements roadmap item #37.
 
 ### Changed
 - `yaml@^2` added as a dependency of `@translate-local/core`.

@@ -302,6 +302,8 @@ See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 | `tl config connect` | Configure the adapter backend |
 | `tl config status` | Show config and test the adapter |
 | `tl config path` | Print config file path |
+| `tl languages` | List supported language codes |
+| `tl completion <shell>` | Print a shell completion script (`bash`, `zsh`, `fish`) |
 
 **Shared flags for `tl translate`:**
 
