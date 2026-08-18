@@ -61,6 +61,20 @@ describe("tl CLI", () => {
     });
   });
 
+  describe("help command", () => {
+    it("tl help shows usage instead of translating the word 'help'", () => {
+      const r = run(["help"], { TL_ADAPTER: "mock" });
+      expect(r.stdout).toContain("Usage: tl");
+      expect(r.stdout).not.toContain("[ar]");
+    });
+
+    it("tl help <subcommand> shows that subcommand's usage", () => {
+      const r = run(["help", "glossary"], { TL_ADAPTER: "mock" });
+      expect(r.stdout).toContain("Usage:");
+      expect(r.stdout).toContain("glossary");
+    });
+  });
+
   describe("config path", () => {
     it("prints config path", () => {
       const r = run(["config", "path"]);
@@ -211,9 +225,34 @@ describe("tl CLI", () => {
     it("translates text using mock adapter", () => {
       const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock" });
       expect(r.exitCode).toBe(0);
-      // MockAdapter doesn't stream, so non-JSON output shows metadata only
-      expect(r.stdout).toContain("mock");
-      expect(r.stdout).toContain("Glossary:");
+      // MockAdapter doesn't stream — the final translation must still be printed
+      expect(r.stdout).toContain("[ar] hello world");
+      expect(r.stderr).toContain("mock");
+      expect(r.stderr).toContain("Glossary:");
+    });
+
+    it("keeps stdout pipe-safe: translation only, metadata on stderr", () => {
+      const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("[ar] hello world");
+      expect(r.stdout).not.toContain("Glossary:");
+      expect(r.stdout).not.toContain("· ");
+    });
+
+    it("still prints the translation on the TTY path when the adapter doesn't stream", () => {
+      // TL_FORCE_TTY exercises the streamLive branch without a real pty.
+      // MockAdapter never calls onChunk, so streamedText stays empty and the
+      // !streamedText fallback fires — same as the piped case, but through
+      // the isTTY code path instead of around it.
+      const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock", TL_FORCE_TTY: "1" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("[ar] hello world");
+    });
+
+    it("accepts flag-first invocation: tl --to ar <text>", () => {
+      const r = run(["--to", "ar", "hello world"], { TL_ADAPTER: "mock" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("[ar] hello world");
     });
 
     it("translates with --json flag using mock adapter", () => {

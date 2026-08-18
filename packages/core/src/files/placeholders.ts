@@ -1,8 +1,16 @@
 // ASCII sentinels survive translategemma reliably; PUA chars (U+E000/U+E001) get
 // stripped from the model output entirely. The `__TLPH_` prefix is unlikely to
-// appear in real i18n content.
-const SENTINEL_PREFIX = "__TLPH_";
-const SENTINEL_SUFFIX = "__";
+// appear in real i18n content. The prefix/suffix live in shared constants so
+// adapter prompt builders enforce the exact same token format.
+import {
+  PLACEHOLDER_SENTINEL_PREFIX as SENTINEL_PREFIX,
+  PLACEHOLDER_SENTINEL_SUFFIX as SENTINEL_SUFFIX,
+} from "@translate-local/shared/constants";
+
+/** The sentinel token that mask() substitutes for the placeholder at `index`. */
+export function sentinelFor(index: number): string {
+  return `${SENTINEL_PREFIX}${index}${SENTINEL_SUFFIX}`;
+}
 
 // Order matters: longer/more-specific patterns first so `{{name}}` matches as one token.
 const PATTERN_SOURCES = [
@@ -49,7 +57,7 @@ export function mask(text: string): { masked: string; placeholders: Placeholder[
   const masked = text.replace(COMBINED, (m) => {
     const idx = i++;
     placeholders.push({ raw: m, index: idx });
-    return `${SENTINEL_PREFIX}${idx}${SENTINEL_SUFFIX}`;
+    return sentinelFor(idx);
   });
   return { masked, placeholders };
 }

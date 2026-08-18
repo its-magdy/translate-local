@@ -1,22 +1,19 @@
 import { SelectRenderable, type CliRenderer } from "@opentui/core";
 import { LANG_NAMES } from "@translate-local/shared/constants";
 
-export const SUPPORTED_LANGUAGES = [
+const PICKER_LANGUAGES = [
   { code: "auto", name: "Auto-detect" },
   ...Object.entries(LANG_NAMES).map(([code, name]) => ({ code, name })),
 ];
 
-const LANG_OPTIONS_WITH_AUTO = SUPPORTED_LANGUAGES.map(l => ({
+const LANG_OPTIONS_WITH_AUTO = PICKER_LANGUAGES.map(l => ({
   name: `${l.code.padEnd(6)} ${l.name}`,
   description: "",
   value: l.code,
 }));
 
-const LANG_OPTIONS_NO_AUTO = SUPPORTED_LANGUAGES.filter(l => l.code !== "auto").map(l => ({
-  name: `${l.code.padEnd(6)} ${l.name}`,
-  description: "",
-  value: l.code,
-}));
+// "auto" is always index 0 by construction.
+const LANG_OPTIONS_NO_AUTO = LANG_OPTIONS_WITH_AUTO.slice(1);
 
 export interface LangPicker {
   renderable: SelectRenderable;

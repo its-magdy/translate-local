@@ -1,25 +1,51 @@
 import { z } from "zod";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
-import { dirname, join } from "path";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { homedir } from "os";
 import { TlError } from "@translate-local/shared/errors";
+import type { AdapterBackend, AdapterConfig } from "@translate-local/shared/types";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_OLLAMA_URL,
+  DEFAULT_CONFIG_PATH,
+  DEFAULT_GLOSSARY_DB_PATH,
+  DEFAULT_CONTEXT_DB_PATH,
+  DEFAULT_GLOSSARY_MODE,
+} from "@translate-local/shared/constants";
+import { ensurePrivateDir } from "./fsutil";
 
 function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
-function resolveEnvVars(s: string): string {
-  return s.replace(/\$\{([^}]+)\}/g, (_, key) => {
-    const val = process.env[key];
-    if (val === undefined) {
-      throw new TlError(
-        "CONFIG_INVALID",
-        `Environment variable "${key}" is not set`,
-        `Set the ${key} environment variable before running tl`,
-      );
-    }
-    return val;
-  });
+function lookupEnv(key: string): string {
+  const val = process.env[key];
+  if (val === undefined) {
+    throw new TlError(
+      "CONFIG_INVALID",
+      `Environment variable "${key}" is not set`,
+      `Set the ${key} environment variable before running tl`,
+    );
+  }
+  return val;
+}
+
+// Substitutes ${VAR} in already-parsed string values, not in the raw JSON text —
+// a value containing `\` (Windows paths) or `"` would otherwise break JSON.parse
+// or inject structure.
+// Substitution always yields a string: the env value's *shape* says nothing about
+// the field's type, so `"model": "${TL_MODEL}"` with TL_MODEL=2 must stay "2".
+// Number/boolean fields opt into coercion in configSchema instead (envNumber /
+// envBoolean), where the target type is actually known.
+function resolveEnvVars(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([^}]+)\}/g, (_, key) => lookupEnv(key));
+  }
+  if (Array.isArray(value)) return value.map(resolveEnvVars);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveEnvVars(v)]));
+  }
+  return value;
 }
 
 function stripJsoncComments(src: string): string {
@@ -60,41 +86,63 @@ function stripJsoncComments(src: string): string {
   return result;
 }
 
+// Scalar fields accept the string a `${VAR}` substitution leaves behind and
+// convert it to the declared type. This runs on any string value for the
+// field, not only ones that came from `${VAR}` — a literal "3" in config.jsonc
+// on a number field converts too. That widening is intentional: the field's
+// declared type is the single source of truth for what the value should be.
+// Booleans are matched literally — z.coerce.boolean() is truthiness-based, so
+// it would read "false" as true.
+const envNumber = (inner: z.ZodNumber) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : v),
+    inner,
+  );
+const envBoolean = () =>
+  z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean());
+
+// .prefault({}) parses the empty object through the inner schema, so each
+// per-field .default() is the single source of truth for that default.
 export const configSchema = z.object({
   adapter: z.object({
     type: z.literal("translate-gemma").default("translate-gemma"),
     backend: z.literal("local").default("local"),
     local: z.object({
       command: z.string().default("ollama"),
-      model: z.string().default("translategemma:latest"),
-      endpoint: z.string().default("http://localhost:11434"),
-      keepAlive: z.boolean().default(false),
-    }).default({ command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false }),
-  }).default({
-    type: "translate-gemma",
-    backend: "local",
-    local: { command: "ollama", model: "translategemma:latest", endpoint: "http://localhost:11434", keepAlive: false },
-  }),
+      model: z.string().default(DEFAULT_MODEL),
+      endpoint: z.string().default(DEFAULT_OLLAMA_URL),
+      keepAlive: envBoolean().default(false),
+    }).prefault({}),
+  }).prefault({}),
   glossary: z.object({
-    mode: z.enum(["strict", "prefer"]).default("prefer"),
-    maxRetries: z.number().int().min(0).max(10).default(2),
-    dbPath: z.string().default("~/.config/tl/glossary.db"),
-  }).default({ mode: "prefer", maxRetries: 2, dbPath: "~/.config/tl/glossary.db" }),
+    mode: z.enum(["strict", "prefer"]).default(DEFAULT_GLOSSARY_MODE),
+    maxRetries: envNumber(z.number().int().min(0).max(10)).default(2),
+    dbPath: z.string().default(DEFAULT_GLOSSARY_DB_PATH),
+  }).prefault({}),
   context: z.object({
-    dbPath: z.string().default("~/.config/tl/context.db"),
-    maxSnippets: z.number().int().min(0).default(3),
-    minRelevance: z.number().min(0).max(1).default(0.3),
-  }).default({ dbPath: "~/.config/tl/context.db", maxSnippets: 3, minRelevance: 0.3 }),
+    dbPath: z.string().default(DEFAULT_CONTEXT_DB_PATH),
+    maxSnippets: envNumber(z.number().int().min(0)).default(3),
+    minRelevance: envNumber(z.number().min(0).max(1)).default(0.3),
+  }).prefault({}),
   defaults: z.object({
     sourceLang: z.string().default("auto"),
     targetLang: z.string().default("ar"),
-  }).default({ sourceLang: "auto", targetLang: "ar" }),
+  }).prefault({}),
 });
 
 export type CoreConfig = z.infer<typeof configSchema>;
 
+/** Map the loaded config to the adapter factory's input. */
+export function toAdapterConfig(config: CoreConfig, backend: AdapterBackend = "ollama"): AdapterConfig {
+  return {
+    backend,
+    model: config.adapter.local.model,
+    ollamaUrl: config.adapter.local.endpoint,
+  };
+}
+
 export function getConfigPath(configPath?: string): string {
-  return expandTilde(configPath ?? "~/.config/tl/config.jsonc");
+  return expandTilde(configPath ?? DEFAULT_CONFIG_PATH);
 }
 
 export function loadConfig(configPath?: string): CoreConfig {
@@ -117,16 +165,21 @@ export function loadConfig(configPath?: string): CoreConfig {
   let parsed: unknown;
   try {
     raw = stripJsoncComments(raw);
-    raw = resolveEnvVars(raw);
     parsed = JSON.parse(raw);
   } catch (err: any) {
+    // Unquoted ${VAR} substitution (pre-0.4.1) fails JSON.parse here; point at
+    // the migration instead of leaving a bare syntax error.
+    const hint = /\$\{[^}]*\}/.test(raw)
+      ? `Fix the syntax in ${p}. \${VAR} must be inside a quoted string ("\${VAR}") — a value that is exactly one \${VAR} still loads numbers and booleans with the right type.`
+      : `Fix the syntax in ${p}`;
     throw new TlError(
       "CONFIG_INVALID",
       `Config file is not valid JSONC: ${err.message}`,
-      `Fix the syntax in ${p}`,
+      hint,
       err,
     );
   }
+  parsed = resolveEnvVars(parsed);
 
   const result = configSchema.safeParse(parsed);
   if (!result.success) {
@@ -142,7 +195,22 @@ export function loadConfig(configPath?: string): CoreConfig {
 
 export function saveConfig(config: CoreConfig, configPath?: string): void {
   const p = getConfigPath(configPath);
-  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
-  try { chmodSync(dirname(p), 0o700); } catch { /* may fail on system dirs */ }
-  writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
+  ensurePrivateDir(p);
+  // Refuse to overwrite a config that still holds ${VAR} references — the
+  // config passed in has those substituted with resolved values, and writing
+  // it back would bake secrets in plaintext and destroy the indirection.
+  let existing: string | undefined;
+  try {
+    existing = readFileSync(p, "utf8");
+  } catch {
+    // No existing file — nothing to check.
+  }
+  if (existing !== undefined && /\$\{[^}]*\}/.test(stripJsoncComments(existing))) {
+    throw new TlError(
+      "CONFIG_INVALID",
+      `Refusing to overwrite ${p}: it references environment variables with \${VAR}`,
+      `Edit ${p} by hand to preserve the \${VAR} reference, or remove it before running this command.`,
+    );
+  }
+  writeFileSync(p, JSON.stringify(config, null, 2), { encoding: "utf8", mode: 0o600 });
 }

@@ -33,11 +33,8 @@ No build step is required for development — Bun runs TypeScript sources direct
 ## Running Tests
 
 ```bash
-# Unit tests (always run)
+# Unit + integration tests (pipeline, SQLite, MockAdapter — always run)
 bun run test
-
-# Integration tests (pipeline + SQLite)
-TEST_INTEGRATION=1 bun run test
 
 # Adapter tests (real Ollama — requires a running service)
 TEST_ADAPTER=1 bun run test
@@ -50,7 +47,7 @@ Before committing any change, run all of these in order:
 1. **Build** — `bun run build` must succeed with no errors
 2. **Tests** — `bun run test` must pass (0 failures)
 3. **Smoke test** — run relevant `tl` commands and confirm expected output
-4. **Integration tests** (when your change touches the pipeline or SQLite) — `TEST_INTEGRATION=1 bun run test`
+4. **Adapter tests** (when your change touches Ollama-facing adapter code) — `TEST_ADAPTER=1 bun run test`
 
 If any check fails, fix the issue and re-run before committing.
 

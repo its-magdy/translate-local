@@ -58,7 +58,7 @@ Import:
 tl glossary import ./terms.csv
 ```
 
-Duplicate entries (same source, target, source_lang, target_lang) are silently skipped.
+Duplicate entries (same source, target, source_lang, target_lang) are silently skipped. The whole file is imported in a single transaction — if the import fails partway, no rows are written.
 
 ## CRUD via CLI
 

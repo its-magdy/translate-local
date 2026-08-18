@@ -1,5 +1,4 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
-import { computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 
 /**
  * Deterministic mock adapter for testing.
@@ -22,14 +21,13 @@ export class MockAdapter implements Adapter {
       translated = translated.replace(hit.entry.sourceTerm, hit.entry.targetTerm);
     }
 
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(hits, translated);
-
     return {
       translated,
       sourceLang: request.sourceLang,
       targetLang: request.targetLang,
-      glossaryCoverage,
-      missingTerms,
+      // Real coverage is computed by the pipeline on the postprocessed text.
+      glossaryCoverage: 1,
+      missingTerms: [],
       metadata: {
         adapter: this.name,
         durationMs: Date.now() - start,

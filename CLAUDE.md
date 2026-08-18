@@ -43,9 +43,6 @@ bun test --cwd packages/adapters
 # Run a single test file
 bun test packages/core/src/__tests__/pipeline.test.ts
 
-# Integration tests (requires SQLite, no Ollama)
-TEST_INTEGRATION=1 bun run test
-
 # Real adapter tests (requires running Ollama)
 TEST_ADAPTER=1 bun run test
 
@@ -101,22 +98,24 @@ t/
 
 ## Key Patterns
 
-- **Adapter interface**: All adapters implement `translate()` and `dispose()`. Use `createAdapter(config)` factory.
+- **Adapter interface**: All adapters implement `translate()` and `dispose()`. Use `createAdapter(config)` factory; frontends build the config with `toAdapterConfig(coreConfig, backend?)` from `@translate-local/core/config` instead of hand-mapping fields. Adapters do NOT compute glossary coverage — they return `glossaryCoverage: 1, missingTerms: []` and the pipeline computes the real values on the postprocessed text.
+- **Config defaults**: live in `@translate-local/shared/constants` (`DEFAULT_MODEL`, `DEFAULT_OLLAMA_URL`, db paths, …). `configSchema` consumes them via per-field `.default()` plus `.prefault({})` on nested objects — never restate a default literal. **Env substitution** (`${VAR}`) always yields a *string*; number/boolean fields opt into conversion with the `envNumber()` / `envBoolean()` helpers in `config.ts`, so the target type drives coercion rather than the env value's appearance. Don't coerce based on the string's shape — that turns a numeric-looking value on a string field into a number and fails validation. `envBoolean()` matches `"true"`/`"false"` literally because `z.coerce.boolean()` is truthiness-based and reads `"false"` as `true`.
 - **TaggedError with hints**: Errors use `tag` + `hint` for actionable messages. Follow this pattern for new errors.
 - **Glossary XML tags**: `<term translation="target">source</term>` — TranslateGemma's format. Don't change this.
 - **Pipeline flow**: Preprocess (tag inject) → Context retrieval → Translate → Validate (glossary check) → Postprocess (tag strip).
 - **Image mode**: Pass `imageBase64` in `PipelineOptions` to trigger image translation. In this mode: glossary tag injection is skipped, `source` is set to `""`, and `imageBase64` is forwarded to the adapter unchanged. Context retrieval is also skipped when `queryText` is empty (image-only invocation).
-- **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB. Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
-- **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. When present, the pipeline forwards it on the first attempt only (retries are silent to avoid concatenating tokens across attempts). The adapter sets `stream: true` and calls `onChunk` per token via NDJSON, while still accumulating the full response for postprocessing. Adapters that don't support streaming ignore the field. CLI writes tokens directly to stdout; TUI updates the output pane with a 16ms render throttle.
+- **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB — both defined once in `@translate-local/shared/constants` (`IMAGE_EXT_RE`, `IMAGE_EXT_PATTERN`, `IMAGE_MAX_BYTES`). Always call `file.exists()` before `arrayBuffer()`. Use the typed errors: `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED`.
+- **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. When present, the pipeline forwards it on the first attempt only (retries are silent to avoid concatenating tokens across attempts). The adapter sets `stream: true` and calls `onChunk` per token via NDJSON, while still accumulating the full response for postprocessing. Adapters that don't support streaming ignore the field. CLI streams tokens to stdout only when it is a TTY — piped stdout receives exactly the final postprocessed translation once; TUI updates the output pane with a 16ms render throttle.
 - **Memory management**: Adapters call `dispose()` to unload models from VRAM. CLI calls it after each translation; TUI on exit. **Exception:** in file mode (see below) the adapter is disposed exactly once after the entire file completes, not per leaf — otherwise every key pays a cold model-load penalty.
-- **File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__`), runs the per-leaf pipeline, validates placeholders survived (multiset equality), then atomic-writes (tmp+rename) to the output path. **Refuse-by-default** for ARB / xcstrings / FormatJS-with-ICU / Lingui-full — escape hatch is `--format raw-json` with a documented "may corrupt metadata" warning. **Default sync mode** is `missing-only`: translate keys that are absent, empty `""`, `null`, or whitespace-only. `--force` re-translates all leaves. **Skip heuristics** (`packages/core/src/files/skip.ts`) pass through URLs, emails, semver, single chars, and ALL-CAPS short tokens unchanged unless `--translate-all`. **Validate-before-rename:** `writeJson`/`writeYaml` re-parse the tmp file before the rename — a malformed serialization can never replace the existing target. Glossary entries are pre-fetched once per file and threaded through `runPipeline` via `glossaryEntries` so the per-leaf hot path doesn't re-query SQLite. Error tags live in `packages/shared/src/errors.ts`: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`. YAML is fully implemented (`files/yaml.ts`) — comments, scalar styles, and key order round-trip via the `yaml` package's Document API.
+- **File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__` — prefix/suffix are shared constants; core exposes `sentinelFor()`, and the adapter prompt builder derives its enforcement regexes from the same constants), runs the per-leaf pipeline, validates placeholders survived (multiset equality), then atomic-writes (tmp+rename) to the output path. **Refuse-by-default** for ARB / xcstrings / FormatJS-with-ICU / Lingui-full — escape hatch is `--format raw-json` with a documented "may corrupt metadata" warning. **Default sync mode** is `missing-only`: translate keys that are absent, empty `""`, `null`, or whitespace-only. `--force` re-translates all leaves. **Skip heuristics** (`packages/core/src/files/skip.ts`) pass through URLs, emails, semver, single chars, and ALL-CAPS short tokens unchanged unless `--translate-all`. **Validate-before-rename:** `writeJson`/`writeYaml` re-parse the tmp file before the rename — a malformed serialization can never replace the existing target. Glossary entries are pre-fetched once per file and threaded through `runPipeline` via `glossaryEntries` so the per-leaf hot path doesn't re-query SQLite. Error tags live in `packages/shared/src/errors.ts`: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `SAME_LOCALE`. **Never write over the source:** `sameFile()` compares source and out by realpath (not `resolve()`, which only joins against cwd and leaves symlinked components alone) and refuses with `SAME_LOCALE`, because the language check can't fire when `sourceLang` is `auto`. YAML is fully implemented (`files/yaml.ts`) — comments, scalar styles, and key order round-trip via the `yaml` package's Document API. Update block scalars through `setScalarValue()`, never by assigning `Scalar.value` directly: chomping (`|` vs `|-` vs `|+`) is derived from the value's trailing newlines, and translated text has none.
 - **MockAdapter**: Available via `createMockAdapter()` from `@translate-local/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
+- **CLI command boilerplate**: wrap command actions in `runAction()` and open stores with `withStore()` from `apps/cli/src/utils/run.ts` — don't hand-roll try/catch/formatError/exit per command. Bulk glossary inserts go through `GlossaryStore.addMany()` (one transaction, not one commit per row).
+- **RTL helpers**: `isRtlLang()` / `hasRtlChars()` / `RTL_LANGS` live in `@translate-local/shared/utils/language` — don't redefine RTL sets or char-class regexes in the apps.
 - **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models.
 
 ## Testing
 
-- Unit tests always run: `bun run test`
-- Integration tests (pipeline + SQLite): `TEST_INTEGRATION=1 bun run test`
+- Unit + integration tests (pipeline, SQLite, MockAdapter) always run: `bun run test`
 - Adapter tests (real Ollama): `TEST_ADAPTER=1 bun run test`
 - CLI tests: spawn binary, assert stdout/exit codes
 
@@ -194,7 +193,7 @@ Before committing any change, run all of the following in order:
 2. **Tests**: `bun run test` — all tests must pass (0 failures)
 3. **Smoke test the CLI**: run `tl` commands relevant to the changed code and confirm expected output
    - If the CLI binary isn't built yet for the phase, skip step 3 and note it explicitly
-4. **Integration tests** (when applicable): `TEST_INTEGRATION=1 bun run test`
+4. **Adapter tests** (when Ollama-facing adapter code changed): `TEST_ADAPTER=1 bun run test`
 
 If any check fails: fix the issue, re-run all checks, then commit.
 Do not commit with failing tests, build errors, or broken CLI commands.

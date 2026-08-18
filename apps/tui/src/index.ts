@@ -6,10 +6,10 @@ import {
   TabSelectRenderableEvents,
   type CliRenderer,
 } from "@opentui/core";
-import { loadConfig } from "@translate-local/core/config";
+import { loadConfig, toAdapterConfig } from "@translate-local/core/config";
 import { GlossaryStore } from "@translate-local/core/glossary";
 import { createAdapter } from "@translate-local/adapters/factory";
-import type { Adapter, AdapterConfig } from "@translate-local/shared/types";
+import type { Adapter } from "@translate-local/shared/types";
 import type { CoreConfig } from "@translate-local/core/config";
 import { TlError } from "@translate-local/shared/errors";
 import { makeTranslateView } from "./views/translate";
@@ -27,12 +27,7 @@ export async function runTui(): Promise<void> {
   let config: CoreConfig, adapter: Adapter, glossaryStore: GlossaryStore, renderer: CliRenderer;
   try {
     config = loadConfig();
-    const adapterCfg: AdapterConfig = {
-      backend: "ollama",
-      model: config.adapter.local.model,
-      ollamaUrl: config.adapter.local.endpoint,
-    };
-    adapter = createAdapter(adapterCfg);
+    adapter = createAdapter(toAdapterConfig(config));
     glossaryStore = new GlossaryStore(config.glossary.dbPath);
     renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 });
   } catch (err) {

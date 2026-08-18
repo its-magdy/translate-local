@@ -21,3 +21,18 @@ export function isSupported(lang: string): boolean {
   const base = normalized.split("-")[0];
   return SUPPORTED_LANGUAGE_SET.has(base);
 }
+
+/** Base language codes written right-to-left. */
+export const RTL_LANGS: ReadonlySet<string> = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
+
+const RTL_CHARS_RE = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+
+/** True if the language tag's base code is written right-to-left. */
+export function isRtlLang(lang: string): boolean {
+  return RTL_LANGS.has(normalizeLang(lang).split("-")[0]);
+}
+
+/** True if the text contains right-to-left characters. */
+export function hasRtlChars(text: string): boolean {
+  return RTL_CHARS_RE.test(text);
+}

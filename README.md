@@ -334,11 +334,8 @@ See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 ## Running tests
 
 ```bash
-# Unit tests
+# Unit + integration tests (pipeline, SQLite, mock adapter)
 bun run test
-
-# Integration tests (pipeline + SQLite)
-TEST_INTEGRATION=1 bun run test
 
 # Adapter tests (requires Ollama)
 TEST_ADAPTER=1 bun run test

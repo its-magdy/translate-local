@@ -1,20 +1,17 @@
 import { Command, Option } from "commander";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { loadConfig } from "@translate-local/core/config";
+import { loadConfig, toAdapterConfig } from "@translate-local/core/config";
 import { GlossaryStore } from "@translate-local/core/glossary";
 import { ContextStore } from "@translate-local/core/context";
 import { runPipeline } from "@translate-local/core/pipeline";
 import { translateFile } from "@translate-local/core/files";
 import { createAdapter } from "@translate-local/adapters/factory";
-import type { AdapterConfig } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { IMAGE_EXT_RE, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
 import { inferOutputPath } from "../utils/locale-path";
-
-const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
-const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024;
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
@@ -69,13 +66,7 @@ export function makeTranslateCommand(): Command {
           console.warn(`Warning: unknown TL_ADAPTER "${process.env.TL_ADAPTER}", falling back to "ollama"`);
         }
         const adapterBackend = process.env.TL_ADAPTER === "mock" ? "mock" : "ollama";
-        const adapterCfg: AdapterConfig = {
-          backend: adapterBackend,
-          model: config.adapter.local.model,
-          ollamaUrl: config.adapter.local.endpoint,
-        };
-
-        const adapter = createAdapter(adapterCfg);
+        const adapter = createAdapter(toAdapterConfig(config, adapterBackend));
         const glossaryStore = new GlossaryStore(config.glossary.dbPath);
         const contextStore = new ContextStore(config.context.dbPath);
 
@@ -164,14 +155,14 @@ export function makeTranslateCommand(): Command {
           let imageBase64: string | undefined;
           if (opts.image) {
             opts.image = resolve(opts.image);
-            if (!IMAGE_EXTS.test(opts.image)) {
+            if (!IMAGE_EXT_RE.test(opts.image)) {
               throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
             }
             const file = Bun.file(opts.image);
             if (!(await file.exists())) {
               throw new TlError("IMAGE_NOT_FOUND", `Image not found: ${opts.image}`, "Check the file path and try again.");
             }
-            if (file.size > IMAGE_SIZE_LIMIT) {
+            if (file.size > IMAGE_MAX_BYTES) {
               throw new TlError("IMAGE_TOO_LARGE", `Image exceeds 10 MB: ${opts.image}`, "Use a smaller image file.");
             }
             try {
@@ -189,25 +180,47 @@ export function makeTranslateCommand(): Command {
             .map((s) => s.content);
 
           const isJson = opts.json ?? false;
+          // Stream only to an interactive terminal. Piped stdout must carry
+          // exactly the final translation once: streamed chunks are raw
+          // pre-postprocess tokens (glossary tags, unnormalized whitespace),
+          // and strict-mode retries would concatenate two attempts.
+          // TL_FORCE_TTY overrides detection so tests can exercise this path
+          // without a real pty.
+          const isTty = process.env.TL_FORCE_TTY !== undefined
+            ? process.env.TL_FORCE_TTY === "1"
+            : process.stdout.isTTY === true;
+          const streamLive = !isJson && isTty;
+          let streamedText = "";
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,
             maxRetries: config.glossary.maxRetries,
             contextSnippets,
             imageBase64,
-            onChunk: isJson ? undefined : (chunk) => process.stdout.write(chunk),
+            onChunk: streamLive ? (chunk) => { streamedText += chunk; process.stdout.write(chunk); } : undefined,
           });
           if (isJson) {
             console.log(formatTranslationResult(result, true));
           } else {
-            // Streaming already wrote the translation; reuse the formatter for metadata only.
-            const meta = formatTranslationResult({ ...result, translated: "" }, false).trimStart();
-            process.stdout.write(`\n${meta}\n`);
+            if (!streamedText) {
+              // Nothing streamed (piped stdout, or a non-streaming adapter).
+              process.stdout.write(`${result.translated}\n`);
+            } else if (streamedText.trim() !== result.translated) {
+              // Streamed tokens were raw first-attempt output; postprocessing
+              // or retries changed the final text, so print the real one.
+              process.stdout.write(`\n${result.translated}\n`);
+            } else {
+              process.stdout.write("\n");
+            }
+            // Metadata on stderr so stdout carries only the translation (pipe-safe).
+            const meta = formatTranslationResult(result, false, process.stderr, { includeTranslation: false });
+            process.stderr.write(`${meta}\n`);
           }
           }
         } finally {
           glossaryStore.close();
           contextStore.close();
-          await adapter.dispose();
+          // Dry run never loads the model — skip the unload round-trip to Ollama.
+          if (!opts.dryRun) await adapter.dispose();
         }
       } catch (err) {
         if (opts.json) {

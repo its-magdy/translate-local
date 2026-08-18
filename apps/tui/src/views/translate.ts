@@ -7,6 +7,8 @@ import {
 } from "@opentui/core";
 import { runPipeline } from "@translate-local/core/pipeline";
 import { TlError } from "@translate-local/shared/errors";
+import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
+import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
 import { makeLangPicker } from "./widgets";
 import { C } from "../theme";
@@ -70,8 +72,6 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   splitRow.add(leftPane);
 
-  const RTL_RE = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
-
   const sourceTextarea = new TextareaRenderable(renderer, {
     id: "translate-source",
     width: "100%",
@@ -94,7 +94,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   sourceTextarea.onContentChange = () => {
     const text = sourceTextarea.plainText;
     const lastLine = text.split("\n").filter(Boolean).at(-1) ?? "";
-    if (lastLine && RTL_RE.test(lastLine)) {
+    if (lastLine && hasRtlChars(lastLine)) {
       srcRtlPreview.content = `→ ${lastLine}`;
     } else {
       srcRtlPreview.content = "";
@@ -142,14 +142,12 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   });
   statusContainer.add(shortcuts);
 
-  function updateStatus(dot: string, dotColor: string, text: string) {
+  function updateStatus(dotColor: string, text: string) {
     statusContainer.remove("status-dot");
     statusContainer.remove("status-text");
     statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
-
-  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
 
   function paneWidth(): number {
     return Math.floor(renderer.width / 2) - 4; // subtract borders + padding
@@ -199,34 +197,58 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   function updateOutput(text: string) {
     outputScroll.content.remove("output-text");
     if (text) {
-      const targetLang = toPicker.getValue().toLowerCase().split("-")[0];
-      const isRtl = RTL_LANGS.has(targetLang);
+      const isRtl = isRtlLang(toPicker.getValue());
       const wrapped = wrapText(text, paneWidth());
       const content = isRtl ? rtlAlign(wrapped) : wrapped;
       outputScroll.content.add(new TextRenderable(renderer, { id: "output-text", content }));
     }
   }
 
-  updateStatus("●", C.textMuted, "Ready");
+  updateStatus(C.textMuted, "Ready");
 
-  const IMAGE_EXTS = /\.(png|jpg|jpeg|webp|gif|bmp)$/i;
   // Matches a single-quoted image path anywhere in the text, e.g. '/path/to/photo.png'
-  const IMAGE_TOKEN_RE = /'([^'\n]+\.(png|jpg|jpeg|webp|gif|bmp))'/i;
+  const IMAGE_TOKEN_RE = new RegExp(`'([^'\\n]+${IMAGE_EXT_PATTERN})'`, "i");
+
+  // Strip macOS single-quoting, or unescape backslash-escaped spaces.
+  function unquotePath(text: string): string {
+    return text.startsWith("'") && text.endsWith("'")
+      ? text.slice(1, -1)
+      : text.replace(/\\ /g, " ");
+  }
 
   // Auto-wrap image paths pasted into the textarea (e.g. drag-drop from Finder)
   renderer.keyInput.on("paste", (event) => {
     if (!sourceTextarea.focused) return;
-    const text = new TextDecoder().decode(event.bytes).trim();
-    const unquoted = text.startsWith("'") && text.endsWith("'")
-      ? text.slice(1, -1)
-      : text.replace(/\\ /g, " ");
-    if (unquoted.split("\n").length === 1 && IMAGE_EXTS.test(unquoted)) {
+    const unquoted = unquotePath(new TextDecoder().decode(event.bytes).trim());
+    if (unquoted.split("\n").length === 1 && IMAGE_EXT_RE.test(unquoted)) {
       event.preventDefault();
       sourceTextarea.insertText(`'${unquoted}' `);
     }
   });
 
   let activeAbort: AbortController | null = null;
+
+  // Read an image file to base64. On failure, set the error status (unless the
+  // request was aborted) and return null.
+  async function loadImage(path: string, abort: AbortController): Promise<string | null> {
+    updateStatus(C.amber, "Translating image…");
+    try {
+      const file = Bun.file(path);
+      if (!(await file.exists())) {
+        if (!abort.signal.aborted) updateStatus(C.red, `Image not found: ${path}`);
+        return null;
+      }
+      if (file.size > IMAGE_MAX_BYTES) {
+        if (!abort.signal.aborted) updateStatus(C.red, `Image exceeds 10 MB: ${path}`);
+        return null;
+      }
+      const buf = await file.arrayBuffer();
+      return Buffer.from(buf).toString("base64");
+    } catch (err) {
+      if (!abort.signal.aborted) updateStatus(C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
 
   function triggerTranslate() {
     if (!container.visible) return;
@@ -255,51 +277,21 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
         // Image token embedded in text: Translate this: 'photo.png' what does it say?
         const imagePath = embeddedMatch[1].replace(/\\ /g, " ");
         textToTranslate = raw.replace(IMAGE_TOKEN_RE, "").trim();
-        updateStatus("●", C.amber, "Translating image…");
-        try {
-          const file = Bun.file(imagePath);
-          if (!(await file.exists())) {
-            if (abort.signal.aborted) return;
-            updateStatus("●", C.red, `Image not found: ${imagePath}`);
-
-            return;
-          }
-          const buf = await file.arrayBuffer();
-          imageBase64 = Buffer.from(buf).toString("base64");
-        } catch (err) {
-          if (abort.signal.aborted) return;
-          updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-          return;
-        }
+        const b64 = await loadImage(imagePath, abort);
+        if (b64 === null) return;
+        imageBase64 = b64;
       } else {
         // Legacy: entire input is a bare or macOS-quoted single-line image path
-        const stripped = raw.startsWith("'") && raw.endsWith("'")
-          ? raw.slice(1, -1)
-          : raw.replace(/\\ /g, " ");
-        const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXTS.test(stripped);
+        const stripped = unquotePath(raw);
+        const isImagePath = stripped.split("\n").length === 1 && IMAGE_EXT_RE.test(stripped);
 
         if (isImagePath) {
-          updateStatus("●", C.amber, "Translating image…");
-          try {
-            const file = Bun.file(stripped);
-            if (!(await file.exists())) {
-              if (abort.signal.aborted) return;
-              updateStatus("●", C.red, `Image not found: ${stripped}`);
-  
-              return;
-            }
-            const buf = await file.arrayBuffer();
-            imageBase64 = Buffer.from(buf).toString("base64");
-            textToTranslate = "";
-          } catch (err) {
-            if (abort.signal.aborted) return;
-            updateStatus("●", C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
-
-            return;
-          }
+          const b64 = await loadImage(stripped, abort);
+          if (b64 === null) return;
+          imageBase64 = b64;
         } else {
           textToTranslate = stripped;
-          updateStatus("●", C.amber, "Translating…");
+          updateStatus(C.amber, "Translating…");
         }
       }
 
@@ -323,12 +315,12 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           if (abort.signal.aborted) return;
           streamBuffer = "";
           updateOutput(result.translated);
-          updateStatus("●", C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
+          updateStatus(C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
         })
         .catch((err: unknown) => {
           if (abort.signal.aborted) return;
           const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
-          updateStatus("●", C.red, `Error: ${msg}`);
+          updateStatus(C.red, `Error: ${msg}`);
         })
         .finally(() => {
           if (activeAbort === abort) activeAbort = null;
