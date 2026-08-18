@@ -239,6 +239,16 @@ describe("tl CLI", () => {
       expect(r.stdout).not.toContain("· ");
     });
 
+    it("still prints the translation on the TTY path when the adapter doesn't stream", () => {
+      // TL_FORCE_TTY exercises the streamLive branch without a real pty.
+      // MockAdapter never calls onChunk, so streamedText stays empty and the
+      // !streamedText fallback fires — same as the piped case, but through
+      // the isTTY code path instead of around it.
+      const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock", TL_FORCE_TTY: "1" });
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("[ar] hello world");
+    });
+
     it("accepts flag-first invocation: tl --to ar <text>", () => {
       const r = run(["--to", "ar", "hello world"], { TL_ADAPTER: "mock" });
       expect(r.exitCode).toBe(0);

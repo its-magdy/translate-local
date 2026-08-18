@@ -184,7 +184,12 @@ export function makeTranslateCommand(): Command {
           // exactly the final translation once: streamed chunks are raw
           // pre-postprocess tokens (glossary tags, unnormalized whitespace),
           // and strict-mode retries would concatenate two attempts.
-          const streamLive = !isJson && process.stdout.isTTY === true;
+          // TL_FORCE_TTY overrides detection so tests can exercise this path
+          // without a real pty.
+          const isTty = process.env.TL_FORCE_TTY !== undefined
+            ? process.env.TL_FORCE_TTY === "1"
+            : process.stdout.isTTY === true;
+          const streamLive = !isJson && isTty;
           let streamedText = "";
           const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
             glossaryMode,

@@ -87,8 +87,12 @@ function stripJsoncComments(src: string): string {
 }
 
 // Scalar fields accept the string a `${VAR}` substitution leaves behind and
-// convert it to the declared type. Booleans are matched literally — z.coerce
-// .boolean() is truthiness-based, so it would read "false" as true.
+// convert it to the declared type. This runs on any string value for the
+// field, not only ones that came from `${VAR}` — a literal "3" in config.jsonc
+// on a number field converts too. That widening is intentional: the field's
+// declared type is the single source of truth for what the value should be.
+// Booleans are matched literally — z.coerce.boolean() is truthiness-based, so
+// it would read "false" as true.
 const envNumber = (inner: z.ZodNumber) =>
   z.preprocess(
     (v) => (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : v),
@@ -192,5 +196,21 @@ export function loadConfig(configPath?: string): CoreConfig {
 export function saveConfig(config: CoreConfig, configPath?: string): void {
   const p = getConfigPath(configPath);
   ensurePrivateDir(p);
-  writeFileSync(p, JSON.stringify(config, null, 2), "utf8");
+  // Refuse to overwrite a config that still holds ${VAR} references — the
+  // config passed in has those substituted with resolved values, and writing
+  // it back would bake secrets in plaintext and destroy the indirection.
+  let existing: string | undefined;
+  try {
+    existing = readFileSync(p, "utf8");
+  } catch {
+    // No existing file — nothing to check.
+  }
+  if (existing !== undefined && /\$\{[^}]*\}/.test(stripJsoncComments(existing))) {
+    throw new TlError(
+      "CONFIG_INVALID",
+      `Refusing to overwrite ${p}: it references environment variables with \${VAR}`,
+      `Edit ${p} by hand to preserve the \${VAR} reference, or remove it before running this command.`,
+    );
+  }
+  writeFileSync(p, JSON.stringify(config, null, 2), { encoding: "utf8", mode: 0o600 });
 }

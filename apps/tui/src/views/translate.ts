@@ -7,7 +7,7 @@ import {
 } from "@opentui/core";
 import { runPipeline } from "@translate-local/core/pipeline";
 import { TlError } from "@translate-local/shared/errors";
-import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN } from "@translate-local/shared/constants";
+import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
 import { makeLangPicker } from "./widgets";
@@ -236,6 +236,10 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
       const file = Bun.file(path);
       if (!(await file.exists())) {
         if (!abort.signal.aborted) updateStatus(C.red, `Image not found: ${path}`);
+        return null;
+      }
+      if (file.size > IMAGE_MAX_BYTES) {
+        if (!abort.signal.aborted) updateStatus(C.red, `Image exceeds 10 MB: ${path}`);
         return null;
       }
       const buf = await file.arrayBuffer();

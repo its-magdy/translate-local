@@ -258,14 +258,15 @@ String values in the config may reference environment variables with `${VAR}`
 (e.g. `"endpoint": "${OLLAMA_URL}"`); referencing an unset variable fails with
 `CONFIG_INVALID`. The reference must be inside a quoted string.
 
-A value that is exactly one `"${VAR}"` is converted to the type the field
-declares, so numeric and boolean fields work: `"maxRetries": "${TL_RETRIES}"`
-with `TL_RETRIES=3` loads as the number `3`, and `"keepAlive": "${TL_KA}"` with
-`TL_KA=false` loads as `false` (not as a truthy non-empty string). Conversion
-follows the field, not the value's appearance — a string field keeps its string
-even when the variable looks numeric, so `"model": "${TL_MODEL}"` with
-`TL_MODEL=2` loads as `"2"`. A value that can't be converted (`TL_RETRIES=abc`)
-fails with `CONFIG_INVALID`.
+A string value on a numeric or boolean field is converted to the type the
+field declares — this applies both to a resolved `"${VAR}"` and to a literal
+string written directly in the file: `"maxRetries": "${TL_RETRIES}"` with
+`TL_RETRIES=3` loads as the number `3`, and so does `"maxRetries": "3"`
+written literally; `"keepAlive": "${TL_KA}"` with `TL_KA=false` loads as
+`false` (not as a truthy non-empty string). Conversion follows the field, not
+the value's appearance — a string field keeps its string even when the value
+looks numeric, so `"model": "${TL_MODEL}"` with `TL_MODEL=2` loads as `"2"`.
+A value that can't be converted (`TL_RETRIES=abc`) fails with `CONFIG_INVALID`.
 
 #### `tl config connect`
 
