@@ -57,11 +57,23 @@ Removes the source and all its indexed data from the database.
 
 The pipeline calls `ContextStore.retrieve(sourceText, limit)` which:
 
-1. Tokenizes the source text into 3+ character alphanumeric tokens
+1. Tokenizes the source text (see [Tokenization](#tokenization))
 2. Queries the index for files matching those tokens, ranked by sum of TF-IDF scores
 3. Returns up to `limit` results (default: 5; the pipeline passes `context.maxSnippets` from config)
 
 The retrieved snippets are passed to the adapter as `contextSnippets` in `TranslationRequest`.
+
+## Tokenization
+
+Indexing and retrieval share one Unicode-aware tokenizer, so it works for any script:
+
+1. **Normalize**: NFKC (folds full-width / compatibility forms, e.g. `ＡＢＣ` → `ABC`), then locale-insensitive lowercase, then strip Arabic tashkeel and tatweel (`مُحَمَّد` → `محمد`), which are optional in normal writing.
+2. **Chinese / Japanese / Korean** (Han, Hiragana, Katakana, Hangul runs): overlapping character bigrams — `机器学习` → `机器`, `器学`, `学习`. A run of a single character is kept as a unigram. This is the standard CJK approach in search engines (e.g. Lucene's `CJKAnalyzer`): it needs no dictionary and matches identically whether the phrase appears in a short query or a long document.
+3. **Everything else** (Latin, Cyrillic, Arabic, Hebrew, Greek, Devanagari, Thai, …): words from `Intl.Segmenter` (`granularity: "word"`, Unicode UAX #29 boundaries; Thai/Lao/Khmer/Myanmar are dictionary-segmented). Words shorter than 3 characters are dropped to skip most function words (`is`, `of`, `في`, `на`).
+
+### Upgrading from older versions
+
+Indexed terms are stored in the context database. When the tokenizer changes, the database is rebuilt automatically the first time it is opened by the new version (tracked with SQLite `PRAGMA user_version`); large corpora may make that first command a few seconds slower. Sources whose directory no longer exists are left with no indexed terms — run `tl context index` to see the error, or remove them.
 
 ## Configuration
 
@@ -78,7 +90,7 @@ The retrieved snippets are passed to the adapter as `contextSnippets` in `Transl
 
 `tl translate --file <path>` retrieves context per leaf, with the source value as the query. Each translated key gets its own up-to-`maxSnippets` snippets ranked by TF-IDF.
 
-The current tokenizer matches `[a-z0-9]{3,}` and works best for Latin-script source values. Short or non-Latin source strings may yield zero context (they fall through the tokenizer). This means file mode for Arabic / CJK source files runs without retrieval boost — translation still proceeds, just without context.
+The tokenizer is Unicode-aware (see [Tokenization](#tokenization)), so Arabic, Cyrillic, CJK, and Thai source values retrieve context too. Values made only of words shorter than 3 characters (outside CJK) still yield no context — translation proceeds without it.
 
 ## Performance Notes
 
