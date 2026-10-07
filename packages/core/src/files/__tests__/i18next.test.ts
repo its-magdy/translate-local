@@ -11,7 +11,7 @@ describe("regenerateI18nextPlurals", () => {
       "before", "item_zero", "item_one", "item_two", "item_few", "item_many", "item_other", "after",
     ]);
     const d = r.data as Record<string, string>;
-    // Base text is the source form that i18next would show for the sample count.
+    // Base text is the same category when the source has it, else `_other`.
     expect(d.item_one).toBe("{{count}} item");
     expect(d.item_two).toBe("{{count}} items");
     expect(d.item_other).toBe("{{count}} items");
@@ -21,10 +21,10 @@ describe("regenerateI18nextPlurals", () => {
     expect(r.unresolved).toBe(false);
   });
 
-  test("en→ja drops source-only categories and bases `other` on the singular sample", () => {
+  test("en→ja drops source-only categories; the sample fits the `_other` base text", () => {
     const r = regenerateI18nextPlurals(EN, "en", "ja");
-    expect(r.data).toEqual({ item_other: "{{count}} item" });
-    expect(r.hints.get(pathKey(["item_other"]))).toEqual({ value: 1, exact: false });
+    expect(r.data).toEqual({ item_other: "{{count}} items" });
+    expect(r.hints.get(pathKey(["item_other"]))).toEqual({ value: 2, exact: false });
   });
 
   test("en→ru uses `_other` for few/many and a decimal sample for `other`", () => {
@@ -37,13 +37,13 @@ describe("regenerateI18nextPlurals", () => {
   test("with an unknown source language, bases each form on the same category or `_other`", () => {
     const r = regenerateI18nextPlurals(EN, "auto", "ja");
     expect(r.data).toEqual({ item_other: "{{count}} items" });
-    // 1 is avoided for an `_other`-based form: it is the singular in nearly every source language.
+    // Without source rules, 1 is still avoided for `_other` text: it is the singular in nearly every language.
     expect(r.hints.get(pathKey(["item_other"]))?.value).toBe(2);
   });
 
   test("keeps a source `_zero` even when the target has no zero category (i18next count===0 override)", () => {
     const r = regenerateI18nextPlurals({ item_zero: "No items", ...EN }, "en", "ja");
-    expect(r.data).toEqual({ item_zero: "No items", item_other: "{{count}} item" });
+    expect(r.data).toEqual({ item_zero: "No items", item_other: "{{count}} items" });
     expect(r.hints.get(pathKey(["item_zero"]))).toEqual({ value: 0, exact: true });
   });
 
@@ -60,20 +60,21 @@ describe("regenerateI18nextPlurals", () => {
       place_ordinal_other: "{{count}}th place",
     };
     const ar = regenerateI18nextPlurals(src, "en", "ar");
-    // Arabic has only an `other` ordinal; sample 1 is "1st" in English.
-    expect(ar.data).toEqual({ place_ordinal_other: "{{count}}st place" });
+    // Arabic has only an `other` ordinal; its sample (4) is also "-th" in English.
+    expect(ar.data).toEqual({ place_ordinal_other: "{{count}}th place" });
+    expect(ar.hints.get(pathKey(["place_ordinal_other"]))?.value).toBe(4);
     const fr = regenerateI18nextPlurals(src, "en", "fr");
-    expect(fr.data).toEqual({ place_ordinal_one: "{{count}}st place", place_ordinal_other: "{{count}}nd place" });
+    expect(fr.data).toEqual({ place_ordinal_one: "{{count}}st place", place_ordinal_other: "{{count}}th place" });
   });
 
   test("cardinal and ordinal groups with the same stem are independent", () => {
     const r = regenerateI18nextPlurals({ ...EN, item_ordinal_one: "1st", item_ordinal_other: "nth" }, "en", "ja");
-    expect(r.data).toEqual({ item_other: "{{count}} item", item_ordinal_other: "1st" });
+    expect(r.data).toEqual({ item_other: "{{count}} items", item_ordinal_other: "nth" });
   });
 
   test("recurses into nested objects and arrays", () => {
     const r = regenerateI18nextPlurals({ a: { b: [{ ...EN }] } }, "en", "ja");
-    expect(r.data).toEqual({ a: { b: [{ item_other: "{{count}} item" }] } });
+    expect(r.data).toEqual({ a: { b: [{ item_other: "{{count}} items" }] } });
     expect(r.hints.has(pathKey(["a", "b", 0, "item_other"]))).toBe(true);
   });
 
@@ -130,7 +131,7 @@ describe("regenerateYamlPlurals", () => {
   test("nested maps", () => {
     const doc = parseDocument("cart:\n  item_one: one\n  item_other: many\n");
     regenerateYamlPlurals(doc, "en", "ja");
-    expect(doc.toString()).toBe("cart:\n  item_other: one\n");
+    expect(doc.toString()).toBe("cart:\n  item_other: many\n");
   });
 });
 

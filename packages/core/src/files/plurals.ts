@@ -51,19 +51,19 @@ export function pluralCategories(lang: string, type: PluralType = "cardinal"): P
  * so it inflects the noun for that category. `exact` is true when the category
  * holds only that one number (Arabic `two` is 2 and nothing else), so a
  * translation may spell the number out or drop it without changing meaning.
- * `avoid` skips one value when the category has another.
+ * `prefer` picks the first value it accepts, if the category has one.
  */
 export function pluralSample(
   lang: string,
   category: PluralCategory,
   type: PluralType = "cardinal",
-  avoid?: number,
+  prefer?: (n: number) => boolean,
 ): { value: number; exact: boolean } | null {
   const rules = pluralRules(lang, type);
   if (!rules) return null;
   const hits = SAMPLES.filter((n) => rules.select(n) === category);
   if (hits.length === 0) return null;
-  const value = hits.find((n) => n !== avoid) ?? hits[0];
+  const value = (prefer && hits.find(prefer)) ?? hits[0];
   return { value, exact: hits.length === 1 };
 }
 

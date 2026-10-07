@@ -96,20 +96,21 @@ function planGroup(g: Group, { sourceLang, targetLang }: Langs): PlanEntry[] | n
   const prefix = `${g.stem}${g.type === "ordinal" ? "_ordinal" : ""}_`;
 
   return cats.map((cat) => {
-    let base: PluralCategory;
+    // Translate from the same category when the source has it, else from the
+    // generic `_other` form. This text is also what the model gets, without a
+    // sample count, if the count hint fails — so it must read well on its own.
+    const base: PluralCategory = g.members.has(cat) ? cat : "other";
     let hint: PluralHint | null;
     if (cat === "zero" && zeroOverride) {
-      base = "zero";
       hint = { value: 0, exact: !targetCats.includes("zero") || (pluralSample(targetLang, "zero", g.type)?.exact ?? true) };
-    } else if (srcRules) {
-      // Base the form on the source text i18next would show for the same count.
-      hint = pluralSample(targetLang, cat, g.type);
-      const shown = hint ? (srcRules.select(hint.value) as PluralCategory) : cat;
-      base = g.members.has(shown) ? shown : "other";
     } else {
-      base = g.members.has(cat) ? cat : "other";
-      // 1 is the singular in nearly every source language — a poor sample for `_other` text.
-      hint = pluralSample(targetLang, cat, g.type, base === "other" ? 1 : undefined);
+      // Pick a sample the base text also fits, so the model never sees "1 items"
+      // or "1th place". Without source rules, only rule out 1 for `_other`:
+      // it is the singular in nearly every language.
+      const fits = srcRules
+        ? (n: number) => srcRules.select(n) === base
+        : (n: number) => base !== "other" || n !== 1;
+      hint = pluralSample(targetLang, cat, g.type, fits);
     }
     return { key: prefix + cat, from: g.members.get(base)!, group: true, ...(hint ? { hint } : {}) };
   });

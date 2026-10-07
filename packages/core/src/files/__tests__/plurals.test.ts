@@ -49,10 +49,11 @@ describe("pluralSample", () => {
     expect(pluralSample("ru", "other")).toEqual({ value: 1.5, exact: false });
   });
 
-  test("avoid skips a value when another exists", () => {
+  test("prefer picks the first accepted value, else the first in the category", () => {
     expect(pluralSample("ja", "other")).toEqual({ value: 1, exact: false });
-    expect(pluralSample("ja", "other", "cardinal", 1)).toEqual({ value: 2, exact: false });
-    expect(pluralSample("ar", "one", "cardinal", 1)).toEqual({ value: 1, exact: true });
+    expect(pluralSample("ja", "other", "cardinal", (n) => n !== 1)).toEqual({ value: 2, exact: false });
+    expect(pluralSample("ar", "one", "cardinal", (n) => n !== 1)).toEqual({ value: 1, exact: true });
+    expect(pluralSample("ar", "zero", "cardinal", (n) => n === 0)).toEqual({ value: 0, exact: true });
   });
 
   test("ordinal samples", () => {

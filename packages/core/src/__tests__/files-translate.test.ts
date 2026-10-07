@@ -349,7 +349,7 @@ describe("translateFile", () => {
         sourceLang: "en", targetLang: "ja",
         adapter, glossary, context,
       });
-      expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ title: "[ja] Files", item_other: "[ja] {{count}} item" });
+      expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ title: "[ja] Files", item_other: "[ja] {{count}} items" });
     });
 
     it("missing-only keeps existing category values and fills the rest; --force redoes them", async () => {
