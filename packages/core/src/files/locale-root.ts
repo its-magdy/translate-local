@@ -41,7 +41,7 @@ export function rebaseLocaleRoot(
   existingTarget: JsonValue | undefined,
   sourceLocale: string | undefined,
   targetLocale: string,
-): { source: JsonValue; rename: RootLocaleRename } | null {
+): { source: JsonValue; rename: RootLocaleRename; warning?: string } | null {
   if (!sourceLocale || !isObject(source)) return null;
   const keys = Object.keys(source);
   if (keys.length !== 1 || !sameLocale(keys[0], sourceLocale) || !isObject(source[keys[0]])) return null;
@@ -50,6 +50,7 @@ export function rebaseLocaleRoot(
   // Keep the existing target's spelling (fr_FR vs fr-FR) so a sync never adds a
   // second root next to the one already there.
   let to = targetLocale;
+  let warning: string | undefined;
   if (isObject(existingTarget)) {
     const existing = findLocaleKey(existingTarget, targetLocale);
     if (existing !== undefined) {
@@ -62,10 +63,16 @@ export function rebaseLocaleRoot(
         `Existing target has root locale key "${findLocaleKey(existingTarget, from)}" (the source locale), expected "${targetLocale}"`,
         `If the file holds ${targetLocale} translations, rename its root key to "${targetLocale}:" and re-run; otherwise delete it.`,
       );
+    } else if (Object.keys(existingTarget).length > 0) {
+      // Rooted under another locale (`ar:`) or flat. Its keys are kept as
+      // target-only keys, so the output gains a second root next to them.
+      warning =
+        `Existing target has no "${targetLocale}" root key (found: ${Object.keys(existingTarget).join(", ")}). ` +
+        `Its keys are kept and a "${targetLocale}:" root is added, so the output will have two roots or a mixed structure — review it.`;
     }
   }
 
-  return { source: { [to]: source[from] }, rename: { from, to } };
+  return { source: { [to]: source[from] }, rename: { from, to }, ...(warning && { warning }) };
 }
 
 /** Rename the root pair's key in place so its comments and styles survive. */

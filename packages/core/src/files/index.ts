@@ -230,6 +230,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       `Duplicate key "${d.path}" in source (line ${d.line}). The last value wins, matching JSON.parse.`,
     );
   }
+  if (localeRoot?.warning) summary.warnings.push(localeRoot.warning);
 
   if (detected.content === "i18next-plurals") {
     summary.warnings.push(
