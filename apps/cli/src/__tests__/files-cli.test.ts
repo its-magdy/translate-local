@@ -184,6 +184,31 @@ describe("tl translate --file", () => {
     expect(readFileSync(out, "utf8")).toStartWith("fr:\n");
   });
 
+  it("--dry-run reports the root locale rename without writing", () => {
+    const src = join(dir, "en.yml");
+    writeFileSync(src, "en:\n  hello: Hello\n");
+
+    const r = run(
+      ["translate", "--file", src, "--from", "en", "--to", "fr", "--dry-run"],
+      { TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("[dry-run] Root locale key: en -> fr");
+    expect(existsSync(join(dir, "fr.yml"))).toBe(false);
+  });
+
+  it("--json includes rootLocaleKey", () => {
+    const src = join(dir, "en.yml");
+    writeFileSync(src, "en:\n  hello: Hello\n");
+
+    const r = run(
+      ["translate", "--file", src, "--from", "en", "--to", "fr", "--json"],
+      { TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).rootLocaleKey).toEqual({ from: "en", to: "fr" });
+  });
+
   it("--help mentions --file", () => {
     const r = run(["translate", "--help"]);
     expect(r.exitCode).toBe(0);
