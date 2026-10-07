@@ -8,6 +8,8 @@ import { ContextStore, tokenize, CONTEXT_INDEX_VERSION } from "../context";
 // Temp SQLite + local files only — no external services, so run by default.
 // The former TEST_INTEGRATION gate hid the whole suite from plain `bun run test`.
 const testFn = test;
+// chmod 000 doesn't stop root (e.g. tests run in a container as root).
+const permTest = test.skipIf(process.getuid?.() === 0);
 
 describe("ContextStore", () => {
   let tmpDir: string;
@@ -112,7 +114,7 @@ describe("ContextStore", () => {
       for (const d of locked.splice(0)) chmodSync(d, 0o755);
     });
 
-    testFn("addSource skips an unreadable subfolder and reports it", () => {
+    permTest("addSource skips an unreadable subfolder and reports it", () => {
       const sub = join(tmpDir, "private");
       mkdirSync(sub);
       writeFileSync(join(sub, "secret.md"), "volcano eruption lava");
@@ -124,7 +126,7 @@ describe("ContextStore", () => {
       expect(store.retrieve("machine learning")[0].filePath).toContain("machine.md");
     });
 
-    testFn("reindex skips an unreadable subfolder and reports it", () => {
+    permTest("reindex skips an unreadable subfolder and reports it", () => {
       store = new ContextStore(dbPath);
       store.addSource(tmpDir);
       const sub = join(tmpDir, "private");
@@ -134,7 +136,7 @@ describe("ContextStore", () => {
       expect(store.listSources()[0].fileCount).toBe(3);
     });
 
-    testFn("a failed addSource leaves no source row behind", () => {
+    permTest("a failed addSource leaves no source row behind", () => {
       const root = join(tmpDir, "locked-root");
       mkdirSync(root);
       lock(root);
@@ -143,7 +145,7 @@ describe("ContextStore", () => {
       expect(store.listSources()).toEqual([]);
     });
 
-    testFn("re-adding a path that now fails keeps the previous source", () => {
+    permTest("re-adding a path that now fails keeps the previous source", () => {
       const root = join(tmpDir, "docs");
       mkdirSync(root);
       writeFileSync(join(root, "a.md"), "volcano eruption lava");
@@ -185,6 +187,12 @@ describe("tokenize", () => {
 
   test("folds Arabic hamza-on-alef forms to bare alef", () => {
     expect(tokenize("أحمد إسلام آمال")).toEqual(tokenize("احمد اسلام امال"));
+  });
+
+  // Segmenter's isWordLike is false for numbers on some ICU builds (Bun on
+  // Linux), so numbers must be kept without relying on it.
+  test("keeps numbers and alphanumeric tokens on every platform", () => {
+    expect(tokenize("Release v1.2 build 2024, error 404")).toEqual(["release", "v1.2", "build", "2024", "error", "404"]);
   });
 
   test("maps Arabic-Indic and Persian digits to ASCII", () => {
@@ -392,7 +400,7 @@ describe("ContextStore index migration", () => {
     }
   });
 
-  test("an unreadable subfolder during migration is skipped, not fatal", () => {
+  permTest("an unreadable subfolder during migration is skipped, not fatal", () => {
     makeLegacy();
     const sub = join(docs, "private");
     mkdirSync(sub);
@@ -407,7 +415,7 @@ describe("ContextStore index migration", () => {
     }
   });
 
-  test("an unreadable source root during migration keeps the old index", () => {
+  permTest("an unreadable source root during migration keeps the old index", () => {
     makeLegacy();
     chmodSync(docs, 0o000);
     try {

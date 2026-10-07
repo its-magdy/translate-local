@@ -40,6 +40,7 @@ const ARABIC_ALEF_VARIANTS = /[\u0622\u0623\u0625]/g;
 const EASTERN_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
 // Hebrew niqqud and cantillation marks, optional in normal writing.
 const HEBREW_MARKS = /[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]/g;
+const WORD_CHAR = /[\p{L}\p{N}]/u;
 // UAX #29 word boundaries; also dictionary-segments Thai/Lao/Khmer/Myanmar.
 const segmenter = new Intl.Segmenter("und", { granularity: "word" });
 
@@ -61,9 +62,11 @@ export function tokenize(text: string): string[] {
       for (let j = 0; j + 1 < chars.length; j++) tokens.push(chars[j] + chars[j + 1]);
       return;
     }
-    for (const { segment, isWordLike } of segmenter.segment(piece)) {
+    for (const { segment } of segmenter.segment(piece)) {
+      // A segment is a word if it has a letter or digit. isWordLike isn't
+      // used: on some ICU builds (Bun on Linux) it is false for numbers.
       // 3+ code points, as before, to drop short function words.
-      if (isWordLike && [...segment].length >= 3) tokens.push(segment);
+      if (WORD_CHAR.test(segment) && [...segment].length >= 3) tokens.push(segment);
     }
   });
   return tokens;
