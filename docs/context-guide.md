@@ -26,7 +26,7 @@ tl context add ~/docs/legal-corpus
 tl context add ~/projects/myapp/docs
 ```
 
-The directory is indexed immediately on `add`. File content is stored (first 500 characters per file) along with TF-IDF scores for the top 1,000 terms per file.
+The directory is indexed immediately on `add`. File content is stored (first 500 characters per file) along with TF-IDF scores for each file's top terms (300, plus one per Chinese/Japanese/Korean bigram, up to 1,000).
 
 ### List context sources
 
@@ -100,12 +100,18 @@ The tokenizer is Unicode-aware (see [Tokenization](#tokenization)), so Arabic, C
 
 - Indexing is synchronous and happens in a single transaction per source
 - Large corpora (thousands of files) take a few seconds on first `add` or `index`
-- Only the top 1,000 TF-IDF terms per file are stored (see [Index size](#index-size))
+- Only each file's top 300–1,000 TF-IDF terms are stored, and a term lookup is a primary-key seek (see [Index size](#index-size))
 - The context database (`~/.config/tl/context.db`) grows with your corpus; delete and re-add sources to reclaim space
 
 ### Index size
 
-CJK text is indexed as character bigrams, so a Chinese document has about as many distinct terms as characters. With the old 100-term cap, only the first ~100 characters of a Chinese document were searchable. The cap is now 1,000 terms, which keeps every term of CJK documents up to about 1,000–1,500 characters. Measured on 1,000 real English Markdown files (12 MB) and 300 Chinese documents of ~2,900 characters each:
+**Layout.** Each file gets an integer id in `context_docs`. `context_terms` stores `(term, doc_id, weight)` as a `WITHOUT ROWID` table keyed on `(term, doc_id)`, so looking up a query term is a seek on the primary key, and the source id and file path aren't repeated on every term row.
+
+**How many terms are kept.** CJK text is indexed as character bigrams, so a Chinese document has about as many distinct terms as characters. Each file keeps its top **300 terms plus one per distinct CJK bigram, up to 1,000**:
+- English recall stopped improving at 300 (first table below).
+- A Chinese document keeps every term up to about 1,000–1,500 characters. (The original cap of 100 left only the first ~100 characters searchable.)
+
+Measured on 1,000 real English Markdown files (12 MB) and 300 Chinese documents of ~2,900 characters each. First, choosing a flat cap under the previous layout:
 
 | Terms kept per file | English DB | Chinese DB | English tail recall@3 |
 |---|---|---|---|
@@ -114,7 +120,17 @@ CJK text is indexed as character bigrams, so a Chinese document has about as man
 | 1,000 | 93 MB | 76 MB | 50/100 |
 | unlimited | 97 MB | 118 MB | 50/100 |
 
-"Tail recall" is how often a query built from a file's last sentence returns that file in the top 3. On a busy machine, queries took about 30–100 ms with 1,000 files at the 1,000-term cap, and indexing stayed in the 2–9 s range for every cap.
+Then the previous layout with a flat 1,000 against the current layout and cap, in two runs on a busy laptop:
+
+| | English DB | English index | English query | Chinese DB | Chinese index | Chinese query | English tail recall@3 |
+|---|---|---|---|---|---|---|---|
+| previous (flat 1,000) | 93 MB | 2.5–8.0 s | 63–75 ms | 76 MB | 1.4–1.6 s | 42–47 ms | 50/100 |
+| current | **7.2 MB** | 1.5–1.8 s | **0.6–0.8 ms** | **8.2 MB** | 0.9 s | **0.4–0.5 ms** | 50/100 |
+
+"Tail recall" is how often a query built from a file's last sentence returns that file in the top 3.
+- The previous layout's lookup index started with `source_id`, which retrieval doesn't filter on, so every query scanned the whole term table.
+- Most of the previous size came from repeating the full file path on every term row, and again in the index.
+- The Chinese documents are synthetic random text: in 91 of 100 queries the 3rd and 4th results tie, so recall there reflects tie order and isn't a quality measure.
 
 ## File Paths
 
