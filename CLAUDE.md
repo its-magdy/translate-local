@@ -126,7 +126,7 @@ t/
 
 - `docs/cli-reference.md` — full command and flag reference
 - `docs/glossary-guide.md` — CSV format, domain filtering, advanced usage
-- `docs/context-guide.md` — TF-IDF retrieval, tokenization, tuning parameters
+- `docs/context-guide.md` — tokenization, relevance score (TF-IDF cosine) and `minRelevance`, index layout and migration
 - `docs/tui-guide.md` — terminal UI keybindings and workflows
 - `docs/adapter-development.md` — guide for adding new model backends
 

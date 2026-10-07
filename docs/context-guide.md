@@ -5,7 +5,7 @@ The context system indexes local files and retrieves relevant passages to includ
 ## How It Works
 
 1. You register one or more directories as context sources
-2. `tl` walks the directory, reads supported files, and builds a TF-IDF index in SQLite
+2. `tl` walks the directory, reads supported files, and builds a TF-IDF index in SQLite (unit-length term weights per file)
 3. When translating, the pipeline tokenizes your source text and queries the index
 4. The top-scoring snippets are included in the adapter prompt as reference material (each wrapped in `<reference>` tags, placed before the translate instruction so the model uses them without translating them)
 
@@ -71,20 +71,37 @@ The score is the **cosine similarity** between the query and the file, so it alw
 
 - **File side** (computed at index time): each term's weight is `(1 + ln tf) × idf`, with scikit-learn's smoothed idf, `ln((1 + N) / (1 + df)) + 1`. The smoothing means idf is never 0, so a source containing a single file still scores. The file's top terms (300 plus one per CJK bigram, up to 1,000; see [Index size](#index-size)) are kept and scaled to a unit-length vector.
 - **Query side**: each unique query term counts once. The score is the sum of the matched file weights divided by √(number of query terms). It's 1 when the query consists of exactly the file's terms, all equally weighted, and 0 when nothing matches.
-- A short stopword list (Lucene's English stop set plus common Arabic particles) is removed first, because idf can't separate "the" from real terms in a one-file source.
+- Stopwords are removed first: the Snowball lists for English, French, German, Spanish, Italian, Portuguese and Russian, plus common Arabic particles. In a one-file source idf can't separate "the" or "vous" from real terms.
 
 ### Choosing `minRelevance`
 
-The default, **0.09**, comes from measuring related and unrelated queries against English, Arabic, and Chinese reference documents. Each document was tested both as a one-file source and inside a mixed source, plus this repo's own long English docs:
+The default, **0.09**, comes from measuring related and unrelated queries. Each reference document is a one-file source (the hardest case, because idf can't help), and this repo's own long English docs serve as a multi-file source. The unrelated column shows the score of the best-matching file of any kind.
 
-| Reference doc | Related queries | Best-matching file for unrelated queries |
+| Reference | Related queries | Unrelated queries |
 |---|---|---|
-| English style guide (~200 words) | 0.20, **0.05**, 0.20, 0.26, 0.24 | 0, 0, 0, 0, 0 |
-| Arabic medical glossary (~200 words) | 0.23, 0.13, 0.10, 0.30, 0.18 | 0, 0, 0, **0.08**, 0 |
+| English style guide (~200 words) | 0.21, **0.06**, 0.21, 0.26, 0.25, 0.23 | 0, 0, 0, 0, 0, 0 |
+| French style guide | 0.17, **0.05**, 0.24, 0.27, 0.31, 0.26 | 0, 0, 0, 0, 0, 0 |
+| German style guide | 0.19, **0.07**, 0.24, 0.30, 0.25, 0.27 | 0, 0, 0, 0, 0, 0 |
+| Spanish style guide | 0.22, **0.06**, 0.29, 0.32, 0.32, 0.31 | 0.09\*, 0, 0, 0, 0, 0 |
+| Arabic medical glossary (~200 words) | 0.23, 0.13, 0.10, 0.30, 0.18 | 0, 0, 0, 0 (0.08 in a mixed source†), 0 |
 | Chinese ML glossary (~400 chars) | 0.17, 0.13, 0.22, 0.13, 0.17 | 0, 0, 0, 0, 0 |
-| repo `docs/` (7 long English files) | 0.16, 0.15, 0.13, 0.22, 0.10 | 0.05, 0.02, 0.04, 0.08, 0.07 |
+| repo `docs/` (long English files) | 0.16, 0.15, 0.13, 0.22, **0.08**, **0.07** | 0.06, 0.02, 0.04, 0.05, 0.07, 0 |
 
-Unrelated queries peaked at 0.08 (an Arabic sentence sharing the word "today" with a news file, and `Welcome to our store` against the long repo docs). Every related query except one scored at least 0.10. The exception, `Your invoice is ready`, shares a single word with a long style guide and scored 0.05. Lower `minRelevance` to get more (looser) context, or raise it toward 0.15–0.2 to use only close matches.
+- \* `Se ha cerrado su sesión porque estaba inactivo` ("you were signed out because you were inactive") against a guide that prescribes «cerrar sesión», so arguably related.
+- † Shares the word "today" with an Arabic news file.
+
+The unrelated queries include strings built from function words, such as `You have been logged out because you were inactive` and `Nous n'avons pas trouvé ce que vous cherchiez`. Before the multilingual stopword lists, those scored up to 0.22 against a one-file guide. They now score 0.
+
+**What 0.09 does.** Every unrelated query scores ≤ 0.09, mostly 0. Most related queries score 0.13–0.32. The weak related ones fall below the default and get no context:
+- The bold values in the table, around 0.05–0.08.
+- `Your invoice is ready` and its translations share one content word with a ~200-word guide.
+- In the repo docs, `Unload the model from VRAM` and `Placeholder mismatch after translation` each share one or two words with a long file.
+
+Lower `minRelevance` (for example to 0.05) to get looser context, or raise it toward 0.15–0.2 to use only close matches.
+
+**Limitations.**
+- Stopword lists exist only for English, French, German, Spanish, Italian, Portuguese, Russian and Arabic. In other languages (Dutch, Polish, Turkish, …), function words can still produce matches with a one-file source, and those can clear 0.09. Raise `minRelevance` if you see irrelevant context there.
+- Scores fall as a file's vocabulary grows, so a short query against a long file scores lower than the same query against a focused one.
 
 ## Tokenization
 
@@ -92,7 +109,7 @@ Indexing and retrieval share one Unicode-aware tokenizer, so it works for any sc
 
 1. **Normalize**: NFKC (folds full-width / compatibility forms, e.g. `ＡＢＣ` → `ABC`), then locale-insensitive lowercase, then strip marks that are optional in normal writing: Arabic tashkeel and tatweel (`مُحَمَّد` → `محمد`) and Hebrew niqqud (`שָׁלוֹם` → `שלום`). Arabic hamza-on-alef forms fold to bare alef (`أ إ آ` → `ا`), and Arabic-Indic / Persian digits become ASCII (`٢٠٢٤` → `2024`).
 2. **Chinese / Japanese / Korean** (Han, Hiragana, Katakana, Hangul runs): overlapping character bigrams — `机器学习` → `机器`, `器学`, `学习`. A run of a single character is kept as a unigram. This is the standard CJK approach in search engines (e.g. Lucene's `CJKAnalyzer`): it needs no dictionary and matches identically whether the phrase appears in a short query or a long document.
-3. **Everything else** (Latin, Cyrillic, Arabic, Hebrew, Greek, Devanagari, Thai, …): words from `Intl.Segmenter` (`granularity: "word"`, Unicode UAX #29 boundaries; Thai/Lao/Khmer/Myanmar are dictionary-segmented). Words shorter than 3 characters are dropped to skip most function words (`is`, `of`, `في`, `на`), along with Lucene's English stop set (`the`, `and`, `with`, …) and common Arabic particles (`الى`, `على`, `هذا`, …).
+3. **Everything else** (Latin, Cyrillic, Arabic, Hebrew, Greek, Devanagari, Thai, …): words from `Intl.Segmenter` (`granularity: "word"`, Unicode UAX #29 boundaries; Thai/Lao/Khmer/Myanmar are dictionary-segmented). Words shorter than 3 characters are dropped to skip most function words (`is`, `of`, `في`, `на`), along with stopwords: the Snowball lists for en/fr/de/es/it/pt/ru (`the`, `have`, `vous`, `nicht`, `para`, …) and common Arabic particles (`الى`, `على`, `هذا`, …). All lists apply to every text, since the language isn't known at index time, so a few words that are stopwords in one language and content words in another (German `die`, Italian `come`, Spanish `con`) are dropped everywhere.
 
 ### Upgrading from older versions
 
@@ -125,7 +142,7 @@ The tokenizer is Unicode-aware (see [Tokenization](#tokenization)), so Arabic, C
 
 - Indexing is synchronous and happens in a single transaction per source
 - Large corpora (thousands of files) take a few seconds on first `add` or `index`
-- Only each file's top 300–1,000 TF-IDF terms are stored, and a term lookup is a primary-key seek (see [Index size](#index-size))
+- Only each file's top 300–1,000 terms are stored, and a term lookup is a primary-key seek (see [Index size](#index-size))
 - The context database (`~/.config/tl/context.db`) grows with your corpus; delete and re-add sources to reclaim space
 
 ### Index size
