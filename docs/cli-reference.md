@@ -127,6 +127,7 @@ tl translate --file en.json --to ar --strict
   "skipped": { "count": 2, "reasons": { "url": 1, "all-caps-short": 1 } },
   "failed": [],
   "warnings": [],
+  "pluralFallbacks": 0,
   "outPath": "/path/to/ar.json"
 }
 ```
