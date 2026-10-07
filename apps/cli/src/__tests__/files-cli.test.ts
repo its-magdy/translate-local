@@ -170,6 +170,20 @@ describe("tl translate --file", () => {
     expect(text).toContain("# greeting"); // comment preserved
   });
 
+  it("renames a Rails root locale key with --from auto, using the filename locale", () => {
+    const src = join(dir, "en.yml");
+    writeFileSync(src, "en:\n  hello: Hello\n");
+    const out = join(dir, "fr.yml");
+
+    const r = run(
+      ["translate", "--file", src, "--from", "auto", "--to", "fr"],
+      { TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Root locale key: en -> fr");
+    expect(readFileSync(out, "utf8")).toStartWith("fr:\n");
+  });
+
   it("--help mentions --file", () => {
     const r = run(["translate", "--help"]);
     expect(r.exitCode).toBe(0);
