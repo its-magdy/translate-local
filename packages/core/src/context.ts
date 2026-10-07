@@ -10,13 +10,15 @@ import { ensurePrivateDir } from "./fsutil";
 // persisted in context_terms, so each source records the version it was
 // indexed with (context_sources.index_version; 0 = before this column existed)
 // and older sources are rebuilt on open.
-export const CONTEXT_INDEX_VERSION = 1;
+// 2 = integer doc ids (context_docs.id) and a WITHOUT ROWID term table.
+export const CONTEXT_INDEX_VERSION = 2;
 
-// Most-weighted terms stored per document. CJK bigrams yield roughly one term
-// per character, so the old cap of 100 made only the first ~100 characters of
-// a Chinese document searchable. 1000 keeps every term of CJK documents up to
-// ~1,000–1,500 characters; for English, recall stopped improving at ~300 in
-// measurements. See docs/context-guide.md for size/speed numbers.
+// Most-weighted terms stored per document: BASE_TERMS_PER_DOC plus one per
+// distinct CJK bigram, up to MAX_TERMS_PER_DOC. English recall stopped
+// improving at ~300 terms, but CJK bigrams yield about one term per
+// character, so a flat 300 would leave most of a Chinese document
+// unsearchable. See docs/context-guide.md for size/speed numbers.
+const BASE_TERMS_PER_DOC = 300;
 const MAX_TERMS_PER_DOC = 1000;
 // Long enough for a migration of a large corpus in another process.
 const BUSY_TIMEOUT_MS = 30_000;
@@ -27,6 +29,8 @@ const BUSY_TIMEOUT_MS = 30_000;
 // long document, while bigrams match regardless of context. U+30FC (the
 // katakana long-vowel mark) is Script=Common, so it is listed explicitly.
 const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u30FC]+)/u;
+// One CJK character (CJK_RUN's character class), to count bigram terms.
+const CJK_CHAR = new RegExp(CJK_RUN.source.slice(1, -2), "u");
 // Arabic tashkeel (harakat, shadda, sukun, Quranic marks) and tatweel —
 // optional in normal writing, so the same word may appear with or without them.
 const ARABIC_MARKS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
@@ -76,8 +80,31 @@ function* walkDir(dir: string): Generator<string> {
   }
 }
 
+// Each file gets an integer id; terms reference it instead of repeating the
+// source id and file path on every row (which made up most of the db size).
+// context_terms is WITHOUT ROWID with PRIMARY KEY (term, doc_id), so a term
+// lookup is a seek on the table's own clustered key, no separate index needed.
+const DOCS_TERMS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS context_docs (
+    id INTEGER PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    UNIQUE (source_id, file_path)
+  );
+  CREATE TABLE IF NOT EXISTS context_terms (
+    term TEXT NOT NULL,
+    doc_id INTEGER NOT NULL,
+    weight REAL NOT NULL,
+    PRIMARY KEY (term, doc_id)
+  ) WITHOUT ROWID;
+`;
+
 export class ContextStore {
   private db: Database;
+  // True only for a read-only db still in the pre-v2 layout (terms keyed by
+  // source_id + file_path); retrieve() then reads that layout as-is.
+  private legacySchema = false;
 
   constructor(dbPath: string) {
     try {
@@ -95,22 +122,10 @@ export class ContextStore {
           file_count INTEGER DEFAULT 0,
           index_version INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS context_docs (
-          source_id TEXT NOT NULL,
-          file_path TEXT NOT NULL,
-          content TEXT NOT NULL,
-          PRIMARY KEY (source_id, file_path)
-        );
-        CREATE TABLE IF NOT EXISTS context_terms (
-          source_id TEXT NOT NULL,
-          file_path TEXT NOT NULL,
-          term TEXT NOT NULL,
-          tf_idf REAL NOT NULL,
-          PRIMARY KEY (source_id, file_path, term)
-        );
-        CREATE INDEX IF NOT EXISTS idx_terms_lookup ON context_terms(source_id, term);
+        ${DOCS_TERMS_SCHEMA}
       `);
       this._migrate();
+      this.legacySchema = this._hasLegacySchema();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
@@ -138,8 +153,7 @@ export class ContextStore {
     this.db.transaction(() => {
       const existing = this.db.query(`SELECT id FROM context_sources WHERE path = ?`).get(path) as { id: string } | null;
       if (existing) {
-        this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [existing.id]);
-        this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [existing.id]);
+        this._deleteIndexRows(existing.id);
         this.db.run(`DELETE FROM context_sources WHERE id = ?`, [existing.id]);
       }
       this.db.run(`INSERT INTO context_sources (id, path, added_at) VALUES (?, ?, ?)`, [id, path, addedAt]);
@@ -162,8 +176,7 @@ export class ContextStore {
       throw new TlError("CONTEXT_DB_ERROR", `Context source not found: ${id}`, `Check the id is valid`);
     }
     this.db.transaction(() => {
-      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [id]);
-      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [id]);
+      this._deleteIndexRows(id);
       this.db.run(`DELETE FROM context_sources WHERE id = ?`, [id]);
     })();
   }
@@ -188,27 +201,56 @@ export class ContextStore {
     const terms = [...new Set(tokenize(query))];
     if (terms.length === 0) return [];
 
+    const { sql, params } = this._retrieveQuery(terms, limit);
+    const rows = this.db.query(sql).all(...params) as { source_id: string; file_path: string; content: string | null; score: number }[];
+    return rows.map((r) => ({
+      sourceId: r.source_id,
+      filePath: r.file_path,
+      content: r.content ?? "",
+      score: r.score,
+    }));
+  }
+
+  private _retrieveQuery(terms: string[], limit: number): { sql: string; params: (string | number)[] } {
     const placeholders = terms.map(() => "?").join(", ");
-    const rows = this.db.query(`
-      SELECT t.source_id, t.file_path, SUM(t.tf_idf) AS score
-      FROM context_terms t
-      WHERE t.term IN (${placeholders})
-      GROUP BY t.source_id, t.file_path
-      ORDER BY score DESC
-      LIMIT ?
-    `).all(...terms, limit) as { source_id: string; file_path: string; score: number }[];
-
-    if (rows.length === 0) return [];
-
-    return rows.map((r) => {
-      const doc = this.db.query(`SELECT content FROM context_docs WHERE source_id = ? AND file_path = ?`).get(r.source_id, r.file_path) as { content: string } | null;
+    if (this.legacySchema) {
       return {
-        sourceId: r.source_id,
-        filePath: r.file_path,
-        content: doc?.content ?? "",
-        score: r.score,
+        sql: `
+          SELECT t.source_id, t.file_path, d.content, SUM(t.tf_idf) AS score
+          FROM context_terms t
+          LEFT JOIN context_docs d ON d.source_id = t.source_id AND d.file_path = t.file_path
+          WHERE t.term IN (${placeholders})
+          GROUP BY t.source_id, t.file_path
+          ORDER BY score DESC
+          LIMIT ?`,
+        params: [...terms, limit],
       };
-    });
+    }
+    return {
+      sql: `
+        SELECT d.source_id, d.file_path, d.content, s.score
+        FROM (
+          SELECT doc_id, SUM(weight) AS score
+          FROM context_terms
+          WHERE term IN (${placeholders})
+          GROUP BY doc_id
+          ORDER BY score DESC
+          LIMIT ?
+        ) s
+        JOIN context_docs d ON d.id = s.doc_id
+        ORDER BY s.score DESC`,
+      params: [...terms, limit],
+    };
+  }
+
+  private _deleteIndexRows(sourceId: string): void {
+    this.db.run(`DELETE FROM context_terms WHERE doc_id IN (SELECT id FROM context_docs WHERE source_id = ?)`, [sourceId]);
+    this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [sourceId]);
+  }
+
+  private _hasLegacySchema(): boolean {
+    return (this.db.query(`PRAGMA table_info(context_terms)`).all() as { name: string }[])
+      .some((c) => c.name === "source_id");
   }
 
   close(): void {
@@ -219,8 +261,7 @@ export class ContextStore {
   // back and the source keeps its previous index.
   private _reindexSource(src: { id: string; path: string }): void {
     this.db.transaction(() => {
-      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
-      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
+      this._deleteIndexRows(src.id);
       this._indexSource(src.id, src.path);
     })();
   }
@@ -235,13 +276,29 @@ export class ContextStore {
     const stale = () =>
       this.db.query(`SELECT id, path FROM context_sources WHERE index_version < ?`)
         .all(CONTEXT_INDEX_VERSION) as { id: string; path: string }[];
-    if (hasColumn() && stale().length === 0) return;
+    if (!this._hasLegacySchema() && hasColumn() && stale().length === 0) return;
 
     try {
       this.db.transaction(() => {
         // Re-check under the write lock: another process may have finished first.
         if (!hasColumn()) {
           this.db.run(`ALTER TABLE context_sources ADD COLUMN index_version INTEGER NOT NULL DEFAULT 0`);
+        }
+        if (this._hasLegacySchema()) {
+          // Convert to integer doc ids, copying the old rows so a source that
+          // can't be re-indexed right now (see below) still has an index.
+          this.db.exec(`
+            ALTER TABLE context_docs RENAME TO legacy_context_docs;
+            ALTER TABLE context_terms RENAME TO legacy_context_terms;
+            ${DOCS_TERMS_SCHEMA}
+            INSERT INTO context_docs (source_id, file_path, content)
+              SELECT source_id, file_path, content FROM legacy_context_docs;
+            INSERT INTO context_terms (term, doc_id, weight)
+              SELECT t.term, d.id, t.tf_idf FROM legacy_context_terms t
+              JOIN context_docs d ON d.source_id = t.source_id AND d.file_path = t.file_path;
+            DROP TABLE legacy_context_terms;
+            DROP TABLE legacy_context_docs;
+          `);
         }
         for (const src of stale()) {
           // Unreachable folder (unmounted drive, moved directory): keep the old
@@ -287,8 +344,8 @@ export class ContextStore {
     const totalDocs = fileData.size;
 
     // Pass 2: compute TF-IDF per file
-    const insertDoc = this.db.prepare(`INSERT OR REPLACE INTO context_docs (source_id, file_path, content) VALUES (?, ?, ?)`);
-    const insertTerm = this.db.prepare(`INSERT OR REPLACE INTO context_terms (source_id, file_path, term, tf_idf) VALUES (?, ?, ?, ?)`);
+    const insertDoc = this.db.prepare(`INSERT INTO context_docs (source_id, file_path, content) VALUES (?, ?, ?)`);
+    const insertTerm = this.db.prepare(`INSERT INTO context_terms (term, doc_id, weight) VALUES (?, ?, ?)`);
 
     this.db.transaction(() => {
       let indexedCount = 0;
@@ -296,18 +353,21 @@ export class ContextStore {
         if (tokenCount === 0) continue;
         indexedCount++;
 
-        insertDoc.run(sourceId, file, snippet);
+        const docId = insertDoc.run(sourceId, file, snippet).lastInsertRowid;
 
         const scored: { term: string; score: number }[] = [];
+        let cjkTerms = 0;
         for (const [term, freq] of termFreq) {
           const tf = freq / tokenCount;
           const idf = Math.log(totalDocs / (docFrequency.get(term) ?? 1));
           scored.push({ term, score: tf * idf });
+          if (CJK_CHAR.test(term)) cjkTerms++;
         }
 
         scored.sort((a, b) => b.score - a.score);
-        for (const { term, score } of scored.slice(0, MAX_TERMS_PER_DOC)) {
-          insertTerm.run(sourceId, file, term, score);
+        const cap = Math.min(MAX_TERMS_PER_DOC, BASE_TERMS_PER_DOC + cjkTerms);
+        for (const { term, score } of scored.slice(0, cap)) {
+          insertTerm.run(term, docId, score);
         }
       }
 

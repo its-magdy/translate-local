@@ -230,13 +230,49 @@ describe("ContextStore index migration", () => {
   });
 
   // Turn the db into what the pre-Unicode release wrote: no index_version
-  // column, and no terms for the Chinese file (the old tokenizer had none).
+  // column, terms keyed by (source_id, file_path), and no terms for the
+  // Chinese file (the old ASCII tokenizer had none).
   function makeLegacy(): void {
     const db = new Database(dbPath);
-    db.run(`DELETE FROM context_terms WHERE file_path LIKE '%zh.md'`);
-    db.run(`ALTER TABLE context_sources DROP COLUMN index_version`);
+    db.exec(`
+      ALTER TABLE context_sources DROP COLUMN index_version;
+      DROP TABLE context_terms;
+      ALTER TABLE context_docs RENAME TO new_docs;
+      CREATE TABLE context_docs (
+        source_id TEXT NOT NULL, file_path TEXT NOT NULL, content TEXT NOT NULL,
+        PRIMARY KEY (source_id, file_path)
+      );
+      INSERT INTO context_docs SELECT source_id, file_path, content FROM new_docs;
+      DROP TABLE new_docs;
+      CREATE TABLE context_terms (
+        source_id TEXT NOT NULL, file_path TEXT NOT NULL, term TEXT NOT NULL, tf_idf REAL NOT NULL,
+        PRIMARY KEY (source_id, file_path, term)
+      );
+      CREATE INDEX idx_terms_lookup ON context_terms(source_id, term);
+      INSERT INTO context_terms
+        SELECT source_id, file_path, w.term, 0.1 FROM context_docs,
+          (SELECT 'cooking' AS term UNION SELECT 'recipe' UNION SELECT 'flour' UNION SELECT 'butter') w
+        WHERE file_path LIKE '%en.md';
+    `);
     db.close();
   }
+
+  test("retrieval is an index lookup on the term table", () => {
+    open((store) => {
+      const { sql, params } = (store as any)._retrieveQuery(["cooking", "recipe"], 5);
+      const plan = ((store as any).db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[])
+        .map((r) => r.detail).join("\n");
+      expect(plan).toMatch(/SEARCH context_terms USING PRIMARY KEY \(term=\?\)/);
+      expect(plan).not.toMatch(/SCAN context_terms/);
+    });
+  });
+
+  test("terms reference integer doc ids instead of repeating paths", () => {
+    const db = new Database(dbPath, { readonly: true });
+    const cols = (db.query(`PRAGMA table_info(context_terms)`).all() as { name: string }[]).map((c) => c.name);
+    db.close();
+    expect(cols).toEqual(["term", "doc_id", "weight"]);
+  });
 
   function indexVersion(): number {
     const db = new Database(dbPath, { readonly: true });
