@@ -57,13 +57,34 @@ Removes the source and all its indexed data from the database.
 
 ## How Snippets Feed Into Translation
 
-The pipeline calls `ContextStore.retrieve(sourceText, limit)` which:
+Single-string `tl translate` and file mode both call `ContextStore.retrieve(sourceText, context.maxSnippets, context.minRelevance)`, which:
 
 1. Tokenizes the source text (see [Tokenization](#tokenization))
-2. Queries the index for files matching those tokens, ranked by sum of TF-IDF scores
-3. Returns up to `limit` results (default: 5; the pipeline passes `context.maxSnippets` from config)
+2. Scores each indexed file by its [relevance](#relevance-score) to those tokens, a number from 0 to 1
+3. Drops files scoring below `minRelevance`, then returns the best `maxSnippets`
 
-The retrieved snippets are passed to the adapter as `contextSnippets` in `TranslationRequest`.
+The retrieved snippets are passed to the adapter as `contextSnippets` in `TranslationRequest`. (The TUI doesn't use context sources.)
+
+## Relevance score
+
+The score is the **cosine similarity** between the query and the file, so it always falls between 0 and 1:
+
+- **File side** (computed at index time): each term's weight is `(1 + ln tf) × idf`, with scikit-learn's smoothed idf, `ln((1 + N) / (1 + df)) + 1`. The smoothing means idf is never 0, so a source containing a single file still scores. The top 1,000 terms are kept and scaled to a unit-length vector.
+- **Query side**: each unique query term counts once. The score is the sum of the matched file weights divided by √(number of query terms). It's 1 when the query consists of exactly the file's terms, all equally weighted, and 0 when nothing matches.
+- A short stopword list (Lucene's English stop set plus common Arabic particles) is removed first, because idf can't separate "the" from real terms in a one-file source.
+
+### Choosing `minRelevance`
+
+The default, **0.09**, comes from measuring related and unrelated queries against English, Arabic, and Chinese reference documents. Each document was tested both as a one-file source and inside a mixed source, plus this repo's own long English docs:
+
+| Reference doc | Related queries | Best-matching file for unrelated queries |
+|---|---|---|
+| English style guide (~200 words) | 0.20, **0.05**, 0.20, 0.26, 0.24 | 0, 0, 0, 0, 0 |
+| Arabic medical glossary (~200 words) | 0.23, 0.13, 0.10, 0.30, 0.18 | 0, 0, 0, **0.08**, 0 |
+| Chinese ML glossary (~400 chars) | 0.17, 0.13, 0.22, 0.13, 0.17 | 0, 0, 0, 0, 0 |
+| repo `docs/` (7 long English files) | 0.16, 0.17, 0.11, 0.22, 0.10 | 0.05, 0, 0.04, 0.06, 0.06 |
+
+Unrelated queries peaked at 0.08 (an Arabic sentence sharing the word "today" with a news file). Every related query except one scored at least 0.10. The exception, `Your invoice is ready`, shares a single word with a long style guide and scored 0.05. Lower `minRelevance` to get more (looser) context, or raise it toward 0.15–0.2 to use only close matches.
 
 ## Tokenization
 
@@ -71,7 +92,7 @@ Indexing and retrieval share one Unicode-aware tokenizer, so it works for any sc
 
 1. **Normalize**: NFKC (folds full-width / compatibility forms, e.g. `ＡＢＣ` → `ABC`), then locale-insensitive lowercase, then strip marks that are optional in normal writing: Arabic tashkeel and tatweel (`مُحَمَّد` → `محمد`) and Hebrew niqqud (`שָׁלוֹם` → `שלום`). Arabic hamza-on-alef forms fold to bare alef (`أ إ آ` → `ا`), and Arabic-Indic / Persian digits become ASCII (`٢٠٢٤` → `2024`).
 2. **Chinese / Japanese / Korean** (Han, Hiragana, Katakana, Hangul runs): overlapping character bigrams — `机器学习` → `机器`, `器学`, `学习`. A run of a single character is kept as a unigram. This is the standard CJK approach in search engines (e.g. Lucene's `CJKAnalyzer`): it needs no dictionary and matches identically whether the phrase appears in a short query or a long document.
-3. **Everything else** (Latin, Cyrillic, Arabic, Hebrew, Greek, Devanagari, Thai, …): words from `Intl.Segmenter` (`granularity: "word"`, Unicode UAX #29 boundaries; Thai/Lao/Khmer/Myanmar are dictionary-segmented). Words shorter than 3 characters are dropped to skip most function words (`is`, `of`, `في`, `на`).
+3. **Everything else** (Latin, Cyrillic, Arabic, Hebrew, Greek, Devanagari, Thai, …): words from `Intl.Segmenter` (`granularity: "word"`, Unicode UAX #29 boundaries; Thai/Lao/Khmer/Myanmar are dictionary-segmented). Words shorter than 3 characters are dropped to skip most function words (`is`, `of`, `في`, `на`), along with Lucene's English stop set (`the`, `and`, `with`, …) and common Arabic particles (`الى`, `على`, `هذا`, …).
 
 ### Upgrading from older versions
 
@@ -88,14 +109,15 @@ Indexed terms are stored in the context database, and each source records the in
 {
   "context": {
     "dbPath": "~/.config/tl/context.db",  // SQLite database location
-    "maxSnippets": 3                        // Max snippets per translation
+    "maxSnippets": 3,                       // Max snippets per translation (and per key in file mode)
+    "minRelevance": 0.09                    // Min relevance score, 0–1 (see "Choosing minRelevance")
   }
 }
 ```
 
 ## Context in file mode
 
-`tl translate --file <path>` retrieves context per leaf, with the source value as the query. Each translated key gets its own up-to-`maxSnippets` snippets ranked by TF-IDF.
+`tl translate --file <path>` retrieves context per leaf, with the source value as the query. Each translated key gets its own snippets: up to `maxSnippets`, ranked by relevance, keeping only those scoring at least `minRelevance`. This is the same filter single-string mode uses.
 
 The tokenizer is Unicode-aware (see [Tokenization](#tokenization)), so Arabic, Cyrillic, CJK, and Thai source values retrieve context too. Values made only of words shorter than 3 characters (outside CJK) still yield no context — translation proceeds without it.
 
