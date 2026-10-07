@@ -79,4 +79,13 @@ describe("sampleRegex", () => {
     expect("3.5 files".match(sampleRegex(3, "en"))).toBeNull();
     expect("1000 files".match(sampleRegex(100, "en"))).toBeNull();
   });
+
+  test("does not match digits inside identifiers such as placeholder sentinels", () => {
+    expect("يتبقى يوم واحد، __TLPH_1__".match(sampleRegex(1, "ar"))).toBeNull();
+    expect("__TLPH_12__".match(sampleRegex(2, "en"))).toBeNull();
+    expect("mp3 files".match(sampleRegex(3, "en"))).toBeNull();
+    // A suffix after the number is fine: ordinals ("1st", "2e") and CJK counters.
+    expect("1st place".match(sampleRegex(1, "en"))?.length).toBe(1);
+    expect("第1位".match(sampleRegex(1, "ja"))?.length).toBe(1);
+  });
 });

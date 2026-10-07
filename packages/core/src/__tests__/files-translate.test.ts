@@ -313,6 +313,19 @@ describe("translateFile", () => {
       expect(JSON.parse(readFileSync(out, "utf8")).item_two).toBe("[ar] عنصران");
     });
 
+    it("a dropped count does not get confused with digits in other placeholder sentinels", async () => {
+      const scripted = new ScriptedAdapter((s) => s.replace(/^1 day/, "one day"));
+      const src = writeSrc("en.json", '{\n  "left_one": "{{count}} day left, {{name}}",\n  "left_other": "{{count}} days left, {{name}}"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      expect(JSON.parse(readFileSync(out, "utf8")).left_one).toBe("[ar] one day left, {{name}}");
+    });
+
     it("falls back to the placeholder text when the model keeps rewriting a non-exact sample", async () => {
       const scripted = new ScriptedAdapter((s) => s.replace(/^3 /, "three "));
       const src = writeSrc("en.json", EN_PLURALS);

@@ -81,5 +81,8 @@ export function sampleRegex(value: number, lang: string): RegExp {
     // Unknown locale — the ASCII form alone is still matched.
   }
   const alt = [...forms].map(escapeRe).join("|");
-  return new RegExp(`(?<![\\p{Nd}.,٫])(?:${alt})(?![\\p{Nd}]|[.,٫]\\p{Nd})`, "gu");
+  // Not preceded by a digit, separator, ASCII letter or underscore — so the
+  // index inside a `__TLPH_1__` sentinel or "mp3" never matches. A trailing
+  // suffix is allowed: ordinals ("1st", "2e") attach letters to the number.
+  return new RegExp(`(?<![\\p{Nd}.,٫A-Za-z_])(?:${alt})(?![\\p{Nd}_]|[.,٫]\\p{Nd})`, "gu");
 }
