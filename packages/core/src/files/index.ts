@@ -13,6 +13,8 @@ import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
 import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
 import { classifyValue } from "./skip";
 import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
+import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
+import { sampleRegex } from "./plurals";
 import type { JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
@@ -64,6 +66,10 @@ const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 
 // 10 retries gives ~99.9% success at ~50% per-attempt rate; cost is paid only on stubborn keys.
 const MAX_PLACEHOLDER_RETRIES = 10;
+
+// Attempts that show the model a sample count (e.g. "3 files") for a plural
+// form before falling back to translating the bare placeholder text.
+const PLURAL_HINT_ATTEMPTS = 3;
 
 // True when both paths name one file on disk. resolve() alone compares strings,
 // so it misses symlinked path components ("/tmp/x" vs "/private/tmp/x" on macOS)
@@ -210,7 +216,18 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // Diff against the source re-rooted under the target locale, so sync and
   // target-only key preservation see the target's own root (`fr:`).
   const localeRoot = rebaseLocaleRoot(sourceData, targetData, sourceLocale, targetLang);
-  const diffSource = localeRoot?.source ?? sourceData;
+  let diffSource = localeRoot?.source ?? sourceData;
+
+  // Rewrite each plural group to the target locale's CLDR categories before the
+  // sync diff, so missing-only/--force apply per target category. Runs on the
+  // re-rooted source so hint paths match the pending leaf paths. The YAML write
+  // template gets the same rewrite so generated keys land where the group was.
+  let plurals: PluralRegenResult | undefined;
+  if (detected.content === "i18next-plurals") {
+    plurals = regenerateI18nextPlurals(diffSource, sourceLang, targetLang);
+    diffSource = plurals.data;
+    if (yamlRead) regenerateYamlPlurals(yamlRead.doc, sourceLang, targetLang);
+  }
   targetData ??= makeEmptyTargetLike(diffSource);
 
   const pending = diffForSync(diffSource, targetData, mode);
@@ -239,11 +256,14 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
   if (localeRoot?.warning) summary.warnings.push(localeRoot.warning);
 
-  if (detected.content === "i18next-plurals") {
+  if (plurals?.unresolved) {
     summary.warnings.push(
-      "i18next plural keys are translated 1:1 from source. Target locale CLDR plural categories may differ — review output manually.",
+      `Unknown CLDR plural rules for "${targetLang}": i18next plural keys were translated 1:1 from source — review output manually.`,
     );
   }
+  // Plural forms whose sample count the model kept rewriting; they were
+  // translated from the bare placeholder text, without a number to inflect for.
+  const unhinted: string[] = [];
 
   for (let i = 0; i < pending.length; i++) {
     const p = pending[i];
@@ -283,17 +303,33 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
     // translategemma reliably honors <term> tags from the glossary path; routing
     // sentinels through that channel preserves them better than naked-token instructions.
-    const sentinelHits: GlossaryHit[] = [];
-    for (const ph of placeholders) {
-      const tok = sentinelFor(ph.index);
-      const idx = masked.indexOf(tok);
-      if (idx >= 0) {
-        sentinelHits.push({
-          entry: { id: `__sentinel_${ph.index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
-          startIndex: idx,
-          endIndex: idx + tok.length,
-        });
+    const sentinelHitsFor = (text: string): GlossaryHit[] => {
+      const hits: GlossaryHit[] = [];
+      for (const ph of placeholders) {
+        const tok = sentinelFor(ph.index);
+        const idx = text.indexOf(tok);
+        if (idx >= 0) {
+          hits.push({
+            entry: { id: `__sentinel_${ph.index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
+            startIndex: idx,
+            endIndex: idx + tok.length,
+          });
+        }
       }
+      return hits;
+    };
+    const sentinelHits = sentinelHitsFor(masked);
+
+    // For a plural form, swap {{count}} for the category's sample number so the
+    // model inflects for it ("3 files", not "__TLPH_0__ files"); the number is
+    // swapped back to the placeholder after translation.
+    const hint = plurals?.hints.get(pathKey(p.path));
+    const counts = hint ? placeholders.filter((ph) => isCountPlaceholder(ph.raw)) : [];
+    let hinted: { text: string; hits: GlossaryHit[]; countTok: string; re: RegExp } | undefined;
+    if (hint && counts.length > 0) {
+      let text = masked;
+      for (const ph of counts) text = text.split(sentinelFor(ph.index)).join(String(hint.value));
+      hinted = { text, hits: sentinelHitsFor(text), countTok: sentinelFor(counts[0].index), re: sampleRegex(hint.value, targetLang) };
     }
 
     const snippets = context.retrieve(p.source, maxSnippets, minRelevance).map((s) => s.content);
@@ -302,13 +338,16 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     let lastReason = "";
     let succeeded = false;
 
+    let usedHint = false;
+
     for (let attempt = 0; attempt < MAX_PLACEHOLDER_RETRIES; attempt++) {
+      const useHint = hinted !== undefined && attempt < PLURAL_HINT_ATTEMPTS;
       let translatedMasked: string;
       try {
-        const result = await runPipeline(masked, sourceLang, targetLang, adapter, glossary, {
+        const result = await runPipeline(useHint ? hinted!.text : masked, sourceLang, targetLang, adapter, glossary, {
           glossaryMode,
           contextSnippets: snippets,
-          extraGlossaryHits: sentinelHits,
+          extraGlossaryHits: useHint ? hinted!.hits : sentinelHits,
           glossaryEntries,
         });
         translatedMasked = result.translated;
@@ -319,14 +358,30 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
         throw err;
       }
 
+      let expected = p.source;
+      if (useHint) {
+        const swapped = translatedMasked.replace(hinted!.re, hinted!.countTok);
+        if (swapped !== translatedMasked) {
+          translatedMasked = swapped;
+        } else if (hint!.exact) {
+          // The category holds only this number (Arabic dual = 2), so a
+          // translation that spells it out or drops it ("ملفان") is still right.
+          expected = placeholders.filter((ph) => !isCountPlaceholder(ph.raw)).map((ph) => ph.raw).join(" ");
+        } else {
+          lastReason = `Plural sample count ${hint!.value} not preserved at ${pathStr} (attempt ${attempt + 1}/${PLURAL_HINT_ATTEMPTS})`;
+          continue;
+        }
+      }
+
       restored = unmask(translatedMasked, placeholders);
       if (placeholders.length === 0) {
         succeeded = true;
         break;
       }
-      const v = validate(p.source, restored);
+      const v = validate(expected, restored);
       if (v.ok) {
         succeeded = true;
+        usedHint = useHint;
         break;
       }
       lastReason = `Placeholder mismatch at ${pathStr} (attempt ${attempt + 1}/${MAX_PLACEHOLDER_RETRIES}) — missing: [${v.missing.join(", ")}], extra: [${v.extra.join(", ")}]`;
@@ -346,10 +401,17 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       );
     }
 
+    if (hinted && !usedHint) unhinted.push(pathStr);
     p.set(restored);
     summary.translated++;
   }
   onProgress?.({ done: pending.length, total: pending.length, path: "" });
+
+  if (unhinted.length > 0) {
+    summary.warnings.push(
+      `${unhinted.length} plural form(s) were translated without a sample count, so their grammatical number may be wrong — review: ${unhinted.join(", ")}`,
+    );
+  }
 
   if (dryRun) return summary;
 
