@@ -141,4 +141,27 @@ describe("computeGlossaryCoverage", () => {
     expect(result.glossaryCoverage).toBeCloseTo(0.5);
     expect(result.missingTerms).toEqual(["cloud"]);
   });
+
+  // Coverage is deliberately a substring check, not a whole-word one: model
+  // output inflects target terms (Arabic ال, Russian case endings, Japanese
+  // particles), and a boundary check would report those as missing.
+  test("counts an Arabic target carrying the definite article as covered", () => {
+    const hit = makeHit("book", "كتاب", 0);
+    expect(computeGlossaryCoverage([hit], "قرأت الكتاب")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("counts an inflected Russian target as covered", () => {
+    const hit = makeHit("computer", "компьютер", 0);
+    expect(computeGlossaryCoverage([hit], "У меня нет компьютера")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("counts a CJK target embedded without spaces as covered", () => {
+    const hits = [makeHit("machine learning", "机器学习", 0), makeHit("Tokyo Tower", "東京タワー", 20)];
+    expect(computeGlossaryCoverage(hits, "我喜欢机器学习。東京タワーに行った")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("reports a missing CJK target", () => {
+    const hit = makeHit("machine learning", "机器学习", 0);
+    expect(computeGlossaryCoverage([hit], "我喜欢深度学习")).toEqual({ glossaryCoverage: 0, missingTerms: ["machine learning"] });
+  });
 });
