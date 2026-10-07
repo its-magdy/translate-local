@@ -100,6 +100,49 @@ describe("regenerateI18nextPlurals", () => {
     expect(r.data).toEqual({ item_one: "{{count}} 個", item_other: "{{count}} 個" });
   });
 
+  test("rejects a look-alike group with a category the source language does not use", () => {
+    // en has no cardinal `two`: player_one/two/other are three players, not plural forms.
+    const players = { player_one: "Player 1", player_two: "Player 2", player_other: "Other players" };
+    expect(regenerateI18nextPlurals(players, "en", "ja").data).toEqual(players);
+    // `_zero` is always allowed (i18next's count === 0 override).
+    const zero = { item_zero: "No items", ...EN };
+    expect(Object.keys(regenerateI18nextPlurals(zero, "en", "ja").data as object)).toEqual(["item_zero", "item_other"]);
+    // Ordinal `two` is an English ordinal category.
+    const ord = { p_ordinal_one: "1st", p_ordinal_two: "2nd", p_ordinal_other: "nth" };
+    expect(Object.keys(regenerateI18nextPlurals(ord, "en", "ja").data as object)).toEqual(["p_ordinal_other"]);
+  });
+
+  test("reports lone `_other` keys when the source language is auto", () => {
+    const r = regenerateI18nextPlurals({ a: { item_other: "{{count}} 個" }, ...EN }, "auto", "en");
+    expect(r.loneOther).toEqual(["a.item_other"]);
+    expect((r.data as { a: object }).a).toEqual({ item_other: "{{count}} 個" });
+    // With a known source language the lone key is either a group (ja) or a look-alike (en): no report.
+    expect(regenerateI18nextPlurals({ gender_other: "Other", ...EN }, "en", "ar").loneOther).toEqual([]);
+  });
+
+  test("skips sample counts that already appear as literal numbers in the text", () => {
+    const src = { f_one: "{{count}} file in 5 folders", f_other: "{{count}} files in 5 folders" };
+    const r = regenerateI18nextPlurals(src, "en", "ru");
+    // ru `many` would be 5 — taken by "5 folders" — so the next many-number is used.
+    expect(r.hints.get(pathKey(["f_many"]))).toEqual({ value: 6, exact: false });
+    expect(r.hints.get(pathKey(["f_few"]))).toEqual({ value: 2, exact: false });
+  });
+
+  test("no collision-free sample → the form is marked for a plain translation", () => {
+    const src = { f_one: "{{count}} file, 2 folders", f_other: "{{count}} files, 2 folders" };
+    const r = regenerateI18nextPlurals(src, "en", "ar");
+    // ar `two` is only 2, which the text already uses.
+    expect(r.hints.has(pathKey(["f_two"]))).toBe(true);
+    expect(r.hints.get(pathKey(["f_two"]))).toBeNull();
+  });
+
+  test("categories whose smallest sample is a million are generated but get no sample", () => {
+    const r = regenerateI18nextPlurals(EN, "en", "fr");
+    // i18next does not fall back from `key_many` to `key_other`, so the key must exist.
+    expect(r.data).toEqual({ item_one: "{{count}} item", item_many: "{{count}} items", item_other: "{{count}} items" });
+    expect(r.hints.has(pathKey(["item_many"]))).toBe(false);
+  });
+
   test("unknown target locale leaves the group as-is and reports it", () => {
     const r = regenerateI18nextPlurals(EN, "en", "xx");
     expect(r.data).toEqual(EN);

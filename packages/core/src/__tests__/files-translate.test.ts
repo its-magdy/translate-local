@@ -370,8 +370,79 @@ describe("translateFile", () => {
         adapter: new FailOnSample(), glossary, context,
       });
       expect(summary.failed).toEqual([]);
-      expect(JSON.parse(readFileSync(out, "utf8")).item_many).toBe("[fr] {{count}} items");
-      expect(summary.warnings[0]).toContain("item_many");
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(after.item_one).toBe("[fr] {{count}} item");
+      // fr `many` (exact millions) is generated but never gets a sample, so it is not a fallback.
+      expect(after.item_many).toBe("[fr] {{count}} items");
+      expect(summary.warnings[0]).toContain("item_one");
+      expect(summary.warnings[0]).not.toContain("item_many");
+    });
+
+    it("a literal number equal to the sample can't stand in for a dropped count", async () => {
+      // The model drops the leading count; "5 folders" must not become "{{count}} folders".
+      const scripted = new ScriptedAdapter((s) => s.replace(/^\d+ /, ""));
+      const src = writeSrc("en.json", '{\n  "f_one": "{{count}} file in 5 folders",\n  "f_other": "{{count}} files in 5 folders"\n}\n');
+      const out = join(dir, "ru.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ru",
+        adapter: scripted, glossary, context,
+      });
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(after.f_many).toBe("[ru] {{count}} files in 5 folders");
+      expect(summary.warnings.join("\n")).toContain("f_many");
+    });
+
+    it("a form with no collision-free sample is translated plainly and reported", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "f_one": "{{count}} file, 2 folders",\n  "f_other": "{{count}} files, 2 folders"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(scripted.sources.filter((s) => s.startsWith("2 "))).toEqual([]);
+      expect(summary.warnings.join("\n")).toContain("f_two");
+      expect(summary.pluralFallbacks).toBe(1);
+    });
+
+    it("hints an i18next-formatted count (`{{count, number}}`)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "n_one": "{{count, number}} item",\n  "n_other": "{{count, number}} items"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.warnings).toEqual([]);
+      expect(scripted.sources).toContain("3 items");
+      expect(JSON.parse(readFileSync(out, "utf8")).n_few).toBe("[ar] {{count, number}} items");
+    });
+
+    it("reports generated forms that have no {{count}} to carry a sample", async () => {
+      const src = writeSrc("en.json", '{\n  "n_one": "One item",\n  "n_other": "Several items"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ru.json"),
+        sourceLang: "en", targetLang: "ru",
+        adapter, glossary, context,
+      });
+      // ru one/few/many span many numbers; `other` (fractions) has no sample by design.
+      expect(summary.warnings).toHaveLength(1);
+      expect(summary.warnings[0]).toContain("n_one, n_few, n_many");
+      expect(summary.pluralFallbacks).toBe(3);
+    });
+
+    it("warns about lone `_other` keys when the source language is auto", async () => {
+      const src = writeSrc("en.json", '{\n  "item_one": "{{count}} item",\n  "item_other": "{{count}} items",\n  "solo_other": "{{count}} 個"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "auto", targetLang: "ar",
+        adapter, glossary, context,
+      });
+      const w = summary.warnings.find((x) => x.includes("solo_other"));
+      expect(w).toBeDefined();
+      expect(w).toContain("--from");
     });
 
     it("en→ja drops categories Japanese does not use", async () => {
