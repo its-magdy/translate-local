@@ -272,7 +272,7 @@ export class ContextStore {
     if (this.legacySchema) {
       return {
         sql: `
-          SELECT t.source_id, t.file_path, d.content, SUM(t.tf_idf) / ? AS score
+          SELECT t.source_id, t.file_path, d.content, MIN(1.0, SUM(t.tf_idf) / ?) AS score
           FROM context_terms t
           LEFT JOIN context_docs d ON d.source_id = t.source_id AND d.file_path = t.file_path
           WHERE t.term IN (${placeholders})
@@ -287,7 +287,7 @@ export class ContextStore {
       sql: `
         SELECT d.source_id, d.file_path, d.content, s.score
         FROM (
-          SELECT doc_id, SUM(weight) / ? AS score
+          SELECT doc_id, MIN(1.0, SUM(weight) / ?) AS score
           FROM context_terms
           WHERE term IN (${placeholders})
           GROUP BY doc_id
@@ -326,6 +326,26 @@ export class ContextStore {
     return skipped;
   }
 
+  // Rows of sources that couldn't be re-indexed (copied legacy rows, or an
+  // older index version) were weighted on an older, unbounded scale. Scale each
+  // such doc to unit length so retrieve() stays a cosine in [0, 1]; a doc whose
+  // weights are all zero (the old idf ln(N/df) can zero everything) loses its
+  // term rows instead of keeping meaningless ones.
+  private _normalizeStaleRows(): void {
+    const docs = this.db.query(`
+      SELECT d.id, COALESCE(SUM(t.weight * t.weight), 0) AS ss
+      FROM context_docs d
+      JOIN context_sources s ON s.id = d.source_id
+      LEFT JOIN context_terms t ON t.doc_id = d.id
+      WHERE s.index_version < ?
+      GROUP BY d.id
+    `).all(CONTEXT_INDEX_VERSION) as { id: number; ss: number }[];
+    for (const { id, ss } of docs) {
+      if (ss > 0) this.db.run(`UPDATE context_terms SET weight = weight / ? WHERE doc_id = ?`, [Math.sqrt(ss), id]);
+      else this.db.run(`DELETE FROM context_terms WHERE doc_id = ?`, [id]);
+    }
+  }
+
   // Rebuild sources indexed by an older CONTEXT_INDEX_VERSION. Runs as one
   // IMMEDIATE transaction so concurrent opens serialize (busy_timeout) and a
   // crash mid-migration leaves the old index intact.
@@ -339,9 +359,14 @@ export class ContextStore {
     const reachable = (src: { path: string }) => {
       try { readdirSync(src.path); return true; } catch { return false; }
     };
-    // Read-only check first: if the only stale sources are unreachable, there
-    // is nothing to do, so don't take a write lock on every open.
-    if (!this._hasLegacySchema() && hasColumn() && !stale().some(reachable)) return;
+    // PRAGMA user_version records that every stored row, including rows of
+    // sources still waiting to be re-indexed, is on the current weight scale.
+    const rowsCurrent = () =>
+      (this.db.query(`PRAGMA user_version`).get() as { user_version: number }).user_version >= CONTEXT_INDEX_VERSION;
+    // Read-only check first: if the only stale sources are unreachable and
+    // their rows are already re-normalized, there is nothing to do, so don't
+    // take a write lock on every open.
+    if (!this._hasLegacySchema() && hasColumn() && rowsCurrent() && !stale().some(reachable)) return;
 
     try {
       this.db.transaction(() => {
@@ -349,7 +374,8 @@ export class ContextStore {
         if (!hasColumn()) {
           this.db.run(`ALTER TABLE context_sources ADD COLUMN index_version INTEGER NOT NULL DEFAULT 0`);
         }
-        if (this._hasLegacySchema()) {
+        const converted = this._hasLegacySchema();
+        if (converted) {
           // Convert to integer doc ids, copying the old rows so a source that
           // can't be re-indexed right now (see below) still has an index.
           this.db.exec(`
@@ -374,6 +400,10 @@ export class ContextStore {
           } catch (err) {
             if (isSqliteError(err)) throw err;
           }
+        }
+        if (converted || !rowsCurrent()) {
+          this._normalizeStaleRows();
+          this.db.run(`PRAGMA user_version = ${CONTEXT_INDEX_VERSION}`);
         }
       }).immediate();
     } catch (err: unknown) {

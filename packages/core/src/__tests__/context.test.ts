@@ -372,9 +372,10 @@ describe("ContextStore index migration", () => {
   // Turn the db into what the pre-Unicode release wrote: no index_version
   // column, terms keyed by (source_id, file_path), and no terms for the
   // Chinese file (the old ASCII tokenizer had none).
-  function makeLegacy(): void {
+  function makeLegacy(oldWeight = 0.1): void {
     const db = new Database(dbPath);
     db.exec(`
+      PRAGMA user_version = 0;
       ALTER TABLE context_sources DROP COLUMN index_version;
       DROP TABLE context_terms;
       ALTER TABLE context_docs RENAME TO new_docs;
@@ -390,7 +391,7 @@ describe("ContextStore index migration", () => {
       );
       CREATE INDEX idx_terms_lookup ON context_terms(source_id, term);
       INSERT INTO context_terms
-        SELECT source_id, file_path, w.term, 0.1 FROM context_docs,
+        SELECT source_id, file_path, w.term, ${oldWeight} FROM context_docs,
           (SELECT 'cooking' AS term UNION SELECT 'recipe' UNION SELECT 'flour' UNION SELECT 'butter') w
         WHERE file_path LIKE '%en.md';
     `);
@@ -448,18 +449,66 @@ describe("ContextStore index migration", () => {
     expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION + 1);
   });
 
+  function expectBounded(snippets: { score: number }[]): void {
+    for (const s of snippets) {
+      expect(s.score).toBeGreaterThan(0);
+      expect(s.score).toBeLessThanOrEqual(1);
+    }
+  }
+
   test("a missing source folder keeps its old index and is retried on a later open", () => {
     makeLegacy();
     renameSync(docs, `${docs}-moved`);
     // Old terms still answer queries; the source is not marked migrated.
     const before = open((store) => store.retrieve("cooking recipe"));
     expect(before.length).toBe(1);
+    expectBounded(before);
     expect(open((store) => store.listSources()[0].fileCount)).toBe(2);
     expect(indexVersion()).toBe(0);
 
     renameSync(`${docs}-moved`, docs);
-    expect(open((store) => store.retrieve("神经网络")).length).toBeGreaterThan(0);
+    const after = open((store) => store.retrieve("神经网络"));
+    expect(after.length).toBeGreaterThan(0);
+    expectBounded(after);
     expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+  });
+
+  test("copied legacy rows are re-normalized and never outrank a fresh exact match", () => {
+    // main's sums of tf*idf could reach ~3; a stale doc must not score above 1.
+    makeLegacy(3);
+    renameSync(docs, `${docs}-moved`);
+    const fresh = join(tmpDir, "fresh");
+    mkdirSync(fresh);
+    writeFileSync(join(fresh, "a.md"), "cooking recipe flour butter");
+    writeFileSync(join(fresh, "b.md"), "volcano eruption lava");
+    open((store) => store.addSource(fresh));
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expectBounded(s);
+    expect(s.map((x) => x.filePath).sort()).toEqual([join(`${docs}`, "en.md"), join(fresh, "a.md")].sort());
+    expect(s[0].score).toBeCloseTo(s[1].score, 5);
+  });
+
+  test("a stale doc whose old weights are all zero is dropped, not kept as garbage", () => {
+    makeLegacy(0); // main's idf ln(N/df) is 0 for a term in every file
+    renameSync(docs, `${docs}-moved`);
+    expect(open((store) => store.retrieve("cooking recipe"))).toEqual([]);
+  });
+
+  test("rows of a source left at an older index version are re-normalized", () => {
+    renameSync(docs, `${docs}-moved`);
+    const db = new Database(dbPath);
+    db.run(`UPDATE context_terms SET weight = weight * 7`);
+    db.run(`UPDATE context_sources SET index_version = ?`, [CONTEXT_INDEX_VERSION - 1]);
+    db.run(`PRAGMA user_version = ${CONTEXT_INDEX_VERSION - 1}`);
+    db.close();
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expect(s.length).toBe(1);
+    expectBounded(s);
+  });
+
+  test("scores are clamped to 1", () => {
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expect(s[0].score).toBeLessThanOrEqual(1);
   });
 
   test("an unreachable source does not take a write lock on later opens", () => {
