@@ -75,6 +75,13 @@ describe("sampleRegex", () => {
     expect("۳ فایل".match(sampleRegex(3, "fa"))?.length).toBe(1);
   });
 
+  test("matches large numbers with or without digit grouping", () => {
+    for (const s of ["1000000 de fichiers", "1 000 000 de fichiers", "1 000 000 de fichiers", "1,000,000 files", "1.000.000 Dateien"]) {
+      expect(s.match(sampleRegex(1000000, "fr"))?.length).toBe(1);
+    }
+    expect("10000000 files".match(sampleRegex(1000000, "en"))).toBeNull();
+  });
+
   test("does not match inside a longer number", () => {
     expect("13 files".match(sampleRegex(3, "en"))).toBeNull();
     expect("3.5 files".match(sampleRegex(3, "en"))).toBeNull();

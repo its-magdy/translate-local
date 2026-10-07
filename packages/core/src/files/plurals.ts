@@ -69,9 +69,13 @@ export function pluralSample(
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Digit-group separators models write in large numbers: "1,000,000",
+// "1.000.000", "1 000 000" (plain, no-break, or narrow no-break space), "1'000'000".
+const GROUP_SEP = "[ ,.'’\\u00a0\\u202f]?";
+
 /**
  * Global regex matching `value` as a whole number in model output, written
- * either in ASCII ("1.5") or the way `lang` formats it ("1,5", "۳").
+ * either in ASCII ("1.5", "1 000 000") or the way `lang` formats it ("1,5", "۳").
  */
 export function sampleRegex(value: number, lang: string): RegExp {
   const forms = new Set([String(value)]);
@@ -80,7 +84,9 @@ export function sampleRegex(value: number, lang: string): RegExp {
   } catch {
     // Unknown locale — the ASCII form alone is still matched.
   }
-  const alt = [...forms].map(escapeRe).join("|");
+  const alt = [...forms]
+    .map((f) => (/^\d{4,}$/.test(f) ? f.replace(/\B(?=(\d{3})+$)/g, "|").split("|").join(GROUP_SEP) : escapeRe(f)))
+    .join("|");
   // Not preceded by a digit, separator, ASCII letter or underscore — so the
   // index inside a `__TLPH_1__` sentinel or "mp3" never matches. A trailing
   // suffix is allowed: ordinals ("1st", "2e") attach letters to the number.

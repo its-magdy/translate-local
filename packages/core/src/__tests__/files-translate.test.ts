@@ -341,6 +341,25 @@ describe("translateFile", () => {
       expect(summary.warnings[0]).toContain("item_few");
     });
 
+    it("a model error on the sample-count text falls back to the plain text", async () => {
+      class FailOnSample extends ScriptedAdapter {
+        async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+          if (/^\d/.test(req.source)) throw new Error("Ollama returned HTTP 500: token repeat limit reached");
+          return super.translate(req);
+        }
+      }
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "fr.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter: new FailOnSample(), glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      expect(JSON.parse(readFileSync(out, "utf8")).item_many).toBe("[fr] {{count}} items");
+      expect(summary.warnings[0]).toContain("item_many");
+    });
+
     it("en→ja drops categories Japanese does not use", async () => {
       const src = writeSrc("en.json", EN_PLURALS);
       const out = join(dir, "ja.json");

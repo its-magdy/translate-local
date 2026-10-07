@@ -354,6 +354,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         lastReason = `Pipeline failed at ${pathStr}: ${msg}`;
+        // A sample count can derail the model (e.g. Ollama aborting on a
+        // repeated "0" token for 1000000) — move on to the plain text instead.
+        if (useHint && !(err instanceof TlError && err.tag === "ADAPTER_UNAVAILABLE")) continue;
         if (continueOnError) break;
         throw err;
       }
