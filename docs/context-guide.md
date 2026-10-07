@@ -69,7 +69,7 @@ The retrieved snippets are passed to the adapter as `contextSnippets` in `Transl
 
 The score is the **cosine similarity** between the query and the file, so it always falls between 0 and 1:
 
-- **File side** (computed at index time): each term's weight is `(1 + ln tf) × idf`, with scikit-learn's smoothed idf, `ln((1 + N) / (1 + df)) + 1`. The smoothing means idf is never 0, so a source containing a single file still scores. The top 1,000 terms are kept and scaled to a unit-length vector.
+- **File side** (computed at index time): each term's weight is `(1 + ln tf) × idf`, with scikit-learn's smoothed idf, `ln((1 + N) / (1 + df)) + 1`. The smoothing means idf is never 0, so a source containing a single file still scores. The file's top terms (300 plus one per CJK bigram, up to 1,000; see [Index size](#index-size)) are kept and scaled to a unit-length vector.
 - **Query side**: each unique query term counts once. The score is the sum of the matched file weights divided by √(number of query terms). It's 1 when the query consists of exactly the file's terms, all equally weighted, and 0 when nothing matches.
 - A short stopword list (Lucene's English stop set plus common Arabic particles) is removed first, because idf can't separate "the" from real terms in a one-file source.
 
@@ -82,9 +82,9 @@ The default, **0.09**, comes from measuring related and unrelated queries agains
 | English style guide (~200 words) | 0.20, **0.05**, 0.20, 0.26, 0.24 | 0, 0, 0, 0, 0 |
 | Arabic medical glossary (~200 words) | 0.23, 0.13, 0.10, 0.30, 0.18 | 0, 0, 0, **0.08**, 0 |
 | Chinese ML glossary (~400 chars) | 0.17, 0.13, 0.22, 0.13, 0.17 | 0, 0, 0, 0, 0 |
-| repo `docs/` (7 long English files) | 0.16, 0.17, 0.11, 0.22, 0.10 | 0.05, 0, 0.04, 0.06, 0.06 |
+| repo `docs/` (7 long English files) | 0.16, 0.15, 0.13, 0.22, 0.10 | 0.05, 0.02, 0.04, 0.08, 0.07 |
 
-Unrelated queries peaked at 0.08 (an Arabic sentence sharing the word "today" with a news file). Every related query except one scored at least 0.10. The exception, `Your invoice is ready`, shares a single word with a long style guide and scored 0.05. Lower `minRelevance` to get more (looser) context, or raise it toward 0.15–0.2 to use only close matches.
+Unrelated queries peaked at 0.08 (an Arabic sentence sharing the word "today" with a news file, and `Welcome to our store` against the long repo docs). Every related query except one scored at least 0.10. The exception, `Your invoice is ready`, shares a single word with a long style guide and scored 0.05. Lower `minRelevance` to get more (looser) context, or raise it toward 0.15–0.2 to use only close matches.
 
 ## Tokenization
 
