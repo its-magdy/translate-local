@@ -6,8 +6,41 @@ import type { ContextSource, ContextSnippet } from "@translate-local/shared/type
 import { TlError } from "@translate-local/shared/errors";
 import { ensurePrivateDir } from "./fsutil";
 
-function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
+// Bump whenever tokenize() output changes: terms are persisted in
+// context_terms, so a db indexed by an older tokenizer is rebuilt on open
+// (tracked via PRAGMA user_version).
+const TOKENIZER_VERSION = 1;
+
+// Scripts written without spaces between words. Indexed as overlapping
+// character bigrams (the Lucene CJKAnalyzer approach): dictionary
+// segmentation can split the same phrase differently in a short query vs. a
+// long document, while bigrams match regardless of context. U+30FC (the
+// katakana long-vowel mark) is Script=Common, so it is listed explicitly.
+const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}ー]+)/u;
+// Arabic tashkeel (harakat, shadda, sukun, Quranic marks) and tatweel —
+// optional in normal writing, so the same word may appear with or without them.
+const ARABIC_MARKS = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g;
+// UAX #29 word boundaries; also dictionary-segments Thai/Lao/Khmer/Myanmar.
+const segmenter = new Intl.Segmenter("und", { granularity: "word" });
+
+export function tokenize(text: string): string[] {
+  const normalized = text.normalize("NFKC").toLowerCase().replace(ARABIC_MARKS, "");
+  const tokens: string[] = [];
+  // split() with a capture group alternates: non-CJK text at even indices,
+  // CJK runs at odd indices.
+  normalized.split(CJK_RUN).forEach((piece, i) => {
+    if (i % 2 === 1) {
+      const chars = [...piece];
+      if (chars.length === 1) tokens.push(piece);
+      for (let j = 0; j + 1 < chars.length; j++) tokens.push(chars[j] + chars[j + 1]);
+      return;
+    }
+    for (const { segment, isWordLike } of segmenter.segment(piece)) {
+      // 3+ code points, as before, to drop short function words.
+      if (isWordLike && [...segment].length >= 3) tokens.push(segment);
+    }
+  });
+  return tokens;
 }
 
 function* walkDir(dir: string): Generator<string> {
@@ -51,6 +84,15 @@ export class ContextStore {
         );
         CREATE INDEX IF NOT EXISTS idx_terms_lookup ON context_terms(source_id, term);
       `);
+      const { user_version } = this.db.query(`PRAGMA user_version`).get() as { user_version: number };
+      if (user_version < TOKENIZER_VERSION) {
+        for (const src of this.listSources()) {
+          // A source dir that no longer exists keeps no stale terms;
+          // `tl context index` reports the error.
+          try { this._reindexSource(src); } catch {}
+        }
+        this.db.run(`PRAGMA user_version = ${TOKENIZER_VERSION}`);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
@@ -120,18 +162,12 @@ export class ContextStore {
   }
 
   reindex(): void {
-    const sources = this.listSources();
-    for (const src of sources) {
-      this.db.transaction(() => {
-        this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
-        this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
-      })();
-      this._indexSource(src.id, src.path);
-    }
+    for (const src of this.listSources()) this._reindexSource(src);
   }
 
   retrieve(query: string, limit = 5): ContextSnippet[] {
-    const terms = tokenize(query);
+    // Dedupe: bigram tokenization repeats terms, and each one is a bind param.
+    const terms = [...new Set(tokenize(query))];
     if (terms.length === 0) return [];
 
     const placeholders = terms.map(() => "?").join(", ");
@@ -159,6 +195,14 @@ export class ContextStore {
 
   close(): void {
     this.db.close();
+  }
+
+  private _reindexSource(src: ContextSource): void {
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
+      this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
+    })();
+    this._indexSource(src.id, src.path);
   }
 
   private _indexSource(sourceId: string, dirPath: string): void {
