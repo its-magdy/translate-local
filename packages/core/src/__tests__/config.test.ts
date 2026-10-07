@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { loadConfig, saveConfig, configSchema } from "../config";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 
 describe("configSchema", () => {
   it("returns defaults for empty object", () => {
@@ -26,6 +26,12 @@ describe("loadConfig", () => {
   it("returns defaults when config file is missing", () => {
     const cfg = loadConfig("/nonexistent/path/config.jsonc");
     expect(cfg.adapter.backend).toBe("local");
+  });
+
+  it("expands ~ in default db paths when config file is missing", () => {
+    const cfg = loadConfig("/nonexistent/path/config.jsonc");
+    expect(cfg.glossary.dbPath).toBe(join(homedir(), ".config/tl/glossary.db"));
+    expect(cfg.context.dbPath).toBe(join(homedir(), ".config/tl/context.db"));
   });
 
   it("loads a valid JSONC config", () => {
