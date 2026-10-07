@@ -2,21 +2,42 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import type { GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { langFallbackChain, normalizeLang } from "@translate-local/shared/utils/language";
 import { ensurePrivateDir } from "./fsutil";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const LATIN_START = /^[a-zA-Z0-9_]/;
-const LATIN_END = /[a-zA-Z0-9_]$/;
+/**
+ * Scripts written without spaces between words. Terms in these scripts are
+ * matched as plain substrings: there is no boundary to anchor on, and
+ * dictionary segmentation (Intl.Segmenter) splits text by its own lexicon,
+ * which need not agree with a user's glossary entries. scx (Script_Extensions)
+ * also covers shared marks like the kana prolonged-sound mark ー.
+ */
+const NO_SPACE_SCRIPTS =
+  "\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Thai}\\p{scx=Lao}\\p{scx=Khmer}\\p{scx=Myanmar}";
+
+/** A word character of a space-delimited script (Latin, Cyrillic, Arabic, Hangul, Devanagari, …). */
+const SPACED_WORD_CHAR = `[[\\p{L}\\p{N}\\p{M}_]--[${NO_SPACE_SCRIPTS}]]`;
+const SPACED_WORD_RE = new RegExp(`^${SPACED_WORD_CHAR}$`, "v");
 
 /**
- * Build a word-boundary regex for a glossary term.
+ * Build a match regex for a glossary term.
  *
- * For ASCII word characters, plain \b works. For non-Latin characters
- * (CJK, Arabic, etc.), we use Unicode-aware negative lookbehind/lookahead
- * with \p{L} so the term is not matched as a substring of a longer word.
+ * `\\b` is ASCII-only (it treats "é" as a non-word char, so "caf" matched inside
+ * "café"), so boundaries are Unicode lookarounds instead. Each edge of the term
+ * is decided by its edge character:
+ * - a word char of a space-delimited script → the neighbour must not be one
+ *   (whole-word match; combining marks count as word chars, so a match never
+ *   ends mid-grapheme);
+ * - a char of a script without word spaces (CJK, kana, Thai, …), or
+ *   punctuation → no assertion (substring match).
+ *
+ * Neighbours from no-space scripts never block a match, so "API" still matches
+ * in "このAPIキー". Arabic clitics (ال / و / ب …) are not stripped: "كتاب" does
+ * not match inside "الكتاب" — add inflected forms as their own entries.
  *
  * Compiled patterns are cached: file mode calls matchTerms once per leaf with
  * the same entries, and recompiling per call dominated the non-model cost.
@@ -27,24 +48,19 @@ const patternCache = new Map<string, RegExp>();
 function termPattern(term: string): RegExp {
   let pattern = patternCache.get(term);
   if (!pattern) {
-    const escaped = escapeRegex(term);
-    const start = LATIN_START.test(term) ? "\\b" : "(?<!\\p{L})";
-    const end = LATIN_END.test(term) ? "\\b" : "(?!\\p{L})";
-    pattern = new RegExp(`${start}${escaped}${end}`, "giu");
+    const chars = [...term];
+    const start = SPACED_WORD_RE.test(chars[0]) ? `(?<!${SPACED_WORD_CHAR})` : "";
+    const end = SPACED_WORD_RE.test(chars[chars.length - 1]) ? `(?!${SPACED_WORD_CHAR})` : "";
+    pattern = new RegExp(`${start}${escapeRegex(term)}${end}`, "giv");
     patternCache.set(term, pattern);
   }
   return pattern;
 }
 
 /**
- * Match glossary terms in text using word-boundary matching.
+ * Match glossary terms in text (Unicode-aware, see termPattern).
  * Longest-first greedy to avoid partial overlaps.
  * Returns hits sorted by startIndex ascending.
- *
- * Uses Unicode-aware boundaries (\p{L}) for non-Latin terms (Arabic, etc.).
- *
- * Known limitation: CJK scripts have no word boundaries between adjacent characters.
- * CJK glossary terms only match when delimited by punctuation, spaces, or string edges.
  */
 export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[] {
   const sorted = [...entries].sort((a, b) => b.sourceTerm.length - a.sourceTerm.length);
@@ -150,13 +166,16 @@ export class GlossaryStore {
   }
 
   list(sourceLang?: string, targetLang?: string): GlossaryEntry[] {
-    try {
-      const conditions: string[] = [];
-      const params: string[] = [];
-      if (sourceLang) { conditions.push("source_lang = ?"); params.push(sourceLang); }
-      if (targetLang) { conditions.push("target_lang = ?"); params.push(targetLang); }
+    const conditions: string[] = [];
+    const params: string[] = [];
+    if (sourceLang) { conditions.push("source_lang = ?"); params.push(sourceLang); }
+    if (targetLang) { conditions.push("target_lang = ?"); params.push(targetLang); }
+    const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    return this.queryEntries(where, params, "Failed to list glossary entries");
+  }
 
-      const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+  private queryEntries(where: string, params: string[], failure: string): GlossaryEntry[] {
+    try {
       const rows = this.db.query(
         `SELECT id, source_term, target_term, source_lang, target_lang, domain, note FROM glossary${where} ORDER BY source_term ASC`,
       ).all(...params) as any[];
@@ -172,12 +191,41 @@ export class GlossaryStore {
       }));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new TlError("GLOSSARY_DB_ERROR", `Failed to list glossary entries: ${msg}`, "Check db integrity", err);
+      throw new TlError("GLOSSARY_DB_ERROR", `${failure}: ${msg}`, "Check db integrity", err);
     }
   }
 
+  /**
+   * Entries usable for translating sourceLang → targetLang, with BCP-47 lookup
+   * fallback on both sides: "en-US" → "fr-CA" also sees en/fr, en-US/fr and
+   * en/fr-CA entries (case-insensitive). Fallback only widens toward the base,
+   * never the other way: an "en" query does not see "en-US" entries. When a
+   * source term has entries at several levels, only the most specific survive
+   * (by number of matched subtags, source + target).
+   */
+  lookup(sourceLang: string, targetLang: string): GlossaryEntry[] {
+    const sourceChain = langFallbackChain(sourceLang);
+    const targetChain = langFallbackChain(targetLang);
+    const specificity = (e: GlossaryEntry) =>
+      (sourceChain.length - sourceChain.indexOf(normalizeLang(e.sourceLang))) +
+      (targetChain.length - targetChain.indexOf(normalizeLang(e.targetLang)));
+
+    const candidates = this.queryEntries(
+      ` WHERE lower(source_lang) IN (${sourceChain.map(() => "?").join(", ")})` +
+        ` AND lower(target_lang) IN (${targetChain.map(() => "?").join(", ")})`,
+      [...sourceChain, ...targetChain],
+      "Failed to look up glossary entries",
+    );
+
+    const best = new Map<string, number>();
+    for (const e of candidates) {
+      best.set(e.sourceTerm, Math.max(best.get(e.sourceTerm) ?? 0, specificity(e)));
+    }
+    return candidates.filter((e) => specificity(e) === best.get(e.sourceTerm));
+  }
+
   findMatches(text: string, sourceLang: string, targetLang: string): GlossaryHit[] {
-    const entries = this.list(sourceLang, targetLang);
+    const entries = this.lookup(sourceLang, targetLang);
     return matchTerms(text, entries);
   }
 

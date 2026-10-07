@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { normalizeLang, isSupported } from "../utils/language";
+import { normalizeLang, isSupported, langFallbackChain } from "../utils/language";
 
 describe("normalizeLang", () => {
   test("lowercases language code", () => {
@@ -41,5 +41,30 @@ describe("isSupported", () => {
   test("returns false for unsupported languages", () => {
     expect(isSupported("xx")).toBe(false);
     expect(isSupported("tlh")).toBe(false); // Klingon not supported
+  });
+});
+
+describe("langFallbackChain", () => {
+  test("returns just the base for a bare language", () => {
+    expect(langFallbackChain("en")).toEqual(["en"]);
+  });
+
+  test("lowercases and truncates region subtags", () => {
+    expect(langFallbackChain("en-US")).toEqual(["en-us", "en"]);
+    expect(langFallbackChain(" EN-us ")).toEqual(["en-us", "en"]);
+  });
+
+  test("walks script + region down one subtag at a time", () => {
+    expect(langFallbackChain("zh-Hant-TW")).toEqual(["zh-hant-tw", "zh-hant", "zh"]);
+  });
+
+  test("drops a trailing singleton when truncating (RFC 4647 §3.4 example)", () => {
+    expect(langFallbackChain("zh-Hant-CN-x-private1-private2")).toEqual([
+      "zh-hant-cn-x-private1-private2",
+      "zh-hant-cn-x-private1",
+      "zh-hant-cn",
+      "zh-hant",
+      "zh",
+    ]);
   });
 });

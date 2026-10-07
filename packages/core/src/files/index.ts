@@ -198,8 +198,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
   // materializations. We hand the entries through PipelineOptions and let the
-  // pipeline match them in-process. Same lang-pair filter as findMatches uses.
-  const glossaryEntries = glossary.list(sourceLang, targetLang);
+  // pipeline match them in-process. Same lang-fallback lookup as findMatches uses.
+  const glossaryEntries = glossary.lookup(sourceLang, targetLang);
 
   const summary: FileTranslateSummary = {
     contentFormat: detected.content,

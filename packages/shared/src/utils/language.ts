@@ -9,6 +9,23 @@ export function normalizeLang(lang: string): string {
 }
 
 /**
+ * BCP-47 lookup fallback chain (RFC 4647 §3.4), most specific first:
+ * "zh-Hant-TW" → ["zh-hant-tw", "zh-hant", "zh"]. Tags are lowercased (BCP-47
+ * tags are case-insensitive). A subtag left dangling as a singleton (e.g. the
+ * "x" of a private-use sequence) is dropped along with the subtag after it.
+ */
+export function langFallbackChain(lang: string): string[] {
+  const subtags = normalizeLang(lang).split("-");
+  const chain: string[] = [];
+  while (subtags.length > 0) {
+    chain.push(subtags.join("-"));
+    subtags.pop();
+    while (subtags.length > 1 && subtags[subtags.length - 1].length === 1) subtags.pop();
+  }
+  return chain;
+}
+
+/**
  * Return true if the language code is in the supported set (after normalization).
  * Accepts both full BCP-47 tags (e.g. "zh-CN") and base codes (e.g. "zh").
  * Regional subtags fall back to the base code (e.g. "zh-TW" → "zh").
