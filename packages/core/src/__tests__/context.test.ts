@@ -203,6 +203,18 @@ describe("tokenize", () => {
     expect(tokenize("שָׁלוֹם")).toEqual(["שלום"]);
   });
 
+  test("drops Snowball stopwords for en/fr/de/es/it/pt/ru", () => {
+    expect(tokenize("You have been logged out of your account")).toEqual(["logged", "account"]);
+    expect(tokenize("Don’t share your password")).toEqual(["share", "password"]);
+    // Snowball keeps "été" (also "summer").
+    expect(tokenize("Vous avez été déconnecté de votre compte")).toEqual(["été", "déconnecté", "compte"]);
+    expect(tokenize("Sie wurden von Ihrem Konto abgemeldet")).toEqual(["wurden", "konto", "abgemeldet"]);
+    expect(tokenize("Se ha cerrado la sesión de su cuenta")).toEqual(["cerrado", "sesión", "cuenta"]);
+    expect(tokenize("Sei stato disconnesso dal tuo account")).toEqual(["stato", "disconnesso", "account"]);
+    expect(tokenize("Você foi desconectado da sua conta")).toEqual(["desconectado", "conta"]);
+    expect(tokenize("Вы вышли из своей учётной записи")).toEqual(["вышли", "своей", "учётной", "записи"]);
+  });
+
   test("drops English and Arabic stopwords", () => {
     expect(tokenize("The invoice and the payment")).toEqual(["invoice", "payment"]);
     expect(tokenize("ذهب إلى السوق")).toEqual(["ذهب", "السوق"]);

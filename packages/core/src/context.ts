@@ -5,6 +5,7 @@ import { join } from "path";
 import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { ensurePrivateDir } from "./fsutil";
+import { STOPWORDS } from "./stopwords";
 
 // Bump whenever tokenize() output or the stored term weights change. Terms are
 // persisted in context_terms, so each source records the version it was
@@ -12,7 +13,8 @@ import { ensurePrivateDir } from "./fsutil";
 // and older sources are rebuilt on open.
 // 2 = integer doc ids (context_docs.id) and a WITHOUT ROWID term table.
 // 3 = cosine-normalized weights with smoothed idf, stopwords.
-export const CONTEXT_INDEX_VERSION = 3;
+// 4 = Snowball stopword lists (en/fr/de/es/it/pt/ru).
+export const CONTEXT_INDEX_VERSION = 4;
 
 // Most-weighted terms stored per document: BASE_TERMS_PER_DOC plus one per
 // distinct CJK bigram, up to MAX_TERMS_PER_DOC. English recall stopped
@@ -42,16 +44,6 @@ const EASTERN_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
 // Hebrew niqqud and cantillation marks, optional in normal writing.
 const HEBREW_MARKS = /[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]/g;
 const WORD_CHAR = /[\p{L}\p{N}]/u;
-// Lucene's default English stop set (EnglishAnalyzer), minus words under 3
-// chars that the length filter already drops. Without it, a one-file source
-// (where idf can't tell "the" from "invoice") matches any English sentence.
-// Plus the most frequent 3+ letter Arabic particles and demonstratives from
-// Lucene's ArabicAnalyzer stop list (in their alef-folded form; see tokenize()).
-const STOPWORDS = new Set([
-  "and", "are", "but", "for", "into", "not", "such", "that", "the", "their",
-  "then", "there", "these", "they", "this", "was", "will", "with",
-  "الى", "على", "هذا", "هذه", "ذلك", "التي", "الذي", "الذين", "كان", "كانت", "حتى", "عند", "بين",
-]);
 // UAX #29 word boundaries; also dictionary-segments Thai/Lao/Khmer/Myanmar.
 const segmenter = new Intl.Segmenter("und", { granularity: "word" });
 
