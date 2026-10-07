@@ -27,11 +27,12 @@ describe("regenerateI18nextPlurals", () => {
     expect(r.hints.get(pathKey(["item_other"]))).toEqual({ value: 2, exact: false });
   });
 
-  test("en→ru uses `_other` for few/many and a decimal sample for `other`", () => {
+  test("en→ru uses `_other` for few/many; fraction-only `other` gets no sample", () => {
     const r = regenerateI18nextPlurals(EN, "en", "ru");
     expect(Object.keys(r.data as object)).toEqual(["item_one", "item_few", "item_many", "item_other"]);
     expect((r.data as Record<string, string>).item_few).toBe("{{count}} items");
-    expect(r.hints.get(pathKey(["item_other"]))).toEqual({ value: 1.5, exact: false });
+    expect((r.data as Record<string, string>).item_other).toBe("{{count}} items");
+    expect(r.hints.has(pathKey(["item_other"]))).toBe(false);
   });
 
   test("with an unknown source language, bases each form on the same category or `_other`", () => {

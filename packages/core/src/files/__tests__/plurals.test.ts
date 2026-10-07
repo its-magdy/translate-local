@@ -22,6 +22,11 @@ describe("pluralCategories", () => {
     expect(pluralCategories("not a tag!")).toBeNull();
     expect(pluralRules("xx")).toBeNull();
   });
+
+  test("tl (Tagalog) resolves through its CLDR alias fil", () => {
+    expect(pluralCategories("tl")).toEqual(["one", "other"]);
+    expect(pluralCategories("tl-PH")).toEqual(["one", "other"]);
+  });
 });
 
 describe("pluralSample", () => {
@@ -45,8 +50,10 @@ describe("pluralSample", () => {
     expect(pluralSample("fr", "many")?.exact).toBe(false);
   });
 
-  test("falls back to a decimal when no integer is in the category", () => {
-    expect(pluralSample("ru", "other")).toEqual({ value: 1.5, exact: false });
+  test("null when the category holds only fractions — there is no count to show", () => {
+    // ru/pl `other` is 1.5, 2.5, …: a "1.5 files" prompt derails the model.
+    expect(pluralSample("ru", "other")).toBeNull();
+    expect(pluralSample("pl", "other")).toBeNull();
   });
 
   test("prefer picks the first accepted value, else the first in the category", () => {
@@ -75,6 +82,13 @@ describe("sampleRegex", () => {
     expect("۳ فایل".match(sampleRegex(3, "fa"))?.length).toBe(1);
   });
 
+  test("matches the number in any Unicode digit system, whatever the locale formats", () => {
+    expect("٣ ملفات".match(sampleRegex(3, "ar"))?.length).toBe(1);
+    expect("۱۱ فایل".match(sampleRegex(11, "ar"))?.length).toBe(1);
+    expect("११ फ़ाइलें".match(sampleRegex(11, "hi"))?.length).toBe(1);
+    expect("١٣ ملفًا".match(sampleRegex(3, "ar"))).toBeNull();
+  });
+
   test("matches large numbers with or without digit grouping", () => {
     for (const s of ["1000000 de fichiers", "1 000 000 de fichiers", "1 000 000 de fichiers", "1,000,000 files", "1.000.000 Dateien"]) {
       expect(s.match(sampleRegex(1000000, "fr"))?.length).toBe(1);
@@ -86,6 +100,12 @@ describe("sampleRegex", () => {
     expect("13 files".match(sampleRegex(3, "en"))).toBeNull();
     expect("3.5 files".match(sampleRegex(3, "en"))).toBeNull();
     expect("1000 files".match(sampleRegex(100, "en"))).toBeNull();
+  });
+
+  test("matches a number sitting directly between placeholder sentinels", () => {
+    // `<b>{{count}}</b>` masks to `__TLPH_0____TLPH_1____TLPH_2__`; the hint puts the number between.
+    expect("__TLPH_0__3__TLPH_2__ ملفات".match(sampleRegex(3, "ar"))?.length).toBe(1);
+    expect("__TLPH_0__ 3 __TLPH_1__".match(sampleRegex(3, "en"))?.length).toBe(1);
   });
 
   test("does not match digits inside identifiers such as placeholder sentinels", () => {

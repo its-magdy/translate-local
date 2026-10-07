@@ -3,21 +3,29 @@
 // generated here are exactly the ones the target locale will look up.
 // Format-agnostic on purpose: nothing here knows about i18next key suffixes.
 
+import { PLACEHOLDER_SENTINEL_PREFIX } from "@translate-local/shared/constants";
+
 export type PluralType = "cardinal" | "ordinal";
 export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
 
 export const PLURAL_CATEGORIES: readonly PluralCategory[] = ["zero", "one", "two", "few", "many", "other"];
 
 // Probe values for finding a representative number per category. Positive
-// integers first (most natural in a sentence), then 0, then decimals for
-// categories that only hold fractions (e.g. Russian `other`). Two multiples of
-// a million so French/Spanish `many` is not mistaken for a single-number category.
-const SAMPLES: readonly number[] = [
+// integers first (most natural in a sentence), then 0. Two multiples of a
+// million so French/Spanish `many` is not mistaken for a single-number category.
+// The decimals are only probed to decide `exact` — never returned as a sample:
+// a fraction-only category (Russian `other`) has no count worth showing, and
+// "1.5 files" derails the model.
+const INTEGER_SAMPLES: readonly number[] = [
   ...Array.from({ length: 200 }, (_, i) => i + 1),
   1000, 10000, 100000, 1000000, 2000000,
   0,
-  1.5, 2.5, 0.5,
 ];
+const DECIMAL_PROBES: readonly number[] = [1.5, 2.5, 0.5];
+
+// Tags the runtime's CLDR data only knows under another code (Bun resolves
+// `fil` but not the legacy `tl` for Tagalog/Filipino).
+const LANGUAGE_ALIASES: Record<string, string> = { tl: "fil" };
 
 const language = (tag: string): string => tag.split("-")[0].toLowerCase();
 
@@ -28,7 +36,9 @@ const language = (tag: string): string => tag.split("-")[0].toLowerCase();
  */
 export function pluralRules(lang: string, type: PluralType = "cardinal"): Intl.PluralRules | null {
   try {
-    const requested = Intl.getCanonicalLocales(lang)[0];
+    const canonical = Intl.getCanonicalLocales(lang)[0];
+    const alias = LANGUAGE_ALIASES[language(canonical)];
+    const requested = alias ? canonical.replace(/^[^-]+/, alias) : canonical;
     const rules = new Intl.PluralRules(requested, { type });
     if (language(rules.resolvedOptions().locale) !== language(requested)) return null;
     return rules;
@@ -52,6 +62,7 @@ export function pluralCategories(lang: string, type: PluralType = "cardinal"): P
  * holds only that one number (Arabic `two` is 2 and nothing else), so a
  * translation may spell the number out or drop it without changing meaning.
  * `prefer` picks the first value it accepts, if the category has one.
+ * Null when the category holds no integer (fractions only) or `lang` is unknown.
  */
 export function pluralSample(
   lang: string,
@@ -61,10 +72,11 @@ export function pluralSample(
 ): { value: number; exact: boolean } | null {
   const rules = pluralRules(lang, type);
   if (!rules) return null;
-  const hits = SAMPLES.filter((n) => rules.select(n) === category);
+  const hits = INTEGER_SAMPLES.filter((n) => rules.select(n) === category);
   if (hits.length === 0) return null;
   const value = (prefer && hits.find(prefer)) ?? hits[0];
-  return { value, exact: hits.length === 1 };
+  const exact = hits.length === 1 && !DECIMAL_PROBES.some((n) => rules.select(n) === category);
+  return { value, exact };
 }
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -72,23 +84,51 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 // Digit-group separators models write in large numbers: "1,000,000",
 // "1.000.000", "1 000 000" (plain, no-break, or narrow no-break space), "1'000'000".
 const GROUP_SEP = "[ ,.'’\\u00a0\\u202f]?";
+const DECIMAL_SEP = "[.,٫]";
+
+// Unicode decimal digits (\p{Nd}) come in contiguous runs of ten, zero first.
+// Collected once so a sample can be matched in any script: 3, ٣, ۳, ३, ৩ …
+let digitZeros: number[] | undefined;
+function digitClass(d: number): string {
+  if (!digitZeros) {
+    digitZeros = [];
+    const nd = /\p{Nd}/u;
+    let run = 0;
+    for (let cp = 0; cp < 0x20000; cp++) {
+      if (!nd.test(String.fromCodePoint(cp))) {
+        run = 0;
+        continue;
+      }
+      if (run++ % 10 === 0) digitZeros.push(cp);
+    }
+  }
+  return `[${digitZeros.map((z) => String.fromCodePoint(z + d)).join("")}]`;
+}
 
 /**
- * Global regex matching `value` as a whole number in model output, written
- * either in ASCII ("1.5", "1 000 000") or the way `lang` formats it ("1,5", "۳").
+ * Global regex matching `value` as a whole number in model output, in any
+ * Unicode digit system, with or without digit grouping ("1 000 000"), with
+ * either decimal separator ("1.5" / "1,5"), or the way `lang` formats it.
+ * Matches a number glued to placeholder sentinels (`__TLPH_0__3__TLPH_1__`)
+ * but never the index digits inside one.
  */
 export function sampleRegex(value: number, lang: string): RegExp {
-  const forms = new Set([String(value)]);
+  const [int, frac] = String(value).split(".");
+  const digits = (s: string): string => [...s].map((c) => digitClass(Number(c))).join("");
+  const intGroups = int.length >= 4 ? int.replace(/\B(?=(\d{3})+$)/g, "|").split("|") : [int];
+  const forms = [intGroups.map(digits).join(GROUP_SEP) + (frac ? DECIMAL_SEP + digits(frac) : "")];
   try {
-    forms.add(new Intl.NumberFormat(lang, { useGrouping: false, maximumFractionDigits: 20 }).format(value));
+    // Covers numbering systems whose digits are not \p{Nd} (e.g. hanidec 三).
+    forms.push(escapeRe(new Intl.NumberFormat(lang, { useGrouping: false, maximumFractionDigits: 20 }).format(value)));
   } catch {
-    // Unknown locale — the ASCII form alone is still matched.
+    // Unknown locale — the digit form alone is still matched.
   }
-  const alt = [...forms]
-    .map((f) => (/^\d{4,}$/.test(f) ? f.replace(/\B(?=(\d{3})+$)/g, "|").split("|").join(GROUP_SEP) : escapeRe(f)))
-    .join("|");
-  // Not preceded by a digit, separator, ASCII letter or underscore — so the
-  // index inside a `__TLPH_1__` sentinel or "mp3" never matches. A trailing
-  // suffix is allowed: ordinals ("1st", "2e") attach letters to the number.
-  return new RegExp(`(?<![\\p{Nd}.,٫A-Za-z_])(?:${alt})(?![\\p{Nd}_]|[.,٫]\\p{Nd})`, "gu");
+  const sentinelIndex = escapeRe(PLACEHOLDER_SENTINEL_PREFIX) + "\\p{Nd}*";
+  // Not preceded by a digit, separator or ASCII letter ("13", "3.5", "mp3"),
+  // nor by a sentinel prefix (the `1` in `__TLPH_1__`). A trailing suffix is
+  // allowed: ordinals ("1st", "2e") and counters attach to the number.
+  return new RegExp(
+    `(?<![\\p{Nd}.,٫A-Za-z])(?<!${sentinelIndex})(?:${forms.join("|")})(?!\\p{Nd}|${DECIMAL_SEP}\\p{Nd})`,
+    "gu",
+  );
 }

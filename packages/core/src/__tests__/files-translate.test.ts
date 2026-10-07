@@ -300,6 +300,20 @@ describe("translateFile", () => {
       expect(scripted.sources).toEqual(["Files", "0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
     });
 
+    it("hints a count wrapped in markup (`<b>{{count}}</b>`)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "n_one": "<b>{{count}}</b> item",\n  "n_other": "<b>{{count}}</b> items"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.warnings).toEqual([]);
+      expect(scripted.sources.some((s) => s.includes("</term>3<term"))).toBe(true);
+      expect(JSON.parse(readFileSync(out, "utf8")).n_few).toBe("[ar] <b>{{count}}</b> items");
+    });
+
     it("accepts a dropped count for a single-number category (Arabic dual)", async () => {
       const scripted = new ScriptedAdapter((s) => (s === "2 items" ? "عنصران" : s));
       const src = writeSrc("en.json", EN_PLURALS);
