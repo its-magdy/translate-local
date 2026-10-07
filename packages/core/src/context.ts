@@ -6,25 +6,47 @@ import type { ContextSource, ContextSnippet } from "@translate-local/shared/type
 import { TlError } from "@translate-local/shared/errors";
 import { ensurePrivateDir } from "./fsutil";
 
-// Bump whenever tokenize() output changes: terms are persisted in
-// context_terms, so a db indexed by an older tokenizer is rebuilt on open
-// (tracked via PRAGMA user_version).
-const TOKENIZER_VERSION = 1;
+// Bump whenever tokenize() output or the stored term weights change. Terms are
+// persisted in context_terms, so each source records the version it was
+// indexed with (context_sources.index_version; 0 = before this column existed)
+// and older sources are rebuilt on open.
+export const CONTEXT_INDEX_VERSION = 1;
+
+// Most-weighted terms stored per document. CJK bigrams yield roughly one term
+// per character, so the old cap of 100 made only the first ~100 characters of
+// a Chinese document searchable. 1000 keeps every term of CJK documents up to
+// ~1,000–1,500 characters; for English, recall stopped improving at ~300 in
+// measurements. See docs/context-guide.md for size/speed numbers.
+const MAX_TERMS_PER_DOC = 1000;
+// Long enough for a migration of a large corpus in another process.
+const BUSY_TIMEOUT_MS = 30_000;
 
 // Scripts written without spaces between words. Indexed as overlapping
 // character bigrams (the Lucene CJKAnalyzer approach): dictionary
 // segmentation can split the same phrase differently in a short query vs. a
 // long document, while bigrams match regardless of context. U+30FC (the
 // katakana long-vowel mark) is Script=Common, so it is listed explicitly.
-const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}ー]+)/u;
+const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u30FC]+)/u;
 // Arabic tashkeel (harakat, shadda, sukun, Quranic marks) and tatweel —
 // optional in normal writing, so the same word may appear with or without them.
-const ARABIC_MARKS = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g;
+const ARABIC_MARKS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+// Hamza-on-alef and madda forms, written or omitted interchangeably.
+const ARABIC_ALEF_VARIANTS = /[\u0622\u0623\u0625]/g;
+// Arabic-Indic (U+0660–U+0669) and Persian (U+06F0–U+06F9) digits.
+const EASTERN_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
+// Hebrew niqqud and cantillation marks, optional in normal writing.
+const HEBREW_MARKS = /[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]/g;
 // UAX #29 word boundaries; also dictionary-segments Thai/Lao/Khmer/Myanmar.
 const segmenter = new Intl.Segmenter("und", { granularity: "word" });
 
 export function tokenize(text: string): string[] {
-  const normalized = text.normalize("NFKC").toLowerCase().replace(ARABIC_MARKS, "");
+  const normalized = text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(ARABIC_MARKS, "")
+    .replace(ARABIC_ALEF_VARIANTS, "\u0627")
+    .replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - 0x0660) % 0x90))
+    .replace(HEBREW_MARKS, "");
   const tokens: string[] = [];
   // split() with a capture group alternates: non-CJK text at even indices,
   // CJK runs at odd indices.
@@ -61,13 +83,17 @@ export class ContextStore {
     try {
       ensurePrivateDir(dbPath);
       this.db = new Database(dbPath);
+      // Another process may be migrating or indexing; wait instead of
+      // failing with "database is locked".
+      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (
           id TEXT PRIMARY KEY,
           path TEXT UNIQUE NOT NULL,
           added_at TEXT NOT NULL,
           indexed_at TEXT,
-          file_count INTEGER DEFAULT 0
+          file_count INTEGER DEFAULT 0,
+          index_version INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS context_docs (
           source_id TEXT NOT NULL,
@@ -84,15 +110,7 @@ export class ContextStore {
         );
         CREATE INDEX IF NOT EXISTS idx_terms_lookup ON context_terms(source_id, term);
       `);
-      const { user_version } = this.db.query(`PRAGMA user_version`).get() as { user_version: number };
-      if (user_version < TOKENIZER_VERSION) {
-        for (const src of this.listSources()) {
-          // A source dir that no longer exists keeps no stale terms;
-          // `tl context index` reports the error.
-          try { this._reindexSource(src); } catch {}
-        }
-        this.db.run(`PRAGMA user_version = ${TOKENIZER_VERSION}`);
-      }
+      this._migrate();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
@@ -197,12 +215,46 @@ export class ContextStore {
     this.db.close();
   }
 
-  private _reindexSource(src: ContextSource): void {
+  // One transaction: if the directory walk or a read fails, the delete rolls
+  // back and the source keeps its previous index.
+  private _reindexSource(src: { id: string; path: string }): void {
     this.db.transaction(() => {
       this.db.run(`DELETE FROM context_terms WHERE source_id = ?`, [src.id]);
       this.db.run(`DELETE FROM context_docs WHERE source_id = ?`, [src.id]);
+      this._indexSource(src.id, src.path);
     })();
-    this._indexSource(src.id, src.path);
+  }
+
+  // Rebuild sources indexed by an older CONTEXT_INDEX_VERSION. Runs as one
+  // IMMEDIATE transaction so concurrent opens serialize (busy_timeout) and a
+  // crash mid-migration leaves the old index intact.
+  private _migrate(): void {
+    const hasColumn = () =>
+      (this.db.query(`PRAGMA table_info(context_sources)`).all() as { name: string }[])
+        .some((c) => c.name === "index_version");
+    const stale = () =>
+      this.db.query(`SELECT id, path FROM context_sources WHERE index_version < ?`)
+        .all(CONTEXT_INDEX_VERSION) as { id: string; path: string }[];
+    if (hasColumn() && stale().length === 0) return;
+
+    try {
+      this.db.transaction(() => {
+        // Re-check under the write lock: another process may have finished first.
+        if (!hasColumn()) {
+          this.db.run(`ALTER TABLE context_sources ADD COLUMN index_version INTEGER NOT NULL DEFAULT 0`);
+        }
+        for (const src of stale()) {
+          // Unreachable folder (unmounted drive, moved directory): keep the old
+          // index and retry on a later open. Other errors propagate.
+          try { readdirSync(src.path); } catch { continue; }
+          this._reindexSource(src);
+        }
+      }).immediate();
+    } catch (err: unknown) {
+      // Read-only db: keep serving the old index rather than failing every command.
+      if ((err as { code?: string }).code === "SQLITE_READONLY") return;
+      throw err;
+    }
   }
 
   private _indexSource(sourceId: string, dirPath: string): void {
@@ -210,7 +262,7 @@ export class ContextStore {
     for (const f of walkDir(dirPath)) files.push(f);
 
     if (files.length === 0) {
-      this.db.run(`UPDATE context_sources SET indexed_at = ?, file_count = 0 WHERE id = ?`, [new Date().toISOString(), sourceId]);
+      this.db.run(`UPDATE context_sources SET indexed_at = ?, file_count = 0, index_version = ? WHERE id = ?`, [new Date().toISOString(), CONTEXT_INDEX_VERSION, sourceId]);
       return;
     }
 
@@ -254,14 +306,15 @@ export class ContextStore {
         }
 
         scored.sort((a, b) => b.score - a.score);
-        for (const { term, score } of scored.slice(0, 100)) {
+        for (const { term, score } of scored.slice(0, MAX_TERMS_PER_DOC)) {
           insertTerm.run(sourceId, file, term, score);
         }
       }
 
-      this.db.run(`UPDATE context_sources SET indexed_at = ?, file_count = ? WHERE id = ?`, [
+      this.db.run(`UPDATE context_sources SET indexed_at = ?, file_count = ?, index_version = ? WHERE id = ?`, [
         new Date().toISOString(),
         indexedCount,
+        CONTEXT_INDEX_VERSION,
         sourceId,
       ]);
     })();

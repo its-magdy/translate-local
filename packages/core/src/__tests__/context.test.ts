@@ -1,9 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, mkdtempSync, renameSync, chmodSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Database } from "bun:sqlite";
-import { ContextStore, tokenize } from "../context";
+import { ContextStore, tokenize, CONTEXT_INDEX_VERSION } from "../context";
 
 // Temp SQLite + local files only — no external services, so run by default.
 // The former TEST_INTEGRATION gate hid the whole suite from plain `bun run test`.
@@ -129,6 +129,18 @@ describe("tokenize", () => {
     expect(tokenize("การเรียนรู้ของเครื่อง")).toContain("เครื่อง");
   });
 
+  test("folds Arabic hamza-on-alef forms to bare alef", () => {
+    expect(tokenize("أحمد إسلام آمال")).toEqual(tokenize("احمد اسلام امال"));
+  });
+
+  test("maps Arabic-Indic and Persian digits to ASCII", () => {
+    expect(tokenize("٢٠٢٤ ۱۲۳")).toEqual(["2024", "123"]);
+  });
+
+  test("strips Hebrew niqqud", () => {
+    expect(tokenize("שָׁלוֹם")).toEqual(["שלום"]);
+  });
+
   test("applies NFKC normalization (full-width Latin)", () => {
     expect(tokenize("ＡＢＣＤ")).toEqual(["abcd"]);
   });
@@ -174,6 +186,20 @@ describe("ContextStore non-Latin retrieval", () => {
     expect(s[0].filePath).toContain("zh.md");
   });
 
+  test("the end of a long Chinese doc stays searchable", () => {
+    const docs2 = join(tmpDir, "docs-long");
+    mkdirSync(docs2);
+    // ~600 distinct bigrams (the old 100-term cap kept only the first ~100),
+    // then a closing sentence with unique terms.
+    const filler = Array.from({ length: 600 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
+    writeFileSync(join(docs2, "long.md"), `${filler}。数据保留期限为九十天，过期后自动删除。`);
+    writeFileSync(join(docs2, "other.md"), "旅行指南：春天是游览杭州的最佳季节。");
+    store.addSource(docs2);
+    const s = store.retrieve("过期后自动删除");
+    expect(s.length).toBeGreaterThan(0);
+    expect(s[0].filePath).toContain("long.md");
+  });
+
   test("short Japanese query retrieves the Japanese doc", () => {
     const s = store.retrieve("小麦粉");
     expect(s.length).toBeGreaterThan(0);
@@ -181,33 +207,105 @@ describe("ContextStore non-Latin retrieval", () => {
   });
 });
 
-describe("ContextStore tokenizer migration", () => {
-  test("reindexes sources indexed by an older tokenizer on open", () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), "tl-ctx-migrate-"));
-    try {
-      const docs = join(tmpDir, "docs");
-      mkdirSync(docs);
-      writeFileSync(join(docs, "zh.md"), "机器学习使用神经网络分析大量数据");
-      writeFileSync(join(docs, "en.md"), "cooking recipe flour butter");
-      const dbPath = join(tmpDir, "context.db");
+describe("ContextStore index migration", () => {
+  let tmpDir: string;
+  let docs: string;
+  let dbPath: string;
 
-      let store = new ContextStore(dbPath);
-      store.addSource(docs);
-      store.close();
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "tl-ctx-migrate-"));
+    docs = join(tmpDir, "docs");
+    mkdirSync(docs);
+    writeFileSync(join(docs, "zh.md"), "机器学习使用神经网络分析大量数据");
+    writeFileSync(join(docs, "en.md"), "cooking recipe flour butter");
+    dbPath = join(tmpDir, "context.db");
+    const store = new ContextStore(dbPath);
+    store.addSource(docs);
+    store.close();
+  });
 
-      // Simulate a db written by the old ASCII-only tokenizer.
-      const db = new Database(dbPath);
-      db.run(`DELETE FROM context_terms WHERE file_path LIKE '%zh.md'`);
-      db.run(`PRAGMA user_version = 0`);
-      db.close();
+  afterEach(() => {
+    try { chmodSync(dbPath, 0o644); } catch {}
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
 
-      store = new ContextStore(dbPath);
-      const s = store.retrieve("神经网络");
-      store.close();
-      expect(s.length).toBeGreaterThan(0);
-      expect(s[0].filePath).toContain("zh.md");
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
+  // Turn the db into what the pre-Unicode release wrote: no index_version
+  // column, and no terms for the Chinese file (the old tokenizer had none).
+  function makeLegacy(): void {
+    const db = new Database(dbPath);
+    db.run(`DELETE FROM context_terms WHERE file_path LIKE '%zh.md'`);
+    db.run(`ALTER TABLE context_sources DROP COLUMN index_version`);
+    db.close();
+  }
+
+  function indexVersion(): number {
+    const db = new Database(dbPath, { readonly: true });
+    const row = db.query(`SELECT index_version FROM context_sources`).get() as { index_version: number };
+    db.close();
+    return row.index_version;
+  }
+
+  function open<T>(fn: (store: ContextStore) => T): T {
+    const store = new ContextStore(dbPath);
+    try { return fn(store); } finally { store.close(); }
+  }
+
+  test("reindexes a legacy db on open", () => {
+    makeLegacy();
+    const s = open((store) => store.retrieve("神经网络"));
+    expect(s.length).toBeGreaterThan(0);
+    expect(s[0].filePath).toContain("zh.md");
+    expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+  });
+
+  test("a current db does no reindex work on open", () => {
+    writeFileSync(join(docs, "new.md"), "volcano eruption lava");
+    expect(open((store) => store.retrieve("volcano"))).toEqual([]);
+  });
+
+  test("a source indexed by a newer version is left untouched", () => {
+    const db = new Database(dbPath);
+    db.run(`UPDATE context_sources SET index_version = ?`, [CONTEXT_INDEX_VERSION + 1]);
+    db.close();
+    writeFileSync(join(docs, "new.md"), "volcano eruption lava");
+    expect(open((store) => store.retrieve("volcano"))).toEqual([]);
+    expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION + 1);
+  });
+
+  test("a missing source folder keeps its old index and is retried on a later open", () => {
+    makeLegacy();
+    renameSync(docs, `${docs}-moved`);
+    // Old terms still answer queries; the source is not marked migrated.
+    const before = open((store) => store.retrieve("cooking recipe"));
+    expect(before.length).toBe(1);
+    expect(open((store) => store.listSources()[0].fileCount)).toBe(2);
+    expect(indexVersion()).toBe(0);
+
+    renameSync(`${docs}-moved`, docs);
+    expect(open((store) => store.retrieve("神经网络")).length).toBeGreaterThan(0);
+    expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+  });
+
+  test("a read-only legacy db opens and serves the old index", () => {
+    makeLegacy();
+    chmodSync(dbPath, 0o444);
+    const s = open((store) => store.retrieve("cooking recipe"));
+    expect(s.length).toBe(1);
+  });
+
+  test("concurrent opens of a legacy db all succeed", async () => {
+    makeLegacy();
+    const script = `
+      const { ContextStore } = await import(${JSON.stringify(join(import.meta.dir, "../context.ts"))});
+      const s = new ContextStore(${JSON.stringify(dbPath)});
+      if (s.retrieve("神经网络").length === 0) process.exit(2);
+      s.close();
+    `;
+    const procs = Array.from({ length: 4 }, () =>
+      Bun.spawn(["bun", "-e", script], { stdout: "pipe", stderr: "pipe" }),
+    );
+    const codes = await Promise.all(procs.map((p) => p.exited));
+    const errors = await Promise.all(procs.map((p) => new Response(p.stderr).text()));
+    expect({ codes, errors: errors.filter(Boolean) }).toEqual({ codes: [0, 0, 0, 0], errors: [] });
   });
 });
