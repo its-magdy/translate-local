@@ -7,6 +7,19 @@ describe("extract", () => {
     expect(phs).toEqual(["{{name}}", "{{count}}"]);
   });
 
+  test("i18next formatted interpolation {{name, format(options)}}", () => {
+    const src = "{{count, number}} items, {{val, currency(USD)}}, {{d, relativetime(range: quarter; style: narrow;)}}, {{v, number(minimumFractionDigits: 2)}}";
+    expect(extract(src).map((p) => p.raw)).toEqual([
+      "{{count, number}}",
+      "{{val, currency(USD)}}",
+      "{{d, relativetime(range: quarter; style: narrow;)}}",
+      "{{v, number(minimumFractionDigits: 2)}}",
+    ]);
+    expect(containsICU(src)).toBe(false);
+    // Masked whole, so the model never sees (or translates) the format name.
+    expect(mask("{{count, number}} items").masked).toBe("__TLPH_0__ items");
+  });
+
   test("Rails %{name}", () => {
     const phs = extract("Bonjour %{user}!").map((p) => p.raw);
     expect(phs).toEqual(["%{user}"]);
