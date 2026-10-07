@@ -28,6 +28,8 @@ tl context add ~/projects/myapp/docs
 
 The directory is indexed immediately on `add`. File content is stored (first 500 characters per file) along with TF-IDF scores for each file's top terms (300, plus one per Chinese/Japanese/Korean bigram, up to 1,000).
 
+Subfolders that can't be read (for example, permission denied) are skipped with a warning, and the rest is indexed. If the folder itself can't be read, nothing is added, and re-adding an existing path that fails keeps the previous index. `tl context index` skips unreadable subfolders the same way.
+
 ### List context sources
 
 ```bash
@@ -76,8 +78,9 @@ Indexing and retrieval share one Unicode-aware tokenizer, so it works for any sc
 Indexed terms are stored in the context database, and each source records the index version it was built with. When a new release changes tokenization or scoring, the first command that opens the database rebuilds every out-of-date source. That command takes about as long as `tl context index` (it scales with corpus size: about 2–5 s for 1,000 Markdown files / 12 MB on a laptop) and runs once.
 
 - The rebuild runs in a single transaction. If several `tl` processes start at once, the others wait for it to finish (up to 30 s) instead of failing, and a crash partway through leaves the previous index intact.
-- A source whose folder is missing or unreadable (unmounted drive, moved directory) keeps its previous index and is rebuilt on a later open once the folder is back. Use `tl context remove` if it's gone for good.
+- A source that can't be re-indexed (missing or unreadable folder, unmounted drive, any other file error) keeps its previous index and is retried on a later open, without blocking the command. Checking for that is read-only, so a missing folder doesn't make every command take a write lock. Use `tl context remove` if the folder is gone for good. Unreadable subfolders are skipped, as with `tl context add`.
 - A read-only database is not migrated. It keeps serving its previous index.
+- **The upgrade is one-way.** Older releases (0.4.2 and earlier) can't read a migrated database: every `tl translate` fails with `no such column: source_id`. To go back to an older release, delete the context database (`~/.config/tl/context.db` by default) and run `tl context add` again for each source. `tl context list --json` on the new version prints the paths.
 
 ## Configuration
 
