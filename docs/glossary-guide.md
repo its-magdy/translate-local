@@ -122,9 +122,9 @@ In a typical file translation of N keys, glossary matching runs N times. Each ma
 
 ## Term matching
 
-Source terms are matched case-insensitively. How a term's edges are anchored depends on the script of the character at that edge:
+Source terms are matched case-insensitively (simple case folding only: `ß` does not match `SS`, and Turkish `İ` does not match `i`). How a term's edges are anchored depends on the script of the character at that edge:
 
-- **Space-delimited scripts** (Latin incl. accented letters, Cyrillic, Greek, Arabic, Hebrew, Hangul, Devanagari, …): whole-word match. The neighbouring character must not be a letter, digit, combining mark, or `_` of a space-delimited script. `café` matches in `un café noir` but not in `cafés`; `caf` does not match inside `café`.
+- **Space-delimited scripts** (Latin incl. accented letters, Cyrillic, Greek, Arabic, Hebrew, Hangul, Devanagari, …): whole-word match. The neighbouring character must not be a letter, digit, combining mark, `_`, or zero-width (non-)joiner (U+200C/U+200D) of a space-delimited script. So Persian `کتاب` does not match inside `کتاب‌ها`. `café` matches in `un café noir` but not in `cafés`; `caf` does not match inside `café`.
 - **Scripts without word spaces** (Chinese, Japanese kanji/kana, Thai, Lao, Khmer, Myanmar): substring match. `机器学习` matches in `我喜欢机器学习技术`, and `東京タワー` matches in `東京タワーに行く`.
 - **Punctuation at an edge** (e.g. `C++`, `(beta)`): that edge is not anchored. Regex metacharacters in terms are always matched literally.
 
@@ -132,7 +132,7 @@ A neighbour from a no-space script never blocks a match, so `API` matches in `�
 
 Substring matching for CJK/Thai was chosen over `Intl.Segmenter` (which Bun supports): dictionary segmentation splits text by ICU's lexicon, which need not agree with your entries (e.g. it splits `机器学习` into `机器|学习`), and results can change between ICU versions. Substring matching is deterministic and what CAT tools commonly do for these scripts. The tradeoff is that a short CJK term can match inside a longer compound; longer entries win over shorter overlapping ones, so add the compound as its own entry if needed.
 
-**Attached prefixes and particles are not stripped.** In Arabic, `كتاب` does not match inside `الكتاب`, `وكتاب`, or `بكتاب`; in Korean, `서울` does not match inside `서울에서`. Add the forms you need as separate entries. This keeps matches on whole words, so the injected `<term>` tag never splits a word.
+**Attached prefixes and particles are not stripped.** In Arabic, `كتاب` does not match inside `الكتاب`, `وكتاب`, or `بكتاب`; in Korean, `서울` does not match inside `서울에서`. Add the forms you need as separate entries. This keeps matches on whole words, so in space-delimited scripts the injected `<term>` tag does not split a word.
 
 ## Language code fallback
 
@@ -143,7 +143,7 @@ Language codes are matched case-insensitively (`en-us` == `en-US`) and fall back
 
 So `tl "..." --from en-US --to fr-CA` uses entries stored under `en`/`fr`, `en-US`/`fr`, `en`/`fr-CA`, and `en-US`/`fr-CA`. Fallback only goes toward the base: translating from `en` does **not** use entries stored under `en-US`.
 
-When the same source term has entries at several levels, the most specific wins (counted in matched subtags, source plus target). With `email → e-mail` under `en`/`fr` and `email → courriel` under `en`/`fr-CA`, `--to fr-CA` uses `courriel` and `--to fr-FR` uses `e-mail`.
+When the same source term (compared case-insensitively, so `Email` and `email` compete) has entries at several levels, the most specific wins: the entry with the more specific **target** tag wins first, and the more specific source tag breaks the remaining tie. Target goes first because the output language decides which term is right: for `--from en-US --to fr-CA`, an `en`/`fr-CA` entry beats an `en-US`/`fr` entry. With `email → e-mail` under `en`/`fr` and `email → courriel` under `en`/`fr-CA`, `--to fr-CA` uses `courriel` and `--to fr-FR` uses `e-mail`.
 
 `tl glossary list --from/--to` still filters by the exact stored code.
 
