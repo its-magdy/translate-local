@@ -61,10 +61,13 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   // Context must come before the translate instruction: everything after it is
   // treated as the text to translate, so snippets there leak into the output.
   if (request.contextSnippets && request.contextSnippets.length > 0) {
-    lines.push("Reference material for terminology and style only (do not translate it, do not include it in your output):");
+    // Snippets are raw 500-char slices, so tag each one to keep their
+    // boundaries clear to the model.
+    lines.push("Reference material for terminology and style only, inside <reference> tags (do not translate it, do not include it in your output):");
     for (const snippet of request.contextSnippets) {
-      lines.push(snippet);
+      lines.push("<reference>", snippet, "</reference>");
     }
+    lines.push("");
   }
 
   if (!isImageMode) {

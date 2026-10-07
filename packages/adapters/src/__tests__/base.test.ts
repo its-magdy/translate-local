@@ -54,6 +54,12 @@ describe("buildStructuredPrompt", () => {
     expect(text).not.toContain("This is a software project.");
   });
 
+  test("delimits each context snippet and leaves a blank line before the translate instruction", () => {
+    const req = { ...baseRequest, contextSnippets: ["First snippet.", "Second snippet."] };
+    const { prompt } = buildStructuredPrompt(req);
+    expect(prompt).toContain("<reference>\nFirst snippet.\n</reference>\n<reference>\nSecond snippet.\n</reference>\n\nPlease translate the following");
+  });
+
   test("does not include Source: or Translation: labels (BUG-006)", () => {
     const { prompt } = buildStructuredPrompt(baseRequest);
     expect(prompt).not.toContain("Source:");
