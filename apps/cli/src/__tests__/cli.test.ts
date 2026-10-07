@@ -1,15 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
 const CLI = join(import.meta.dir, "../../src/index.ts");
+// tl resolves ~/.config/tl from homedir(), so every spawn gets a throwaway HOME —
+// otherwise the suite reads and migrates the developer's real databases.
+const TEST_HOME = mkdtempSync(join(tmpdir(), "tl-home-"));
 
 function run(args: string[], env?: Record<string, string>): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", ["run", CLI, ...args], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", ...env },
+    env: { ...process.env, NO_COLOR: "1", HOME: TEST_HOME, ...env },
   });
   return {
     stdout: result.stdout ?? "",
@@ -304,5 +307,13 @@ describe("tl CLI", () => {
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("--image");
     });
+  });
+});
+
+describe("test isolation", () => {
+  it("opens stores under the throwaway HOME, not the real one", () => {
+    const { exitCode } = run(["glossary", "list"]);
+    expect(exitCode).toBe(0);
+    expect(existsSync(join(TEST_HOME, ".config/tl/glossary.db"))).toBe(true);
   });
 });
