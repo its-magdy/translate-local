@@ -48,6 +48,8 @@ describe("pluralSample", () => {
     expect(pluralSample("fr", "one")).toEqual({ value: 1, exact: false });
     // fr `many` is every multiple of a million, not just 1e6.
     expect(pluralSample("fr", "many")?.exact).toBe(false);
+    // da `one` is 1 among integers, but also 0.1–1.9: not single-valued.
+    expect(pluralSample("da", "one")).toEqual({ value: 1, exact: false });
   });
 
   test("null when the category holds only fractions — there is no count to show", () => {

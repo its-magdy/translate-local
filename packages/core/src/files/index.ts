@@ -341,6 +341,12 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     if (hint && counts.length > 0) {
       let text = masked;
       for (const ph of counts) text = text.split(sentinelFor(ph.index)).join(String(hint.value));
+      // Markup stays raw in the hinted text: translategemma keeps `<b>3</b>`
+      // but drops sentinels glued to a bare number (`__TLPH_0__3__TLPH_2__`).
+      // Raw tags in the output still pass validate(), which compares raw forms.
+      for (const ph of placeholders) {
+        if (ph.raw.startsWith("<")) text = text.split(sentinelFor(ph.index)).join(ph.raw);
+      }
       hinted = { text, hits: sentinelHitsFor(text), countTok: sentinelFor(counts[0].index), re: sampleRegex(hint.value, targetLang) };
     }
 

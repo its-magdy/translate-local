@@ -310,7 +310,9 @@ describe("translateFile", () => {
         adapter: scripted, glossary, context,
       });
       expect(summary.warnings).toEqual([]);
-      expect(scripted.sources.some((s) => s.includes("</term>3<term"))).toBe(true);
+      // Markup stays raw around the sample: translategemma keeps `<b>3</b>` but drops
+      // sentinels glued to a bare number (`__TLPH_0__3__TLPH_2__` → `3`).
+      expect(scripted.sources).toContain("<b>3</b> items");
       expect(JSON.parse(readFileSync(out, "utf8")).n_few).toBe("[ar] <b>{{count}}</b> items");
     });
 
