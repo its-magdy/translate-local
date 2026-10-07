@@ -53,6 +53,8 @@ The default mode is `missing-only`. A target value is translated when:
 
 Pass `--force` to re-translate every leaf regardless of existing target value.
 
+**Locale-rooted catalogs (Rails).** Rails reads the locale from the file's root key (`en:` in `config/locales/en.yml`), not from the filename. When the source root is a mapping with exactly one key that equals the source locale (case-insensitive, `-` and `_` treated alike, so `pt-BR` matches `pt_BR`), `tl` renames that key to the `--to` value as typed, keeping comments and styles, and prints `Root locale key: en -> fr`. With `--from auto`, the locale token from the filename is used. Sync runs against the target's own root (`fr:`). If the existing target is still rooted at the source locale (an `en:` key in `fr.yml`), `tl` refuses: rename its root key to the target locale, or delete the file. A catalog with a different single root key (`app:`) is left alone.
+
 **What `tl` does NOT do (deferred):**
 
 - **Source-changed detection.** If a source string changed but the target key still exists, `tl` cannot tell — there is no translation memory in v1. Use `--force` if you suspect drift, or delete the target key to opt into re-translation.
