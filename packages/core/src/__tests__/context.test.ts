@@ -101,6 +101,60 @@ describe("ContextStore", () => {
       expect(err.tag).toBe("CONTEXT_DB_ERROR");
     }
   });
+
+  describe("unreadable folders", () => {
+    const locked: string[] = [];
+    function lock(dir: string): void {
+      chmodSync(dir, 0o000);
+      locked.push(dir);
+    }
+    afterEach(() => {
+      for (const d of locked.splice(0)) chmodSync(d, 0o755);
+    });
+
+    testFn("addSource skips an unreadable subfolder and reports it", () => {
+      const sub = join(tmpDir, "private");
+      mkdirSync(sub);
+      writeFileSync(join(sub, "secret.md"), "volcano eruption lava");
+      lock(sub);
+      store = new ContextStore(dbPath);
+      const source = store.addSource(tmpDir);
+      expect(source.fileCount).toBe(3);
+      expect(source.skippedDirs).toEqual([sub]);
+      expect(store.retrieve("machine learning")[0].filePath).toContain("machine.md");
+    });
+
+    testFn("reindex skips an unreadable subfolder and reports it", () => {
+      store = new ContextStore(dbPath);
+      store.addSource(tmpDir);
+      const sub = join(tmpDir, "private");
+      mkdirSync(sub);
+      lock(sub);
+      expect(store.reindex()).toEqual([sub]);
+      expect(store.listSources()[0].fileCount).toBe(3);
+    });
+
+    testFn("a failed addSource leaves no source row behind", () => {
+      const root = join(tmpDir, "locked-root");
+      mkdirSync(root);
+      lock(root);
+      store = new ContextStore(dbPath);
+      expect(() => store.addSource(root)).toThrow();
+      expect(store.listSources()).toEqual([]);
+    });
+
+    testFn("re-adding a path that now fails keeps the previous source", () => {
+      const root = join(tmpDir, "docs");
+      mkdirSync(root);
+      writeFileSync(join(root, "a.md"), "volcano eruption lava");
+      store = new ContextStore(dbPath);
+      store.addSource(root);
+      lock(root);
+      expect(() => store.addSource(root)).toThrow();
+      expect(store.listSources().map((s) => s.path)).toEqual([root]);
+      expect(store.retrieve("volcano").length).toBe(1);
+    });
+  });
 });
 
 describe("tokenize", () => {
@@ -320,6 +374,48 @@ describe("ContextStore index migration", () => {
     renameSync(`${docs}-moved`, docs);
     expect(open((store) => store.retrieve("神经网络")).length).toBeGreaterThan(0);
     expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+  });
+
+  test("an unreachable source does not take a write lock on later opens", () => {
+    makeLegacy();
+    renameSync(docs, `${docs}-moved`);
+    open(() => {}); // converts the schema; the source stays stale
+    const holder = new Database(dbPath);
+    holder.exec("BEGIN IMMEDIATE");
+    try {
+      const started = Date.now();
+      expect(open((store) => store.listSources().length)).toBe(1);
+      expect(Date.now() - started).toBeLessThan(2000);
+    } finally {
+      holder.exec("ROLLBACK");
+      holder.close();
+    }
+  });
+
+  test("an unreadable subfolder during migration is skipped, not fatal", () => {
+    makeLegacy();
+    const sub = join(docs, "private");
+    mkdirSync(sub);
+    writeFileSync(join(sub, "secret.md"), "volcano eruption lava");
+    chmodSync(sub, 0o000);
+    try {
+      expect(open((store) => store.retrieve("神经网络")).length).toBeGreaterThan(0);
+      expect(open((store) => store.listSources()[0].fileCount)).toBe(2);
+      expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+    } finally {
+      chmodSync(sub, 0o755);
+    }
+  });
+
+  test("an unreadable source root during migration keeps the old index", () => {
+    makeLegacy();
+    chmodSync(docs, 0o000);
+    try {
+      expect(open((store) => store.retrieve("cooking recipe")).length).toBe(1);
+      expect(indexVersion()).toBe(0);
+    } finally {
+      chmodSync(docs, 0o755);
+    }
   });
 
   test("a read-only legacy db opens and serves the old index", () => {

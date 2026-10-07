@@ -69,15 +69,34 @@ export function tokenize(text: string): string[] {
   return tokens;
 }
 
-function* walkDir(dir: string): Generator<string> {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+// An unreadable subfolder is recorded in `skipped` and left out: partial
+// indexing beats failing the whole source. An unreadable root still throws.
+function* walkDir(dir: string, skipped: string[], isRoot = true): Generator<string> {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    if (isRoot) throw err;
+    skipped.push(dir);
+    return;
+  }
+  for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
-      yield* walkDir(full);
+      yield* walkDir(full, skipped, false);
     } else if (/\.(txt|md|mdx|rst)$/.test(entry.name)) {
       yield full;
     }
   }
+}
+
+function isSqliteError(err: unknown): boolean {
+  return String((err as { code?: unknown })?.code ?? "").startsWith("SQLITE_");
+}
+
+/** A newly added source, plus subfolders that couldn't be read and were skipped. */
+export interface AddedContextSource extends ContextSource {
+  skippedDirs: string[];
 }
 
 // Each file gets an integer id; terms reference it instead of repeating the
@@ -128,16 +147,19 @@ export class ContextStore {
       this.legacySchema = this._hasLegacySchema();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      const busy = String((err as { code?: unknown })?.code ?? "").startsWith("SQLITE_BUSY");
       throw new TlError(
         "CONTEXT_DB_ERROR",
         `Failed to open context db at ${dbPath}: ${msg}`,
-        `Check that ${dbPath} is writable`,
+        busy
+          ? "Another tl process is probably re-indexing the context database (this happens once after an upgrade). Wait for it to finish and try again."
+          : `Check that ${dbPath} is writable`,
         err,
       );
     }
   }
 
-  addSource(path: string): ContextSource {
+  addSource(path: string): AddedContextSource {
     try {
       const stat = statSync(path);
       if (!stat.isDirectory()) throw new Error(`${path} is not a directory`);
@@ -149,16 +171,24 @@ export class ContextStore {
     const id = randomUUID();
     const addedAt = new Date().toISOString();
 
-    // Clean up existing row if present, then insert — all in one transaction
-    this.db.transaction(() => {
-      const existing = this.db.query(`SELECT id FROM context_sources WHERE path = ?`).get(path) as { id: string } | null;
-      if (existing) {
-        this._deleteIndexRows(existing.id);
-        this.db.run(`DELETE FROM context_sources WHERE id = ?`, [existing.id]);
-      }
-      this.db.run(`INSERT INTO context_sources (id, path, added_at) VALUES (?, ?, ?)`, [id, path, addedAt]);
-    })();
-    this._indexSource(id, path);
+    // Replace any existing row and index in one transaction: if indexing
+    // fails, nothing is left behind and a previous source stays intact.
+    let skippedDirs: string[] = [];
+    try {
+      this.db.transaction(() => {
+        const existing = this.db.query(`SELECT id FROM context_sources WHERE path = ?`).get(path) as { id: string } | null;
+        if (existing) {
+          this._deleteIndexRows(existing.id);
+          this.db.run(`DELETE FROM context_sources WHERE id = ?`, [existing.id]);
+        }
+        this.db.run(`INSERT INTO context_sources (id, path, added_at) VALUES (?, ?, ?)`, [id, path, addedAt]);
+        skippedDirs = this._indexSource(id, path);
+      })();
+    } catch (err: unknown) {
+      if (isSqliteError(err)) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TlError("CONTEXT_DB_ERROR", `Failed to index ${path}: ${msg}`, `Check that ${path} is readable`, err);
+    }
 
     const row = this.db.query(`SELECT id, path, added_at, indexed_at, file_count FROM context_sources WHERE id = ?`).get(id) as any;
     return {
@@ -167,6 +197,7 @@ export class ContextStore {
       addedAt: row.added_at,
       indexedAt: row.indexed_at ?? undefined,
       fileCount: row.file_count,
+      skippedDirs,
     };
   }
 
@@ -192,8 +223,11 @@ export class ContextStore {
     }));
   }
 
-  reindex(): void {
-    for (const src of this.listSources()) this._reindexSource(src);
+  /** Rebuild every source. Returns subfolders that couldn't be read and were skipped. */
+  reindex(): string[] {
+    const skipped: string[] = [];
+    for (const src of this.listSources()) skipped.push(...this._reindexSource(src));
+    return skipped;
   }
 
   retrieve(query: string, limit = 5): ContextSnippet[] {
@@ -259,11 +293,13 @@ export class ContextStore {
 
   // One transaction: if the directory walk or a read fails, the delete rolls
   // back and the source keeps its previous index.
-  private _reindexSource(src: { id: string; path: string }): void {
+  private _reindexSource(src: { id: string; path: string }): string[] {
+    let skipped: string[] = [];
     this.db.transaction(() => {
       this._deleteIndexRows(src.id);
-      this._indexSource(src.id, src.path);
+      skipped = this._indexSource(src.id, src.path);
     })();
+    return skipped;
   }
 
   // Rebuild sources indexed by an older CONTEXT_INDEX_VERSION. Runs as one
@@ -276,7 +312,12 @@ export class ContextStore {
     const stale = () =>
       this.db.query(`SELECT id, path FROM context_sources WHERE index_version < ?`)
         .all(CONTEXT_INDEX_VERSION) as { id: string; path: string }[];
-    if (!this._hasLegacySchema() && hasColumn() && stale().length === 0) return;
+    const reachable = (src: { path: string }) => {
+      try { readdirSync(src.path); return true; } catch { return false; }
+    };
+    // Read-only check first: if the only stale sources are unreachable, there
+    // is nothing to do, so don't take a write lock on every open.
+    if (!this._hasLegacySchema() && hasColumn() && !stale().some(reachable)) return;
 
     try {
       this.db.transaction(() => {
@@ -301,10 +342,14 @@ export class ContextStore {
           `);
         }
         for (const src of stale()) {
-          // Unreachable folder (unmounted drive, moved directory): keep the old
-          // index and retry on a later open. Other errors propagate.
-          try { readdirSync(src.path); } catch { continue; }
-          this._reindexSource(src);
+          // Any indexing failure (unmounted drive, moved or unreadable folder,
+          // I/O error) keeps the source's old index; its savepoint rolls back
+          // and it is retried on a later open. Database errors propagate.
+          try {
+            this._reindexSource(src);
+          } catch (err) {
+            if (isSqliteError(err)) throw err;
+          }
         }
       }).immediate();
     } catch (err: unknown) {
@@ -314,13 +359,15 @@ export class ContextStore {
     }
   }
 
-  private _indexSource(sourceId: string, dirPath: string): void {
+  // Returns subfolders that couldn't be read and were skipped.
+  private _indexSource(sourceId: string, dirPath: string): string[] {
     const files: string[] = [];
-    for (const f of walkDir(dirPath)) files.push(f);
+    const skipped: string[] = [];
+    for (const f of walkDir(dirPath, skipped)) files.push(f);
 
     if (files.length === 0) {
       this.db.run(`UPDATE context_sources SET indexed_at = ?, file_count = 0, index_version = ? WHERE id = ?`, [new Date().toISOString(), CONTEXT_INDEX_VERSION, sourceId]);
-      return;
+      return skipped;
     }
 
     // Pass 1: build per-file term frequencies and document frequency. Only the
@@ -378,5 +425,6 @@ export class ContextStore {
         sourceId,
       ]);
     })();
+    return skipped;
   }
 }
