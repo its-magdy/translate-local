@@ -117,6 +117,73 @@ describe("writeYaml round-trip", () => {
     expect(written).toContain("مرحبا");
   });
 
+  test("keys present only in data survive the write (existing-target sync)", () => {
+    const original = "# top comment\ngreeting: hi\nnested:\n  a: one\n";
+    const p = w("in.yml", original);
+    const r = readYaml(p);
+    const data = {
+      greeting: "marhaba",
+      nested: { a: "wahid", b: "extra-nested" },
+      legacy: "kept",
+    };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("legacy: kept");
+    expect(written).toContain("b: extra-nested");
+    expect(written).toContain("# top comment");
+    const roundTrip = readYaml(out);
+    expect(roundTrip.data).toEqual(data as never);
+  });
+
+  test("array elements beyond the doc's length survive the write", () => {
+    const original = "items:\n  - one\n  - two\n";
+    const p = w("in.yml", original);
+    const r = readYaml(p);
+    const data = { items: ["uno", "dos", "tres"] };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("comments-only source doc (contents === null): data survives the write", () => {
+    const p = w("in.yml", "# nothing here yet\n");
+    const r = readYaml(p);
+    const data = { legacy: "kept", nested: { a: "one" } };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("# nothing here yet");
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("shape mismatch: source scalar vs data map is replaced, not dropped", () => {
+    const p = w("in.yml", "title: My Title\ngreeting: hi\n");
+    const r = readYaml(p);
+    const data = { title: { one: "un titre", other: "des titres" }, greeting: "marhaba" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("shape mismatch: source map vs data string is replaced, not dropped", () => {
+    const p = w("in.yml", "title:\n  one: a\n  other: b\n");
+    const r = readYaml(p);
+    const data = { title: "flattened" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
+  test("empty `key:` (null value node) accepts a string", () => {
+    const p = w("in.yml", "greeting:\n");
+    const r = readYaml(p);
+    const data = { greeting: "marhaba" };
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, data as never);
+    expect(readYaml(out).data).toEqual(data as never);
+  });
+
   test("preserves block scalar style |", () => {
     const original = "longtext: |\n  line one\n  line two\n";
     const p = w("in.yml", original);
@@ -126,6 +193,34 @@ describe("writeYaml round-trip", () => {
     writeYaml(out, r.doc, r.meta, { longtext: "line one\nline two\n" } as never);
     const written = readFileSync(out, "utf8");
     expect(written).toContain("longtext: |");
+  });
+
+  test("block scalar chomping survives a value with no trailing newline", () => {
+    // Translation returns text without the trailing newline; `|` must not
+    // silently become `|-`.
+    const p = w("in.yml", "longtext: |\n  line one\n  line two\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد\nسطر اثنان" } as never);
+    const written = readFileSync(out, "utf8");
+    expect(written).toContain("longtext: |\n");
+    expect(written).not.toContain("|-");
+  });
+
+  test("block scalar keep indicator |+ survives", () => {
+    const p = w("in.yml", "longtext: |+\n  line one\n\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
+    expect(readFileSync(out, "utf8")).toContain("|+");
+  });
+
+  test("strip indicator |- is not turned into |", () => {
+    const p = w("in.yml", "longtext: |-\n  line one\n");
+    const r = readYaml(p);
+    const out = join(dir, "out.yml");
+    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
+    expect(readFileSync(out, "utf8")).toContain("|-");
   });
 
   test("CRLF preserved", () => {

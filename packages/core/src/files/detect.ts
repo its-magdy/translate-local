@@ -3,9 +3,8 @@ import type { JsonValue } from "./walk";
 export type ParseFormat = "json" | "yaml";
 
 export type ContentFormat =
-  | "vanilla"           // plain nested JSON / YAML — supported
+  | "vanilla"           // plain nested JSON / YAML — supported (includes lingui-minimal)
   | "i18next-plurals"   // i18next v4 plural-key suffix style — supported with warning
-  | "lingui-minimal"    // { id: "translation" } — same as vanilla, recognized for clarity
   | "lingui-full"       // { id: { translation, message, description, origin } } — refused
   | "formatjs"          // { id: { defaultMessage, description } } — refused if any value has ICU
   | "arb"               // Flutter ARB with @key metadata — refused
@@ -97,15 +96,19 @@ function hasI18nextPluralKeys(node: JsonValue): boolean {
     for (const item of node) if (hasI18nextPluralKeys(item)) return true;
     return false;
   }
+  // A plural-suffixed key counts when any other sibling shares its stem —
+  // either the bare stem itself or another suffixed form.
+  const stemCounts = new Map<string, number>();
+  const suffixedStems: string[] = [];
   for (const key of Object.keys(node)) {
-    if (I18NEXT_PLURAL_SUFFIX.test(key)) {
-      const stem = key.replace(I18NEXT_PLURAL_SUFFIX, "");
-      const siblings = Object.keys(node);
-      if (siblings.some((k) => k !== key && k.replace(I18NEXT_PLURAL_SUFFIX, "") === stem)) {
-        return true;
-      }
-    }
-    const child = (node as { [k: string]: JsonValue })[key];
+    const stem = key.replace(I18NEXT_PLURAL_SUFFIX, "");
+    if (stem !== key) suffixedStems.push(stem);
+    stemCounts.set(stem, (stemCounts.get(stem) ?? 0) + 1);
+  }
+  for (const stem of suffixedStems) {
+    if ((stemCounts.get(stem) ?? 0) >= 2) return true;
+  }
+  for (const child of Object.values(node)) {
     if (hasI18nextPluralKeys(child)) return true;
   }
   return false;
@@ -133,7 +136,6 @@ export function detect(ext: string, root: JsonValue, override: FormatOverride): 
   switch (content) {
     case "vanilla":
     case "i18next-plurals":
-    case "lingui-minimal":
       return { parse, content, supported: true, raw };
     case "arb":
       return {

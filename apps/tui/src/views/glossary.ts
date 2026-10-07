@@ -6,6 +6,7 @@ import {
   type CliRenderer,
 } from "@opentui/core";
 import type { GlossaryEntry } from "@translate-local/shared/types";
+import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
 import type { View } from "./translate";
 import { makeLangPicker } from "./widgets";
@@ -91,8 +92,6 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     fg: C.textMuted,
   }));
 
-  const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ps", "sd", "ug"]);
-
   function rtlReverse(text: string): string {
     return [...text].reverse().join("");
   }
@@ -105,10 +104,6 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
     input.on("focus", () => { listFocused = false; });
     input.on("blur",  () => { listFocused = true; });
   });
-
-  function hasRtlChars(text: string): boolean {
-    return /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/.test(text);
-  }
 
   srcInput.onContentChange = () => {
     const val = srcInput.value;
@@ -149,7 +144,7 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
       });
       row.add(new TextRenderable(renderer, { id: `id-${e.id}`,  content: e.id.slice(0, 8), width: 10, fg: C.textMuted }));
       row.add(new TextRenderable(renderer, { id: `src-${e.id}`, content: e.sourceTerm, width: 20, fg: C.textPrimary }));
-      const isRtl = RTL_LANGS.has(e.targetLang.toLowerCase().split("-")[0]);
+      const isRtl = isRtlLang(e.targetLang);
       const tgtDisplay = isRtl ? rtlReverse(e.targetTerm) : e.targetTerm;
       row.add(new TextRenderable(renderer, { id: `tgt-${e.id}`, content: tgtDisplay, width: 20, fg: C.textPrimary }));
       row.add(new TextRenderable(renderer, { id: `lng-${e.id}`, content: `[${e.sourceLang}→${e.targetLang}]`, width: 12, fg: C.textSecondary }));

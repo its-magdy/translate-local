@@ -14,6 +14,16 @@ describe("matchTerms", () => {
     targetLang: "ar",
   });
 
+  it("terminates and matches nothing for an empty term (zero-width regex hang)", () => {
+    const hits = matchTerms("hello, world 123", [entry("", "x")]);
+    expect(hits).toHaveLength(0);
+  });
+
+  it("terminates for a whitespace-only term", () => {
+    const hits = matchTerms("hello, world", [entry("   ", "x")]);
+    expect(hits).toHaveLength(0);
+  });
+
   it("finds a simple term", () => {
     const hits = matchTerms("The API is fast", [entry("API", "واجهة برمجة")]);
     expect(hits).toHaveLength(1);
@@ -128,6 +138,12 @@ describe("GlossaryStore", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].sourceTerm).toBe("API");
     expect(entries[0].targetTerm).toBe("واجهة برمجة");
+  });
+
+  it("rejects empty or whitespace-only terms", () => {
+    expect(() => store.add({ sourceTerm: "", targetTerm: "x", sourceLang: "en", targetLang: "ar" })).toThrow(/non-empty/);
+    expect(() => store.add({ sourceTerm: "x", targetTerm: "  ", sourceLang: "en", targetLang: "ar" })).toThrow(/non-empty/);
+    expect(store.list()).toHaveLength(0);
   });
 
   it("removes entry by id", () => {

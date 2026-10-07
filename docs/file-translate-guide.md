@@ -151,7 +151,7 @@ For JSON, the following are preserved on write:
 For YAML (via the `yaml` package's Document API), additionally preserved:
 
 - **Comments** above and inline with keys.
-- **Block scalar style** — literal `|` and folded `>` are kept; if the source value used `|`, the translated value will too (forced single-line strings get block-quoted automatically when long).
+- **Block scalar style** — literal `|` and folded `>` are kept; if the source value used `|`, the translated value will too (forced single-line strings get block-quoted automatically when long). The chomping indicator is kept with it: `|`, `|-`, and `|+` each survive the round-trip, so the trailing blank lines a `|+` block preserves are not dropped.
 - **Quoting style** per scalar (plain, single-quoted, double-quoted).
 - **Key insertion order** within maps.
 
@@ -170,8 +170,11 @@ Long translated strings are not reflowed — the writer is configured with `line
 | File > 20 MB | Refused with `FILE_TOO_LARGE`. Override with `--max-size`. |
 | Source file is a symlink, FIFO, socket, or device node | Refused with `FILE_INVALID_FORMAT`. Pass a regular file. |
 | Same source and target locale (`--from en --to en`) | Refused with `SAME_LOCALE`. |
+| Output path resolves to the source file (e.g. `--file en.json --to en` with the source language left at `auto`, or `--out` aimed at the input) | Refused with `SAME_LOCALE` — the source is never written over. |
 | Source file does not exist | Refused with `FILE_NOT_FOUND`. |
 | Existing target is invalid JSON | Refused with `FILE_PARSE_FAILED`. Fix or delete the target before re-running. |
+| Source YAML is empty or comments-only | The existing target's keys are preserved in the output (nothing to translate). |
+| Key shape differs between source and target (e.g. source string vs target plural map) | The target's value wins and its structure is kept in the output. |
 | Duplicate keys in JSON source | `JSON.parse` last-wins (warning future v1). |
 | Keys with dots (`"section.title"`) | Treated as opaque string keys, not split paths. |
 | Numeric values (number, boolean, null) | Preserved verbatim. |
@@ -216,7 +219,7 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 | `FILE_INVALID_FORMAT` | Refused content shape (ARB, xcstrings, ICU, etc.), unsupported extension, or non-regular file (symlink, FIFO, device). |
 | `FILE_WRITE_FAILED` | Output write or pre-rename re-parse failed. |
 | `PLACEHOLDER_MISMATCH` | The model's output dropped or altered placeholders. |
-| `SAME_LOCALE` | `--from` and `--to` are the same. |
+| `SAME_LOCALE` | `--from` and `--to` are the same, or the output path resolves to the source file. |
 
 ---
 

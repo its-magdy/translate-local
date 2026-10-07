@@ -6,11 +6,12 @@
 tl [command] [options]
 ```
 
-Running `tl` with no arguments launches the interactive TUI. Passing text directly is shorthand for `tl translate`:
+Running `tl` with no arguments launches the interactive TUI. Passing text directly is shorthand for `tl translate`, and flag-first invocations route there too:
 
 ```bash
 tl "hello world" --from en --to ar
-# equivalent to:
+tl --to ar "hello world"
+# both equivalent to:
 tl translate "hello world" --from en --to ar
 ```
 
@@ -43,6 +44,12 @@ tl translate --image screenshot.png --to ar
 tl translate --file en.json --to ar          # see File mode
 ```
 
+**Output streams:** the translation is written to **stdout**; metadata (adapter,
+timing, glossary coverage) goes to **stderr**. Token-by-token streaming happens
+only when stdout is an interactive terminal — piped or redirected stdout
+(`tl ... > out.txt`, `tl ... | grep`) receives exactly the final translation,
+once, so pipes and `$(tl ...)` substitution are always safe.
+
 **JSON output shape (string / image mode):**
 
 ```json
@@ -65,7 +72,7 @@ Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**,
 | `--file <path>` | string | — | **Required** for file mode. Source catalog path. |
 | `--out <path>` | string | inferred | Output path. If omitted, inferred by locale-token replacement (e.g. `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`). |
 | `--force` | flag | off | Re-translate every leaf, overwriting existing target values. |
-| `--dry-run` | flag | off | Report what would be translated; write nothing. |
+| `--dry-run` | flag | off | Report what would be translated; write nothing and never contact the model. |
 | `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
 | `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
 | `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |
@@ -246,6 +253,20 @@ tl context index
 ### `tl config`
 
 Manage the configuration file at `~/.config/tl/config.jsonc`.
+
+String values in the config may reference environment variables with `${VAR}`
+(e.g. `"endpoint": "${OLLAMA_URL}"`); referencing an unset variable fails with
+`CONFIG_INVALID`. The reference must be inside a quoted string.
+
+A string value on a numeric or boolean field is converted to the type the
+field declares — this applies both to a resolved `"${VAR}"` and to a literal
+string written directly in the file: `"maxRetries": "${TL_RETRIES}"` with
+`TL_RETRIES=3` loads as the number `3`, and so does `"maxRetries": "3"`
+written literally; `"keepAlive": "${TL_KA}"` with `TL_KA=false` loads as
+`false` (not as a truthy non-empty string). Conversion follows the field, not
+the value's appearance — a string field keeps its string even when the value
+looks numeric, so `"model": "${TL_MODEL}"` with `TL_MODEL=2` loads as `"2"`.
+A value that can't be converted (`TL_RETRIES=abc`) fails with `CONFIG_INVALID`.
 
 #### `tl config connect`
 

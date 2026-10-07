@@ -1,9 +1,10 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
-import { mkdirSync, chmodSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, join } from "path";
+import { readdirSync, readFileSync, statSync } from "fs";
+import { join } from "path";
 import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { ensurePrivateDir } from "./fsutil";
 
 function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
@@ -25,8 +26,7 @@ export class ContextStore {
 
   constructor(dbPath: string) {
     try {
-      mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
-      try { chmodSync(dirname(dbPath), 0o700); } catch { /* may fail on system dirs like /tmp */ }
+      ensurePrivateDir(dbPath);
       this.db = new Database(dbPath);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (
@@ -170,17 +170,20 @@ export class ContextStore {
       return;
     }
 
-    // Pass 1: build per-file token lists and document frequency
-    const fileData = new Map<string, { tokens: string[]; text: string }>();
+    // Pass 1: build per-file term frequencies and document frequency. Only the
+    // frequencies and a 500-char snippet are kept — holding every file's full
+    // text and token array would scale memory with the whole directory's size.
+    const fileData = new Map<string, { termFreq: Map<string, number>; tokenCount: number; snippet: string }>();
     const docFrequency = new Map<string, number>();
 
     for (const file of files) {
       let text = "";
       try { text = readFileSync(file, "utf8"); } catch { continue; }
       const tokens = tokenize(text);
-      fileData.set(file, { tokens, text });
-      const unique = new Set(tokens);
-      for (const term of unique) {
+      const termFreq = new Map<string, number>();
+      for (const t of tokens) termFreq.set(t, (termFreq.get(t) ?? 0) + 1);
+      fileData.set(file, { termFreq, tokenCount: tokens.length, snippet: text.slice(0, 500) });
+      for (const term of termFreq.keys()) {
         docFrequency.set(term, (docFrequency.get(term) ?? 0) + 1);
       }
     }
@@ -193,18 +196,15 @@ export class ContextStore {
 
     this.db.transaction(() => {
       let indexedCount = 0;
-      for (const [file, { tokens, text }] of fileData) {
-        if (tokens.length === 0) continue;
+      for (const [file, { termFreq, tokenCount, snippet }] of fileData) {
+        if (tokenCount === 0) continue;
         indexedCount++;
 
-        insertDoc.run(sourceId, file, text.slice(0, 500));
-
-        const termFreq = new Map<string, number>();
-        for (const t of tokens) termFreq.set(t, (termFreq.get(t) ?? 0) + 1);
+        insertDoc.run(sourceId, file, snippet);
 
         const scored: { term: string; score: number }[] = [];
         for (const [term, freq] of termFreq) {
-          const tf = freq / tokens.length;
+          const tf = freq / tokenCount;
           const idf = Math.log(totalDocs / (docFrequency.get(term) ?? 1));
           scored.push({ term, score: tf * idf });
         }

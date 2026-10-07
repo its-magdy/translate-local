@@ -16,13 +16,7 @@ export function diffForSync(
   const out: PendingTranslation[] = [];
 
   for (const leaf of walkLeaves(sourceRoot)) {
-    if (mode === "force") {
-      out.push({ path: leaf.path, source: leaf.value, set: makeTargetSetter(targetRoot, leaf.path) });
-      continue;
-    }
-
-    const existing = getAtPath(targetRoot, leaf.path);
-    if (needsTranslation(existing)) {
+    if (mode === "force" || needsTranslation(getAtPath(targetRoot, leaf.path))) {
       out.push({ path: leaf.path, source: leaf.value, set: makeTargetSetter(targetRoot, leaf.path) });
     }
   }

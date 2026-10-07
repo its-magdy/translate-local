@@ -1,9 +1,7 @@
-import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError } from "@translate-local/shared/errors";
 import { matchTerms, type GlossaryStore } from "./glossary";
-
-import type { GlossaryHit } from "@translate-local/shared/types";
 
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";

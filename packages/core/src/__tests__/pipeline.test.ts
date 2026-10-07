@@ -7,14 +7,10 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { TlError } from "@translate-local/shared/errors";
 
-const TEST_INTEGRATION = process.env.TEST_INTEGRATION === "1";
-
+// MockAdapter + temp SQLite only — no Ollama needed, so this suite runs by
+// default. Gating it behind TEST_INTEGRATION hid every pipeline regression
+// (retries, streaming contract, image mode) from plain `bun run test`.
 describe("runPipeline", () => {
-  if (!TEST_INTEGRATION) {
-    it.skip("integration tests require TEST_INTEGRATION=1", () => {});
-    return;
-  }
-
   let dbPath: string;
   let store: GlossaryStore;
   let adapter: MockAdapter;

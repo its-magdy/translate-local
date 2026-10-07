@@ -6,7 +6,7 @@ import { readFileSync } from "fs";
 import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
-import { atomicWriteFile } from "./json";
+import { atomicWriteFile, detectEol } from "./json";
 
 export type YamlMeta = {
   indent: number;
@@ -24,12 +24,6 @@ function detectIndent(text: string): number {
   const m = text.match(/^( +)\S/m);
   if (!m) return 2;
   return m[1].length;
-}
-
-function detectEol(text: string): "\n" | "\r\n" {
-  const idx = text.indexOf("\n");
-  if (idx > 0 && text[idx - 1] === "\r") return "\r\n";
-  return "\n";
 }
 
 function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
@@ -61,14 +55,7 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
         );
       }
       const tag = (node as Scalar).tag;
-      if (
-        tag &&
-        typeof tag === "string" &&
-        tag !== "tag:yaml.org,2002:str" &&
-        tag !== "tag:yaml.org,2002:null" &&
-        !tag.startsWith("?") &&
-        (tag.includes("binary") || tag.includes("timestamp"))
-      ) {
+      if (tag && !tag.startsWith("?") && (tag.includes("binary") || tag.includes("timestamp"))) {
         throw new TlError(
           "FILE_INVALID_FORMAT",
           `YAML scalar with explicit tag ${tag}`,
@@ -132,23 +119,63 @@ export function readYaml(path: string): YamlReadResult {
 }
 
 function applyToDoc(doc: Document.Parsed, data: JsonValue): void {
-  apply(doc.contents, data);
+  // A comments-only or empty source parses to contents === null; apply() would
+  // no-op and the write would silently drop every key in `data`.
+  if (doc.contents === null || doc.contents === undefined) {
+    if (data !== null) doc.contents = doc.createNode(data) as Document.Parsed["contents"];
+    return;
+  }
+  apply(doc, doc.contents, data);
 }
 
-function apply(node: unknown, value: JsonValue): void {
+// Whether the doc node can absorb `value` in place. Non-string primitives return
+// true: they never come from translation, so the source node is left untouched.
+function shapeMatches(node: unknown, value: JsonValue): boolean {
+  if (typeof value === "string") return isScalar(node);
+  if (Array.isArray(value)) return isSeq(node);
+  if (typeof value === "object" && value !== null) return isMap(node);
+  return true;
+}
+
+// A block scalar's chomping indicator is derived from its value's trailing
+// newlines: `|` keeps one, `|-` strips them, `|+` keeps all. Translated text
+// comes back with none, which would silently rewrite `|` as `|-`, so carry the
+// original trailing run over onto the new value.
+function setScalarValue(node: Scalar, next: string): void {
+  const prev = node.value;
+  const isBlock = node.type === Scalar.BLOCK_LITERAL || node.type === Scalar.BLOCK_FOLDED;
+  if (isBlock && typeof prev === "string") {
+    node.value = next.replace(/\n*$/, "") + (prev.match(/\n*$/)?.[0] ?? "");
+    return;
+  }
+  node.value = next;
+}
+
+function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
   if (isMap(node)) {
     const m = node as YAMLMap;
     if (typeof value !== "object" || value === null || Array.isArray(value)) return;
     const v = value as { [k: string]: JsonValue };
+    const docKeys = new Set<string>();
     for (const item of m.items) {
       const k = isScalar(item.key) ? String((item.key as Scalar).value) : String(item.key);
+      docKeys.add(k);
       if (!(k in v)) continue;
       const child = v[k];
       if (typeof child === "string" && isScalar(item.value)) {
-        (item.value as Scalar).value = child;
-      } else if (item.value !== undefined && item.value !== null) {
-        apply(item.value, child);
+        setScalarValue(item.value as Scalar, child);
+      } else if (shapeMatches(item.value, child)) {
+        if (item.value !== undefined && item.value !== null) apply(doc, item.value, child);
+      } else {
+        // Shape mismatch (e.g. source scalar vs target map, or an empty `key:`):
+        // replace wholesale, otherwise the target's structure is silently dropped.
+        item.value = doc.createNode(child);
       }
+    }
+    // The doc being mutated is the SOURCE document; data may carry keys that only
+    // exist in the existing target file. Append them or they are silently dropped.
+    for (const [k, child] of Object.entries(v)) {
+      if (!docKeys.has(k)) m.items.push(doc.createPair(k, child));
     }
     return;
   }
@@ -159,15 +186,20 @@ function apply(node: unknown, value: JsonValue): void {
       const child = value[i];
       const item = s.items[i];
       if (typeof child === "string" && isScalar(item)) {
-        (item as Scalar).value = child;
-      } else if (item !== undefined && item !== null) {
-        apply(item, child);
+        setScalarValue(item as Scalar, child);
+      } else if (shapeMatches(item, child)) {
+        if (item !== undefined && item !== null) apply(doc, item, child);
+      } else {
+        s.items[i] = doc.createNode(child);
       }
+    }
+    for (let i = s.items.length; i < value.length; i++) {
+      s.items.push(doc.createNode(value[i]));
     }
     return;
   }
   if (isScalar(node) && typeof value === "string") {
-    (node as Scalar).value = value;
+    setScalarValue(node as Scalar, value);
   }
 }
 

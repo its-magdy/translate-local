@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { GlossaryStore } from "../glossary";
@@ -195,6 +195,54 @@ describe("translateFile", () => {
     })).rejects.toThrow(/SAME_LOCALE|both/);
   });
 
+  it("refuses to write over the source file when sourceLang is auto", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const before = readFileSync(src, "utf8");
+    await expect(translateFile({
+      sourcePath: src, outPath: src,
+      sourceLang: "auto", targetLang: "en",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+    expect(readFileSync(src, "utf8")).toBe(before);
+  });
+
+  it("refuses an --out that reaches the source through a symlinked directory", async () => {
+    // resolve() compares strings, so a symlinked path component (macOS
+    // /tmp -> /private/tmp) makes one file look like two paths.
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const before = readFileSync(src, "utf8");
+    const linkDir = join(dir, "link");
+    symlinkSync(dir, linkDir, "dir");
+    await expect(translateFile({
+      sourcePath: src, outPath: join(linkDir, "en.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+    expect(readFileSync(src, "utf8")).toBe(before);
+  });
+
+  it("still allows a genuinely different out path in a symlinked directory", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    const linkDir = join(dir, "link2");
+    symlinkSync(dir, linkDir, "dir");
+    const res = await translateFile({
+      sourcePath: src, outPath: join(linkDir, "fr.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    });
+    expect(res).toBeDefined();
+    expect(existsSync(join(dir, "fr.json"))).toBe(true);
+  });
+
+  it("refuses an --out that resolves to the source path", async () => {
+    const src = writeSrc("en.json", '{"a":"hello"}');
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, ".", "en.json"),
+      sourceLang: "auto", targetLang: "fr",
+      adapter, glossary, context,
+    })).rejects.toThrow(/SAME_LOCALE|same file/);
+  });
+
   it("refuses missing source file", async () => {
     await expect(translateFile({
       sourcePath: join(dir, "nope.json"), outPath: join(dir, "out.json"),
@@ -376,6 +424,50 @@ describe("translateFile", () => {
     expect(lines[0]).toMatch(/^z:/);
     expect(lines[1]).toMatch(/^a:/);
     expect(lines[2]).toMatch(/^m:/);
+  });
+
+  it("keeps target-only keys when syncing into an existing YAML target", async () => {
+    const src = writeSrc("en.yml", "greeting: hi\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "greeting: EXISTING\nlegacy: kept\n");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.translated).toBe(0);
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("legacy: kept");
+    expect(text).toContain("greeting: EXISTING");
+  });
+
+  it("comments-only source YAML does not clobber an existing target", async () => {
+    const src = writeSrc("en.yml", "# nothing here yet\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "legacy: kept\ngreeting: EXISTING\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("legacy: kept");
+    expect(text).toContain("greeting: EXISTING");
+  });
+
+  it("keeps a target map where the source has a scalar (shape mismatch)", async () => {
+    const src = writeSrc("en.yml", "title: My Title\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "title:\n  one: un titre\n  other: des titres\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("one: un titre");
+    expect(text).toContain("other: des titres");
+    expect(text).not.toContain("My Title");
   });
 
   it("refuses YAML with anchors", async () => {
