@@ -182,6 +182,38 @@ describe("matchTerms", () => {
     expect(matchTerms("هذا كتابٌ", [entry("كتاب", "book")])).toHaveLength(0);
   });
 
+  it("treats ZWNJ/ZWJ as part of a word (Persian کتاب‌ها is one word)", () => {
+    expect(matchTerms("این کتاب\u200Cها خوب است", [entry("کتاب", "book")])).toHaveLength(0);
+    expect(matchTerms("این کتاب خوب است", [entry("کتاب", "book")])).toHaveLength(1);
+    expect(matchTerms("x\u200Dcafé", [entry("café", "coffee")])).toHaveLength(0);
+  });
+
+  it("still finds a valid occurrence that overlaps a rejected one", () => {
+    // "xa-a" is rejected (preceded by x); the occurrence starting at the second "a" is valid
+    const text = "xa-a-a";
+    const hits = matchTerms(text, [entry("a-a", "y")]);
+    expect(hits.map((h) => [h.startIndex, h.endIndex])).toEqual([[3, 6]]);
+  });
+
+  it("checks boundaries by code point around astral characters", () => {
+    // U+1D400 MATHEMATICAL BOLD CAPITAL A is a letter (surrogate pair in UTF-16)
+    expect(matchTerms("\u{1D400}API", [entry("API", "x")])).toHaveLength(0);
+    expect(matchTerms("😀API😀", [entry("API", "x")])).toHaveLength(1);
+  });
+
+  it("matches 500 entries against ~10 KB of text quickly (perf regression)", () => {
+    const words = ["alpha", "bravo", "charlie", "delta", "café", "компьютер", "كتاب", "机器学习", "東京タワー"];
+    const entries = Array.from({ length: 500 }, (_, i) => entry(`${words[i % words.length]}${i}`, `t${i}`));
+    entries.push(...words.map((w) => entry(w, `t-${w}`)));
+    let text = "";
+    while (text.length < 10_000) text += `${words.join(" ")} lorem ipsum ${text.length} `;
+    const t0 = performance.now();
+    const hits = matchTerms(text, entries);
+    const elapsed = performance.now() - t0;
+    expect(hits.length).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(200);
+  });
+
   it("escapes regex metacharacters in terms", () => {
     const entries = [entry("C++", "x"), entry("Node.js", "y"), entry("(beta)", "z"), entry("a|b", "w")];
     const text = "C++ and Node.js (beta) a|b";
@@ -280,6 +312,28 @@ describe("GlossaryStore", () => {
     store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
     expect(store.lookup("en", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
     expect(store.lookup("en", "fr-FR").map((e) => e.targetTerm)).toEqual(["e-mail"]);
+  });
+
+  it("lookup precedence ignores source-term case (matching is case-insensitive)", () => {
+    // "Email" sorts before "email" in SQL; the more specific en-US entry must still win
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en-US", targetLang: "fr" });
+    store.add({ sourceTerm: "Email", targetTerm: "mél", sourceLang: "en", targetLang: "fr" });
+    expect(store.lookup("en-US", "fr").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    const hits = store.findMatches("Send an email", "en-US", "fr");
+    expect(hits.map((h) => h.entry.targetTerm)).toEqual(["courriel"]);
+  });
+
+  it("lookup breaks specificity ties by target first, then source", () => {
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en-US", targetLang: "fr" });
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    expect(store.lookup("en-US", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    // Insertion order must not matter
+    store.close();
+    rmSync(dbPath, { force: true });
+    store = new GlossaryStore(dbPath);
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en-US", targetLang: "fr" });
+    expect(store.lookup("en-US", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
   });
 
   it("findMatches uses language fallback", () => {

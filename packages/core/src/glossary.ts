@@ -19,46 +19,81 @@ function escapeRegex(s: string): string {
 const NO_SPACE_SCRIPTS =
   "\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Thai}\\p{scx=Lao}\\p{scx=Khmer}\\p{scx=Myanmar}";
 
-/** A word character of a space-delimited script (Latin, Cyrillic, Arabic, Hangul, Devanagari, …). */
-const SPACED_WORD_CHAR = `[[\\p{L}\\p{N}\\p{M}_]--[${NO_SPACE_SCRIPTS}]]`;
-const SPACED_WORD_RE = new RegExp(`^${SPACED_WORD_CHAR}$`, "v");
+/**
+ * One word character of a space-delimited script (Latin, Cyrillic, Arabic,
+ * Hangul, Devanagari, …). ZWNJ/ZWJ join word parts (Persian کتاب‌ها), so they
+ * count as word characters too. Compiled once: embedding this class in every
+ * term's regex cost ~10 ms of JSC compile time per term.
+ */
+const SPACED_WORD_RE = new RegExp(`^[[\\p{L}\\p{N}\\p{M}_\\u200C\\u200D]--[${NO_SPACE_SCRIPTS}]]$`, "v");
+
+function isSpacedWordChar(ch: string): boolean {
+  return ch !== "" && SPACED_WORD_RE.test(ch);
+}
+
+/** The code point ending just before UTF-16 index i ("" at the start). */
+function charBefore(text: string, i: number): string {
+  if (i === 0) return "";
+  const low = text.charCodeAt(i - 1);
+  if (low >= 0xdc00 && low <= 0xdfff && i >= 2) {
+    const high = text.charCodeAt(i - 2);
+    if (high >= 0xd800 && high <= 0xdbff) return text.slice(i - 2, i);
+  }
+  return text[i - 1];
+}
+
+/** The code point starting at UTF-16 index i ("" at the end). */
+function charAt(text: string, i: number): string {
+  const cp = text.codePointAt(i);
+  return cp === undefined ? "" : String.fromCodePoint(cp);
+}
+
+interface TermMatcher {
+  pattern: RegExp;
+  /** The term's first/last char is a spaced-script word char → that edge must sit on a word boundary. */
+  checkStart: boolean;
+  checkEnd: boolean;
+}
 
 /**
- * Build a match regex for a glossary term.
+ * Build a matcher for a glossary term.
  *
- * `\\b` is ASCII-only (it treats "é" as a non-word char, so "caf" matched inside
- * "café"), so boundaries are Unicode lookarounds instead. Each edge of the term
- * is decided by its edge character:
- * - a word char of a space-delimited script → the neighbour must not be one
- *   (whole-word match; combining marks count as word chars, so a match never
- *   ends mid-grapheme);
+ * `\b` is ASCII-only (it treats "é" as a non-word char, so "caf" matched inside
+ * "café"), so boundaries are checked in JS around each candidate match. Each
+ * edge of the term is decided by its edge character:
+ * - a word char of a space-delimited script → the neighbouring code point must
+ *   not be one (whole-word match; combining marks and ZWNJ/ZWJ count as word
+ *   chars, so a match never ends mid-grapheme or mid-word);
  * - a char of a script without word spaces (CJK, kana, Thai, …), or
- *   punctuation → no assertion (substring match).
+ *   punctuation → no check (substring match).
  *
  * Neighbours from no-space scripts never block a match, so "API" still matches
  * in "このAPIキー". Arabic clitics (ال / و / ب …) are not stripped: "كتاب" does
  * not match inside "الكتاب" — add inflected forms as their own entries.
  *
- * Compiled patterns are cached: file mode calls matchTerms once per leaf with
- * the same entries, and recompiling per call dominated the non-model cost.
- * (matchAll clones the regex, so sharing a cached instance is safe.)
+ * The regex itself is just the escaped term (cheap to compile). Matchers are
+ * cached: file mode calls matchTerms once per leaf with the same entries.
  */
-const patternCache = new Map<string, RegExp>();
+const matcherCache = new Map<string, TermMatcher>();
 
-function termPattern(term: string): RegExp {
-  let pattern = patternCache.get(term);
-  if (!pattern) {
+function termMatcher(term: string): TermMatcher {
+  let matcher = matcherCache.get(term);
+  if (!matcher) {
     const chars = [...term];
-    const start = SPACED_WORD_RE.test(chars[0]) ? `(?<!${SPACED_WORD_CHAR})` : "";
-    const end = SPACED_WORD_RE.test(chars[chars.length - 1]) ? `(?!${SPACED_WORD_CHAR})` : "";
-    pattern = new RegExp(`${start}${escapeRegex(term)}${end}`, "giv");
-    patternCache.set(term, pattern);
+    matcher = {
+      // No u flag: literal terms don't need it, and JSC's u+i matching is
+      // several times slower. Boundaries are checked by code point below.
+      pattern: new RegExp(escapeRegex(term), "gi"),
+      checkStart: isSpacedWordChar(chars[0]),
+      checkEnd: isSpacedWordChar(chars[chars.length - 1]),
+    };
+    matcherCache.set(term, matcher);
   }
-  return pattern;
+  return matcher;
 }
 
 /**
- * Match glossary terms in text (Unicode-aware, see termPattern).
+ * Match glossary terms in text (Unicode-aware, see termMatcher).
  * Longest-first greedy to avoid partial overlaps.
  * Returns hits sorted by startIndex ascending.
  */
@@ -68,14 +103,23 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[
   const occupied = new Uint8Array(text.length);
 
   for (const entry of sorted) {
-    // An empty term builds a zero-width pattern; a manual exec() loop would never
-    // advance lastIndex and hang forever. matchAll steps past zero-width matches,
-    // and empty terms are skipped outright (add() rejects them, but old rows may exist).
+    // An empty term builds a zero-width pattern and the exec() loop below would
+    // never advance. add() rejects empty terms, but old rows may exist.
     if (entry.sourceTerm.trim().length === 0) continue;
-    const pattern = termPattern(entry.sourceTerm);
-    for (const match of text.matchAll(pattern)) {
+    const { pattern, checkStart, checkEnd } = termMatcher(entry.sourceTerm);
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
       const start = match.index;
       const end = start + match[0].length;
+      const bounded =
+        (!checkStart || !isSpacedWordChar(charBefore(text, start))) &&
+        (!checkEnd || !isSpacedWordChar(charAt(text, end)));
+      if (!bounded) {
+        // Retry one code point later: a valid occurrence may overlap this one.
+        pattern.lastIndex = start + charAt(text, start).length;
+        continue;
+      }
       if (!occupied.subarray(start, end).some(Boolean)) {
         hits.push({ entry, startIndex: start, endIndex: end });
         occupied.fill(1, start, end);
@@ -84,6 +128,22 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryHit[
   }
 
   return hits.sort((a, b) => a.startIndex - b.startIndex);
+}
+
+/**
+ * Case-fold key equal to the term regex's `i` folding (ES Canonicalize without
+ * the u flag): per UTF-16 unit, toUpperCase when that stays one unit and does
+ * not map non-ASCII onto ASCII. Groups entries that match the same text.
+ * Simple folding only — "ß" and "SS" differ, as do "İ" and "i".
+ */
+function foldKey(term: string): string {
+  let out = "";
+  for (let i = 0; i < term.length; i++) {
+    const ch = term[i];
+    const upper = ch.toUpperCase();
+    out += upper.length === 1 && !(ch.charCodeAt(0) >= 128 && upper.charCodeAt(0) < 128) ? upper : ch;
+  }
+  return out;
 }
 
 export class GlossaryStore {
@@ -200,15 +260,17 @@ export class GlossaryStore {
    * fallback on both sides: "en-US" → "fr-CA" also sees en/fr, en-US/fr and
    * en/fr-CA entries (case-insensitive). Fallback only widens toward the base,
    * never the other way: an "en" query does not see "en-US" entries. When a
-   * source term has entries at several levels, only the most specific survive
-   * (by number of matched subtags, source + target).
+   * source term (case-insensitively) has entries at several levels, only the
+   * most specific survive: deeper target tag first, then deeper source tag.
    */
   lookup(sourceLang: string, targetLang: string): GlossaryEntry[] {
     const sourceChain = langFallbackChain(sourceLang);
     const targetChain = langFallbackChain(targetLang);
-    const specificity = (e: GlossaryEntry) =>
-      (sourceChain.length - sourceChain.indexOf(normalizeLang(e.sourceLang))) +
-      (targetChain.length - targetChain.indexOf(normalizeLang(e.targetLang)));
+    // Depth of the matched tag (1 = base language). Target outranks source: the
+    // output language decides the right term, so en/fr-CA beats en-US/fr.
+    const depth = (chain: string[], lang: string) => chain.length - chain.indexOf(normalizeLang(lang));
+    const rank = (e: GlossaryEntry) =>
+      depth(targetChain, e.targetLang) * (sourceChain.length + 1) + depth(sourceChain, e.sourceLang);
 
     const candidates = this.queryEntries(
       ` WHERE lower(source_lang) IN (${sourceChain.map(() => "?").join(", ")})` +
@@ -217,11 +279,14 @@ export class GlossaryStore {
       "Failed to look up glossary entries",
     );
 
+    // Keyed on the case fold: matching is case-insensitive, so "Email" and
+    // "email" compete for the same text.
     const best = new Map<string, number>();
     for (const e of candidates) {
-      best.set(e.sourceTerm, Math.max(best.get(e.sourceTerm) ?? 0, specificity(e)));
+      const key = foldKey(e.sourceTerm);
+      best.set(key, Math.max(best.get(key) ?? 0, rank(e)));
     }
-    return candidates.filter((e) => specificity(e) === best.get(e.sourceTerm));
+    return candidates.filter((e) => rank(e) === best.get(foldKey(e.sourceTerm)));
   }
 
   findMatches(text: string, sourceLang: string, targetLang: string): GlossaryHit[] {
