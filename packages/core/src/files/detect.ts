@@ -4,7 +4,7 @@ export type ParseFormat = "json" | "yaml";
 
 export type ContentFormat =
   | "vanilla"           // plain nested JSON / YAML — supported (includes lingui-minimal)
-  | "i18next-plurals"   // i18next v4 plural-key suffix style — supported with warning
+  | "i18next-plurals"   // i18next v4 plural-key suffix style — supported; groups regenerated per target locale
   | "lingui-full"       // { id: { translation, message, description, origin } } — refused
   | "formatjs"          // { id: { defaultMessage, description } } — refused if any value has ICU
   | "arb"               // Flutter ARB with @key metadata — refused
