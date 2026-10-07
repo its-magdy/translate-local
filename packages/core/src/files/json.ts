@@ -14,6 +14,7 @@ export type JsonMeta = {
 export type ReadResult = {
   data: JsonValue;
   meta: JsonMeta;
+  duplicateKeys: DuplicateKey[];
 };
 
 export function detectIndent(text: string): string {
@@ -41,7 +42,7 @@ export function readJson(path: string): ReadResult {
     eol: detectEol(text),
     hadBOM,
   };
-  return { data, meta };
+  return { data, meta, duplicateKeys: findDuplicateKeys(text) };
 }
 
 export function serializeJson(data: JsonValue, meta: JsonMeta): string {
@@ -78,4 +79,71 @@ export function atomicWriteFile(
 export function writeJson(path: string, data: JsonValue, meta: JsonMeta): void {
   const text = serializeJson(data, meta);
   atomicWriteFile(path, text, (tmp) => { readJson(tmp); });
+}
+
+export type DuplicateKey = { path: string; line: number };
+
+// JSON.parse keeps the last value of a repeated key and gives no hint. Scan the raw
+// text (already known to be valid JSON) and report every repeated key per object, at
+// any depth, with the line of the repeat. Array indices appear in paths as [n].
+export function findDuplicateKeys(text: string): DuplicateKey[] {
+  const out: DuplicateKey[] = [];
+  let i = 0;
+  let line = 1;
+
+  const skipWs = () => {
+    while (i < text.length) {
+      const c = text[i];
+      if (c === "\n") line++;
+      else if (c !== " " && c !== "\t" && c !== "\r") break;
+      i++;
+    }
+  };
+
+  const readString = (): string => {
+    const start = i++; // opening quote
+    while (text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
+    i++;
+    return JSON.parse(text.slice(start, i)) as string;
+  };
+
+  const readValue = (path: string) => {
+    skipWs();
+    const c = text[i];
+    if (c === "{") {
+      i++;
+      const seen = new Set<string>();
+      skipWs();
+      if (text[i] === "}") { i++; return; }
+      for (;;) {
+        skipWs();
+        const keyLine = line;
+        const key = readString();
+        const keyPath = path ? `${path}.${key}` : key;
+        if (seen.has(key)) out.push({ path: keyPath, line: keyLine });
+        seen.add(key);
+        skipWs();
+        i++; // ':'
+        readValue(keyPath);
+        skipWs();
+        if (text[i++] === "}") return;
+      }
+    } else if (c === "[") {
+      i++;
+      skipWs();
+      if (text[i] === "]") { i++; return; }
+      for (let n = 0; ; n++) {
+        readValue(`${path}[${n}]`);
+        skipWs();
+        if (text[i++] === "]") return;
+      }
+    } else if (c === '"') {
+      readString();
+    } else {
+      while (i < text.length && !/[\s,\]}]/.test(text[i])) i++;
+    }
+  };
+
+  readValue("");
+  return out;
 }

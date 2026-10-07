@@ -263,6 +263,26 @@ describe("translateFile", () => {
     expect(summary.warnings.some((w) => w.includes("CLDR"))).toBe(true);
   });
 
+  it("warns on duplicate JSON keys (last wins) with path and line", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "one",\n  "a": "two"\n}\n');
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "fr.json"),
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context,
+    });
+    expect(summary.warnings.some((w) => w.includes('"a"') && w.includes("line 3"))).toBe(true);
+    expect(summary.totalLeaves).toBe(1);
+  });
+
+  it("rejects duplicate YAML keys as a parse error", async () => {
+    const src = writeSrc("en.yaml", "a: one\na: two\n");
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, "fr.yaml"),
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context,
+    })).rejects.toThrow(/parse/i);
+  });
+
   it("dry-run-style: format detection happens before any model call", async () => {
     // Exercised by the ARB refusal test above — refuses before adapter.translate is called.
     expect(true).toBe(true);

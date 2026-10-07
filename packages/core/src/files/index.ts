@@ -6,7 +6,7 @@ import type { GlossaryStore } from "../glossary";
 import type { ContextStore } from "../context";
 import { runPipeline } from "../pipeline";
 import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } from "./detect";
-import { readJson, writeJson, type JsonMeta } from "./json";
+import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
 import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
@@ -150,6 +150,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   let sourceData: JsonValue;
   let jsonMeta: JsonMeta | undefined;
   let yamlRead: YamlReadResult | undefined;
+  let duplicateKeys: DuplicateKey[] = [];
 
   try {
     if (parseFormat === "yaml") {
@@ -159,6 +160,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       const r = readJson(sourcePath);
       sourceData = r.data;
       jsonMeta = r.meta;
+      duplicateKeys = r.duplicateKeys;
     }
   } catch (err) {
     if (err instanceof TlError) throw err;
@@ -208,6 +210,12 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     warnings: [],
     outPath,
   };
+
+  for (const d of duplicateKeys) {
+    summary.warnings.push(
+      `Duplicate key "${d.path}" in source (line ${d.line}). The last value wins, matching JSON.parse.`,
+    );
+  }
 
   if (detected.content === "i18next-plurals") {
     summary.warnings.push(
