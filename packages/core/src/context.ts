@@ -11,7 +11,8 @@ import { ensurePrivateDir } from "./fsutil";
 // indexed with (context_sources.index_version; 0 = before this column existed)
 // and older sources are rebuilt on open.
 // 2 = integer doc ids (context_docs.id) and a WITHOUT ROWID term table.
-export const CONTEXT_INDEX_VERSION = 2;
+// 3 = cosine-normalized weights with smoothed idf, stopwords.
+export const CONTEXT_INDEX_VERSION = 3;
 
 // Most-weighted terms stored per document: BASE_TERMS_PER_DOC plus one per
 // distinct CJK bigram, up to MAX_TERMS_PER_DOC. English recall stopped
@@ -41,6 +42,16 @@ const EASTERN_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
 // Hebrew niqqud and cantillation marks, optional in normal writing.
 const HEBREW_MARKS = /[\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]/g;
 const WORD_CHAR = /[\p{L}\p{N}]/u;
+// Lucene's default English stop set (EnglishAnalyzer), minus words under 3
+// chars that the length filter already drops. Without it, a one-file source
+// (where idf can't tell "the" from "invoice") matches any English sentence.
+// Plus the most frequent 3+ letter Arabic particles and demonstratives from
+// Lucene's ArabicAnalyzer stop list (in their alef-folded form; see tokenize()).
+const STOPWORDS = new Set([
+  "and", "are", "but", "for", "into", "not", "such", "that", "the", "their",
+  "then", "there", "these", "they", "this", "was", "will", "with",
+  "الى", "على", "هذا", "هذه", "ذلك", "التي", "الذي", "الذين", "كان", "كانت", "حتى", "عند", "بين",
+]);
 // UAX #29 word boundaries; also dictionary-segments Thai/Lao/Khmer/Myanmar.
 const segmenter = new Intl.Segmenter("und", { granularity: "word" });
 
@@ -66,7 +77,7 @@ export function tokenize(text: string): string[] {
       // A segment is a word if it has a letter or digit. isWordLike isn't
       // used: on some ICU builds (Bun on Linux) it is false for numbers.
       // 3+ code points, as before, to drop short function words.
-      if (WORD_CHAR.test(segment) && [...segment].length >= 3) tokens.push(segment);
+      if (WORD_CHAR.test(segment) && [...segment].length >= 3 && !STOPWORDS.has(segment)) tokens.push(segment);
     }
   });
   return tokens;
@@ -233,12 +244,19 @@ export class ContextStore {
     return skipped;
   }
 
-  retrieve(query: string, limit = 5): ContextSnippet[] {
+  /**
+   * Snippets ranked by cosine similarity in [0, 1] between the query and each
+   * document. Stored term weights are already components of the document's
+   * unit-length vector; the query is a binary vector over its unique terms,
+   * so cosine = SUM(matched weights) / sqrt(#query terms). Results scoring
+   * below `minRelevance` are dropped before `limit` applies.
+   */
+  retrieve(query: string, limit = 5, minRelevance = 0): ContextSnippet[] {
     // Dedupe: bigram tokenization repeats terms, and each one is a bind param.
     const terms = [...new Set(tokenize(query))];
     if (terms.length === 0) return [];
 
-    const { sql, params } = this._retrieveQuery(terms, limit);
+    const { sql, params } = this._retrieveQuery(terms, limit, minRelevance);
     const rows = this.db.query(sql).all(...params) as { source_id: string; file_path: string; content: string | null; score: number }[];
     return rows.map((r) => ({
       sourceId: r.source_id,
@@ -248,35 +266,38 @@ export class ContextStore {
     }));
   }
 
-  private _retrieveQuery(terms: string[], limit: number): { sql: string; params: (string | number)[] } {
+  private _retrieveQuery(terms: string[], limit: number, minRelevance = 0): { sql: string; params: (string | number)[] } {
+    const queryNorm = Math.sqrt(terms.length);
     const placeholders = terms.map(() => "?").join(", ");
     if (this.legacySchema) {
       return {
         sql: `
-          SELECT t.source_id, t.file_path, d.content, SUM(t.tf_idf) AS score
+          SELECT t.source_id, t.file_path, d.content, SUM(t.tf_idf) / ? AS score
           FROM context_terms t
           LEFT JOIN context_docs d ON d.source_id = t.source_id AND d.file_path = t.file_path
           WHERE t.term IN (${placeholders})
           GROUP BY t.source_id, t.file_path
+          HAVING score >= ?
           ORDER BY score DESC
           LIMIT ?`,
-        params: [...terms, limit],
+        params: [queryNorm, ...terms, minRelevance, limit],
       };
     }
     return {
       sql: `
         SELECT d.source_id, d.file_path, d.content, s.score
         FROM (
-          SELECT doc_id, SUM(weight) AS score
+          SELECT doc_id, SUM(weight) / ? AS score
           FROM context_terms
           WHERE term IN (${placeholders})
           GROUP BY doc_id
+          HAVING score >= ?
           ORDER BY score DESC
           LIMIT ?
         ) s
         JOIN context_docs d ON d.id = s.doc_id
         ORDER BY s.score DESC`,
-      params: [...terms, limit],
+      params: [queryNorm, ...terms, minRelevance, limit],
     };
   }
 
@@ -405,19 +426,24 @@ export class ContextStore {
 
         const docId = insertDoc.run(sourceId, file, snippet).lastInsertRowid;
 
+        // Log tf × smoothed idf (scikit-learn's smooth_idf: never zero, so a
+        // one-file source still scores). Keep the top terms (see
+        // BASE_TERMS_PER_DOC) and L2-normalize what is kept: stored weights are
+        // then the exact unit vector retrieve() compares against, so its sum is
+        // a cosine in [0, 1] and long documents aren't penalized for terms that
+        // were dropped.
         const scored: { term: string; score: number }[] = [];
         let cjkTerms = 0;
         for (const [term, freq] of termFreq) {
-          const tf = freq / tokenCount;
-          const idf = Math.log(totalDocs / (docFrequency.get(term) ?? 1));
-          scored.push({ term, score: tf * idf });
+          const idf = Math.log((1 + totalDocs) / (1 + (docFrequency.get(term) ?? 0))) + 1;
+          scored.push({ term, score: (1 + Math.log(freq)) * idf });
           if (CJK_CHAR.test(term)) cjkTerms++;
         }
-
         scored.sort((a, b) => b.score - a.score);
-        const cap = Math.min(MAX_TERMS_PER_DOC, BASE_TERMS_PER_DOC + cjkTerms);
-        for (const { term, score } of scored.slice(0, cap)) {
-          insertTerm.run(term, docId, score);
+        const kept = scored.slice(0, Math.min(MAX_TERMS_PER_DOC, BASE_TERMS_PER_DOC + cjkTerms));
+        const norm = Math.sqrt(kept.reduce((sum, { score }) => sum + score * score, 0));
+        for (const { term, score } of kept) {
+          insertTerm.run(term, docId, score / norm);
         }
       }
 

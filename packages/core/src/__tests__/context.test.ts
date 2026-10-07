@@ -203,8 +203,86 @@ describe("tokenize", () => {
     expect(tokenize("שָׁלוֹם")).toEqual(["שלום"]);
   });
 
+  test("drops English and Arabic stopwords", () => {
+    expect(tokenize("The invoice and the payment")).toEqual(["invoice", "payment"]);
+    expect(tokenize("ذهب إلى السوق")).toEqual(["ذهب", "السوق"]);
+  });
+
   test("applies NFKC normalization (full-width Latin)", () => {
     expect(tokenize("ＡＢＣＤ")).toEqual(["abcd"]);
+  });
+});
+
+describe("ContextStore relevance score", () => {
+  let tmpDir: string;
+  let store: ContextStore;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "tl-ctx-score-"));
+    store = new ContextStore(join(tmpDir, "context.db"));
+  });
+
+  afterEach(() => {
+    store?.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function source(files: Record<string, string>): string {
+    const docs = mkdtempSync(join(tmpDir, "docs-"));
+    for (const [name, body] of Object.entries(files)) writeFileSync(join(docs, name), body);
+    store.addSource(docs);
+    return docs;
+  }
+
+  test("a single-file source scores above zero", () => {
+    source({ "style.md": "Always say sign in, never log in. The product is called Dashboard." });
+    const s = store.retrieve("sign in to dashboard");
+    expect(s).toHaveLength(1);
+    expect(s[0].score).toBeGreaterThan(0);
+  });
+
+  test("a query identical to a document scores 1", () => {
+    source({ "a.md": "alpha bravo charlie", "b.md": "delta echo foxtrot" });
+    const [top] = store.retrieve("alpha bravo charlie");
+    expect(top.filePath).toContain("a.md");
+    expect(top.score).toBeCloseTo(1, 5);
+  });
+
+  test("scores stay within (0, 1]", () => {
+    source({
+      "a.md": "machine learning machine learning neural network training data gradient",
+      "b.md": "cooking recipe flour butter sugar oven machine",
+      "c.md": "machine",
+    });
+    for (const q of ["machine", "machine learning", "machine machine machine", "flour sugar butter oven recipe cooking"]) {
+      for (const r of store.retrieve(q)) {
+        expect(r.score).toBeGreaterThan(0);
+        expect(r.score).toBeLessThanOrEqual(1 + 1e-9);
+      }
+    }
+  });
+
+  test("a query matching one rare term of a long doc ranks below a focused doc", () => {
+    source({
+      "focused.md": "invoice billing payment invoice",
+      "long.md": "release notes for the dashboard covering search filters export themes sidebar invoice widgets",
+    });
+    const s = store.retrieve("invoice billing");
+    expect(s[0].filePath).toContain("focused.md");
+    expect(s[0].score).toBeGreaterThan(s[1].score);
+  });
+
+  test("minRelevance drops results scoring below it", () => {
+    source({
+      "focused.md": "invoice billing payment invoice",
+      "long.md": "release notes for the dashboard covering search filters export themes sidebar invoice widgets",
+    });
+    const all = store.retrieve("invoice billing", 5);
+    expect(all).toHaveLength(2);
+    const cut = (all[0].score + all[1].score) / 2;
+    const kept = store.retrieve("invoice billing", 5, cut);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].filePath).toContain("focused.md");
   });
 });
 
