@@ -25,6 +25,7 @@ describe("TlError", () => {
       "FILE_WRITE_FAILED",
       "FILE_INVALID_FORMAT",
       "PLACEHOLDER_MISMATCH",
+      "PRUNE_REFUSED",
       "SAME_LOCALE",
     ];
     for (const t of tags) {

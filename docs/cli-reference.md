@@ -65,14 +65,16 @@ once, so pipes and `$(tl ...)` substitution are always safe.
 
 #### File mode
 
-Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**, **null**, and **whitespace-only** target values are translated; existing translations are preserved.
+Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**, **null**, and **whitespace-only** target values are translated; existing translations are preserved — except keys whose **source value changed** since the last run, which are re-translated. Change detection uses one small lock file per target, `.tl/locks/<target path>.lock`, under the project root (the nearest ancestor of the target containing `.git`; otherwise the target's directory). It is updated on every non-dry-run and never written inside your locale directory. Commit `.tl/`. See [Lock files](file-translate-guide.md#lock-files-changed-source-detection).
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--file <path>` | string | — | **Required** for file mode. Source catalog path. |
 | `--out <path>` | string | inferred | Output path. If omitted, inferred by locale-token replacement (e.g. `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`). |
 | `--force` | flag | off | Re-translate every leaf, overwriting existing target values. |
-| `--dry-run` | flag | off | Report what would be translated; write nothing and never contact the model. |
+| `--dry-run` | flag | off | Report what would be translated (including keys whose source changed, and with `--prune` the keys that would be removed); write nothing — neither target nor lock — and never contact the model. |
+| `--prune` | flag | off | Remove keys and array elements present in the target but absent from the source. Prints `Pruned: N`. Target-only plural forms are kept (`cart_few` next to a source `cart_one`, `few:` inside a nested `{one, other}` map, v3 `item_0`…`item_5`). Refuses with `PRUNE_REFUSED` when it would remove more than half of the target, or when source and target share no top-level keys. |
+| `--allow-large-prune` | flag | off | Confirm a `--prune` that the safety guard would refuse. |
 | `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
 | `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
 | `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |
@@ -89,6 +91,9 @@ tl translate --file en.json --to ar --force
 
 # See what would change without writing
 tl translate --file en.json --to ar --dry-run
+
+# Also delete target keys that were removed from the source
+tl translate --file en.json --to ar --prune
 
 # Power-user: translate every leaf in an ARB file (may corrupt @key metadata)
 tl translate --file en.arb --to ar --format raw-json --out ar.arb
@@ -126,6 +131,8 @@ tl translate --file en.json --to ar --strict
   "translated": 10,
   "skipped": { "count": 2, "reasons": { "url": 1, "all-caps-short": 1 } },
   "failed": [],
+  "changed": ["/nav/home"],
+  "pruned": [],
   "warnings": [],
   "pluralFallbacks": 0,
   "outPath": "/path/to/ar.json"

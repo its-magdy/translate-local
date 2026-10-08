@@ -16,6 +16,9 @@ tl translate --file en.json --to ar --dry-run
 # Re-translate everything
 tl translate --file en.json --to ar --force
 
+# Also remove keys from ar.json that no longer exist in en.json
+tl translate --file en.json --to ar --prune
+
 # Override output path
 tl translate --file path/to/en.json --to ar --out path/to/ar.json
 ```
@@ -48,17 +51,86 @@ The default mode is `missing-only`. A target value is translated when:
 | `""` (empty string) | yes |
 | `null` | yes |
 | Whitespace-only (`"   "`, `"\n\t"`) | yes |
-| Any other non-empty string | **no** (preserved) |
+| Any other non-empty string | **no** (preserved) — unless the source value changed since the last run |
 | Number, boolean, array, object | preserved verbatim |
+
+In addition, a key is re-translated when its **source value changed** since the last run (see [Lock files](#lock-files-changed-source-detection) below), even though the target already has a value.
 
 Pass `--force` to re-translate every leaf regardless of existing target value.
 
 **Locale-rooted catalogs (Rails).** Rails reads the locale from the file's root key (`en:` in `config/locales/en.yml`), not from the filename. When the source root is a mapping with exactly one key that equals the source locale (case-insensitive, `-` and `_` treated alike, so `pt-BR` matches `pt_BR`), `tl` renames that key to the `--to` value as typed, keeping comments and styles, and prints `Root locale key: en -> fr`. With `--from auto`, the locale token from the filename is used. Sync runs against the target's own root (`fr:`). If the existing target is still rooted at the source locale (an `en:` key in `fr.yml`), `tl` refuses: rename its root key to the target locale, or delete the file. A catalog with a different single root key (`app:`) is left alone. Matching is exact apart from case and `-`/`_`: a region-qualified root (`en-US:`) with `--from en` is not renamed, and `--to fr` does not match an existing `fr-FR:` root. If the existing target has no root matching `--to` (rooted under another locale such as `ar:`, or flat), its keys are kept and a new root is added next to them; `tl` prints a warning because the output then has two roots or a mixed structure.
 
-**What `tl` does NOT do (deferred):**
+### Lock files (changed-source detection)
 
-- **Source-changed detection.** If a source string changed but the target key still exists, `tl` cannot tell — there is no translation memory in v1. Use `--force` if you suspect drift, or delete the target key to opt into re-translation.
-- **Stale-key pruning.** Keys present in the target but absent from the source are left alone. No `--prune` flag in v1.
+Every successful (non-dry-run) write also writes a small lock file for that target. It records a hash of every source string the target was last synced from: the first 16 hex characters (64 bits) of its SHA-256.
+
+```json
+{
+  "version": 1,
+  "checksums": {
+    "/cart": "5bd2e4695d2d94a4",
+    "/nav/home": "3a78695388b38b5c"
+  }
+}
+```
+
+**Where it lives:** `<root>/.tl/locks/<target path relative to root>.lock`. The root is the nearest ancestor of the target that contains `.git` (your project root); outside a git checkout, it is the target's own directory. For example, `tl translate --file src/en.json --out public/locales/ar/common.json` in a repo writes `<repo>/.tl/locks/public/locales/ar/common.json.lock`. Nothing is ever written inside `public/locales/`. A symlinked target resolves to its real path first, so it shares the lock of the file it points at.
+
+On the next run, a key whose current source hash differs from the recorded one is re-translated and reported as `Source changed: N`. **Commit `.tl/`** so teammates and CI share the same baseline.
+
+| Situation | Behavior |
+|---|---|
+| No lock for this target yet (first run, or a target that predates this feature) | Existing target values are trusted and kept; hashes for every source key are recorded. Change detection starts from the next run. |
+| Source value changed since the last run, target value is a string | Re-translated, even though the target has a value. |
+| Source value changed, but the target value is a different shape (e.g. a plural map under a source string) | Kept, as in normal sync — never replaced by a string. |
+| Source value changed and now matches a [skip heuristic](#skip-heuristics) (URL, email, …) | The new source value is copied over the existing target value, the same as for any skipped key. A *localized* URL in the target is replaced. Use `--dry-run` first if the target localizes such values. |
+| Key has no entry in the lock (e.g. a target value you added by hand) | Normal missing-only rule; the hash is recorded. |
+| Key removed from the source | Its lock entry is dropped. The target key itself is only removed with `--prune`. |
+| `--force` | Everything is re-translated; the lock is rewritten from the current source. |
+| `--dry-run` | Changed keys are listed under `Source changed`; neither the target nor the lock is written. |
+| A key fails (placeholder mismatch, ICU) | Source is written as the fallback (as before) and the key keeps its *previous* lock entry, so a changed key that failed is retried on the next run. |
+| Lock is not valid JSON / wrong version (e.g. merge-conflict markers) | That target aborts with `FILE_PARSE_FAILED` before anything is written; other targets are unaffected. Delete that one `.lock` file to rebuild it. The target's existing translations are kept, but source changes made since its last run won't be detected. |
+| Target deleted or renamed | Its old lock is not cleaned up automatically. Stale locks are harmless, and you can delete them by hand. |
+| Running outside a repo, with `HOME` as the nearest `.git` (a "dotfiles repo" home directory) | The root is `~`, so locks land under `~/.tl/locks/…`. Run inside a project checkout, or delete `~/.tl/` if you don't want it. |
+
+Design notes:
+
+- **Not next to the target.** Many i18n setups load or ship whatever sits in the locale directory:
+  - Hugo loads every file under `i18n/`, recursively, with no extension filter. Its walker drops entries whose name starts with `.` or `#`, or ends in `~`, *before* descending into them, so a `.tl/` directory is never entered.
+  - Vite, Next, and other static setups copy `public/` verbatim, dotfiles included, so a lock beside an i18next-http-backend catalog would be deployed.
+
+  The project root is outside all of those. In the no-git fallback, the dot-directory and the `.lock` extension keep the locks out of Hugo, `*.json` / `*.yml` globs (Rails `config/locales/*.{rb,yml}`, Vite `import.meta.glob`, Symfony's `domain.locale.format` naming), and webpack `require.context(…, /\.json$/)`.
+- **One lock file per target**, not one shared lock and not one per source:
+  - A merge conflict or corrupt lock is confined to one target, and the recovery (delete that file) resets only that target's baseline.
+  - Files stay small, about one short line per key.
+  - Per target rather than per source because each run syncs one target, and different targets of the same source are synced at different times. A source-level hash would mark a change as "seen" after the first target was updated.
+- **Keys are JSON Pointers** (RFC 6901: `/nav/home`, `/items/0`, `/a~1b` for key `a/b`), so a key containing dots (`"nav.home"`) can't collide with a nested path. Array index `0` and an object key `"0"` share the pointer `/0`. This only matters if a value switches between array and object while keeping the same text, which is harmless (the key is just not re-queued).
+- **Hash:** SHA-256 via `node:crypto` rather than `Bun.hash`, truncated to 64 bits. The lock is a committed artifact, so the digest has to be identical across runtimes and versions, and `@translate-local/core` also ships a Node build. 64 bits is ample for detecting that one string changed, and a quarter of the size of the full digest.
+- **Deterministic output:** keys sorted, 2-space indent, trailing newline, so it diffs cleanly in git.
+- **Atomic write:** the same temp-file + validate + rename as the target, done *after* the target. A crash in between costs at most one redundant re-translation, never a missed one.
+
+### Pruning (`--prune`)
+
+By default, keys present in the target but absent from the source are left alone. Pass `--prune` to remove them:
+
+- Object keys that no longer exist in the source are deleted, at any depth.
+- Arrays longer than their source counterpart are truncated to the source length.
+- A shape mismatch (source string vs. target plural map) is kept, as in normal sync.
+- **Plural forms are kept.** A target legitimately has more plural forms than its source; Arabic has `zero`, `two`, `few`, and `many` where English has only `one` / `other`. All six CLDR categories count. These are never pruned, whether or not the file was detected as i18next-plurals:
+  - **i18next v4:** a target-only `stem_<category>` or `stem_ordinal_<category>` key, while the source still has `stem` or any plural form of it (`cart_few` next to a source `cart_one`).
+  - **Nested plural maps** (Rails / Ruby i18n, some JSON libraries): inside a map whose source keys are *all* categories (`inbox: { one, other }`), any target key that is a category (`inbox.few`).
+  - **i18next v3** (`compatibilityJSON: "v3"`): `stem_<n>` and `stem_plural`, while the source has `stem` or `stem_plural` (`item_0` … `item_5` next to a source `item` / `item_plural`).
+- With `--dry-run`, the paths that would be pruned are listed under `Would prune`; nothing is written.
+- For YAML, the output is still written using the source document as the template, so surviving keys keep the *source's* comments, scalar styles, and key order. Comments that existed only in the target file are not carried over (see the [re-translation note](#round-trip-fidelity)).
+
+**Safety guard.** Before anything is translated or written, `--prune` refuses with `PRUNE_REFUSED` if:
+
+- source and target share no top-level keys, so every target value would go. This is typical of a Rails-style catalog keyed by its locale whose root `tl` could not match (`en:` in the source, `ar:` in the target, with `--from auto` and no locale in the filename; otherwise the root is renamed first, see [Locale-rooted catalogs](#sync-semantics)), or
+- it would remove more than **50%** of the target's values.
+
+Either usually means the source and target don't line up, not that half the catalog was deleted. If the removal is intended, pass `--allow-large-prune`. Preview the list with `--dry-run --prune --allow-large-prune`. The guard also applies to `--dry-run`.
+
+The summary prints `Pruned: N`, and `--json` output includes a `pruned` array of paths. Paths in `pruned` and `changed` are JSON Pointers (`/nav/home`; a dotted key prints as `/nav.home`).
 
 ---
 
@@ -173,7 +245,7 @@ Override all of these with `--translate-all`.
 2. Write to `<dir>/.<basename>.tmp-<pid>` in the same directory.
 3. `rename()` to the final path.
 
-This is atomic on POSIX filesystems. If `tl` is killed mid-run, the original target file is untouched. After the run, the tmp file is gone (or, on rename failure, cleaned up best-effort).
+This is atomic on POSIX filesystems. If `tl` is killed mid-run, the original target file is untouched. The [lock file](#lock-files-changed-source-detection) is written the same way, right after the target. After the run, the tmp file is gone (or, on rename failure, cleaned up best-effort).
 
 `tl` then re-parses the output to confirm it round-trips cleanly. A re-parse failure aborts before the rename — you get an error, not a corrupted file.
 
@@ -262,10 +334,11 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 | `FILE_WRITE_FAILED` | Output write or pre-rename re-parse failed. |
 | `PLACEHOLDER_MISMATCH` | The model's output dropped or altered placeholders. |
 | `SAME_LOCALE` | `--from` and `--to` are the same, or the output path resolves to the source file. |
+| `PRUNE_REFUSED` | `--prune` would remove more than half of the target, or source and target share no top-level keys. Pass `--allow-large-prune` if intended. |
 
 ---
 
 ## What's coming next
 
 - **Phase B (YAML)** — Rails / Hugo / Symfony non-ICU catalogs with full comment, anchor, and block-scalar preservation.
-- **Phase C (later)** — proper ARB and xcstrings handling, ICU body translation with a real AST parser, source-changed detection via a translation-memory cache.
+- **Phase C (later)** — proper ARB and xcstrings handling, ICU body translation with a real AST parser.

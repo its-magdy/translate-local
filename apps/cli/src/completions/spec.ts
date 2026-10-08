@@ -59,6 +59,8 @@ export const SPEC: RootSpec = {
         { flag: "--out", takes: "path", description: "Output path for file mode" },
         { flag: "--force", description: "File mode: re-translate every leaf" },
         { flag: "--dry-run", description: "File mode: list keys without writing" },
+        { flag: "--prune", description: "File mode: remove keys absent from source" },
+        { flag: "--allow-large-prune", description: "File mode: let --prune remove over half the target" },
         { flag: "--format", takes: "choice", choices: FILE_FORMATS, description: "File mode: format override" },
         { flag: "--strict", description: "File mode: abort on first failure" },
         { flag: "--translate-all", description: "File mode: bypass skip heuristics" },

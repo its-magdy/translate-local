@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -216,5 +216,94 @@ describe("tl translate --file", () => {
     expect(r.stdout).toContain("--out");
     expect(r.stdout).toContain("--force");
     expect(r.stdout).toContain("--dry-run");
+    expect(r.stdout).toContain("--prune");
+  });
+
+  // HOME is pointed at the temp dir so default db paths never touch the real ~/.config/tl.
+  const env = () => ({ TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir, HOME: dir });
+  // The temp dir has no .git ancestor, so .tl/locks/ falls back to the target's directory.
+  const lockFile = (target = "ar.json") => join(dir, ".tl", "locks", `${target}.lock`);
+
+  it("--out into another directory of a git project records the lock at the project root", () => {
+    mkdirSync(join(dir, ".git"));
+    mkdirSync(join(dir, "i18n"));
+    mkdirSync(join(dir, "src"));
+    const src = join(dir, "src", "en.json");
+    writeFileSync(src, '{\n  "a": "Hello"\n}\n');
+    const out = join(dir, "i18n", "ar.json");
+
+    expect(run(["translate", "--file", src, "--to", "ar", "--out", out], env()).exitCode).toBe(0);
+    expect(readdirSync(join(dir, "i18n"))).toEqual(["ar.json"]);
+    expect(Object.keys(JSON.parse(readFileSync(lockFile("i18n/ar.json"), "utf8")).checksums)).toEqual(["/a"]);
+
+    writeFileSync(src, '{\n  "a": "Hello there"\n}\n');
+    const r = run(["translate", "--file", src, "--to", "ar", "--out", out], env());
+    expect(r.stdout).toContain("Source changed: 1");
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] Hello there" });
+  });
+
+  it("--prune removes target-only keys and prints a pruned count", () => {
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "a": "TA",\n  "stale": "S"\n}\n');
+
+    const r = run(["translate", "--file", src, "--to", "ar", "--prune"], env());
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Pruned: 1");
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA" });
+  });
+
+  it("--prune refuses a large removal unless --allow-large-prune is passed", () => {
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    const before = '{\n  "a": "TA",\n  "x": "X",\n  "y": "Y"\n}\n';
+    writeFileSync(out, before);
+
+    const refused = run(["translate", "--file", src, "--to", "ar", "--prune"], env());
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain("would remove 2 of 3");
+    expect(refused.stderr).toContain("--allow-large-prune");
+    expect(readFileSync(out, "utf8")).toBe(before);
+
+    const ok = run(["translate", "--file", src, "--to", "ar", "--prune", "--allow-large-prune"], env());
+    expect(ok.exitCode).toBe(0);
+    expect(ok.stdout).toContain("Pruned: 2");
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA" });
+  });
+
+  it("--dry-run --prune lists what would be pruned and writes nothing", () => {
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    const before = '{\n  "a": "TA",\n  "stale": "S"\n}\n';
+    writeFileSync(out, before);
+
+    const r = run(["translate", "--file", src, "--to", "ar", "--prune", "--dry-run"], env());
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("[dry-run] Would prune: 1");
+    expect(r.stdout).toContain("stale");
+    expect(readFileSync(out, "utf8")).toBe(before);
+    expect(existsSync(lockFile())).toBe(false);
+  });
+
+  it("re-translates a key whose source changed and reports it", () => {
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "Hello",\n  "b": "World"\n}\n');
+    const out = join(dir, "ar.json");
+    expect(run(["translate", "--file", src, "--to", "ar"], env()).exitCode).toBe(0);
+    expect(existsSync(lockFile())).toBe(true);
+
+    writeFileSync(src, '{\n  "a": "Hello there",\n  "b": "World"\n}\n');
+    const dry = run(["translate", "--file", src, "--to", "ar", "--dry-run"], env());
+    expect(dry.stdout).toContain("[dry-run] Would translate: 1");
+    expect(dry.stdout).toContain("[dry-run] Source changed: 1");
+
+    const r = run(["translate", "--file", src, "--to", "ar"], env());
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Translated: 1 / 1");
+    expect(r.stdout).toContain("Source changed: 1");
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] Hello there", b: "[ar] World" });
   });
 });
