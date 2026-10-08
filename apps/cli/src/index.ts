@@ -12,7 +12,7 @@ import { makeCompletionCommand } from "./commands/completion";
 const program = new Command()
   .name("tl")
   .description("Translation CLI — glossary-aware, context-rich, model-agnostic")
-  .version("0.5.0")
+  .version("0.5.1")
   .allowExcessArguments(false);
 
 // `tl <text>` — translate is the default action when a positional argument is passed

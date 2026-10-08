@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-10-08
+
+### Fixed
+- **ICU plural/select in i18next catalogs is no longer garbled.** In a file detected as i18next (`_one` / `_other` keys), a value with ICU `plural`, `select` or `selectordinal` syntax was sent to the model as plain text and came back broken (0.5.0 regression). It now keeps the source value and is reported as failed with a warning (exit code `2`); `--strict` aborts. Rewrite such values as i18next plural keys, or use `--format raw-json` if the file is really an ICU catalog that was misdetected.
+- **File-mode progress no longer runs together in logs.** `Translated n/m` progress is only shown when stderr is a terminal; CI and piped logs now get just the final summary.
+
+### Changed
+- **Release workflow:** `actions/checkout` and `actions/setup-node` v7, `softprops/action-gh-release` v3, and Node 24 for npm publishing.
+- `@translate-local/core` no longer compiles its nested test folders into `dist/`.
+
 ## [0.5.0] - 2026-10-08
 
 ### Upgrade notes
