@@ -11,7 +11,7 @@ import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, pruneTarget, type SyncMode } from "./sync";
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
-import { mask, unmask, validate, containsICU, sentinelFor, sentinelIndices } from "./placeholders";
+import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices } from "./placeholders";
 import { parseICU, translateICU, type UnitTranslator } from "./icu";
 import { classifyValue } from "./skip";
 import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
@@ -401,6 +401,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // Plural forms translated without the sample count meant to set their
   // grammatical number; listed in a warning for review.
   const unhinted: string[] = [];
+  // ICU plural/select values in an i18next catalog, kept as source.
+  let icuInI18next = 0;
 
   for (let i = 0; i < pending.length; i++) {
     const p = pending[i];
@@ -428,6 +430,24 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
     // i18next doesn't speak ICU: a single-brace "{x, number}" there is literal text.
     const isICU = detected.content === "formatjs" || (detected.content !== "i18next-plurals" && containsICU(p.source));
+
+    // A plural/select in an i18next catalog would reach the model as literal
+    // text and come back garbled, so keep the source and report it.
+    if (detected.content === "i18next-plurals" && containsICUBranching(p.source)) {
+      const reason = `ICU MessageFormat in an i18next catalog at ${pathStr}`;
+      if (!continueOnError && !dryRun) {
+        throw new TlError(
+          "FILE_INVALID_FORMAT",
+          reason,
+          "i18next does not evaluate ICU plural/select, so the value is not translated. Use i18next plural keys (key_one, key_other). If this is an ICU catalog misdetected as i18next because of _one/_other keys, pass --format raw-json (or raw-yaml) to translate ICU values structure-preserving; that also skips i18next plural regeneration. The default run keeps the source for these keys.",
+        );
+      }
+      summary.failed.push({ path: pathStr, reason });
+      failedKeys.add(lockKey(p.path));
+      icuInI18next++;
+      if (!dryRun) p.set(p.source);
+      continue;
+    }
 
     if (dryRun) {
       if (isICU && !parsesAsICU(p.source)) {
@@ -617,6 +637,12 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   if (unhinted.length > 0) {
     summary.warnings.push(
       `${unhinted.length} plural form(s) were translated without a sample count (no {{count}} to carry one, or the model kept rewriting it), so their grammatical number may be wrong — review: ${unhinted.join(", ")}`,
+    );
+  }
+
+  if (icuInI18next > 0) {
+    summary.warnings.push(
+      `${icuInI18next} value(s) use ICU plural/select syntax, which i18next does not evaluate; kept as source and reported as failed. Later missing-only runs leave the copied source in place; rewrite them as i18next plural keys, then re-run.`,
     );
   }
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { extract, mask, unmask, validate, containsICU } from "../placeholders";
+import { extract, mask, unmask, validate, containsICU, containsICUBranching } from "../placeholders";
 
 describe("extract", () => {
   test("i18next double-mustache", () => {
@@ -71,6 +71,21 @@ describe("extract", () => {
   test("adjacent placeholders", () => {
     const phs = extract("{{a}}{{b}}{{c}}").map((p) => p.raw);
     expect(phs).toEqual(["{{a}}", "{{b}}", "{{c}}"]);
+  });
+});
+
+describe("containsICUBranching", () => {
+  test("plural / select / selectordinal", () => {
+    expect(containsICUBranching("{n, plural, one {# file} other {# files}}")).toBe(true);
+    expect(containsICUBranching("Hi {g, select, female {her} other {them}}")).toBe(true);
+    expect(containsICUBranching("{n, selectordinal, one {#st} other {#th}}")).toBe(true);
+  });
+
+  test("not interpolation or simple ICU arguments", () => {
+    expect(containsICUBranching("{{count}} items")).toBe(false);
+    expect(containsICUBranching("{{count, number}} items")).toBe(false);
+    expect(containsICUBranching("Hello {name}")).toBe(false);
+    expect(containsICUBranching("{price, number}")).toBe(false);
   });
 });
 

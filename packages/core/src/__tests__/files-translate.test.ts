@@ -770,6 +770,116 @@ describe("translateFile", () => {
     expect(after.item_other).toBe("[ar] {{count}} items at {{price, number}}");
   });
 
+  it("i18next catalogs keep source for ICU plural/select values and report them", async () => {
+    const icu = "{n, plural, one {# file} other {# files}}";
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item",
+      item_other: "{{count}} items",
+      files: icu,
+      greet: "Hello {{name}}",
+    }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.contentFormat).toBe("i18next-plurals");
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.files).toBe(icu);
+    expect(after.greet).toBe("[ar] Hello {{name}}");
+    expect(after.item_other).toBe("[ar] {{count}} items");
+    expect(summary.failed.map((f) => f.path)).toEqual(["files"]);
+    expect(summary.warnings.filter((w) => /ICU plural\/select/.test(w))).toHaveLength(1);
+    // A failed key gets no lock hash (it keeps its previous one, here none).
+    const lock = JSON.parse(readFileSync(join(dir, ".tl", "locks", "ar.json.lock"), "utf8"));
+    expect(lock.checksums["/files"]).toBeUndefined();
+
+    // The target now holds the copied source string and there is no hash to
+    // compare, so a missing-only re-run does not re-queue the key.
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.totalLeaves).toBe(0);
+    expect(rerun.failed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8")).files).toBe(icu);
+
+    // --force re-queues it (and it fails the same way).
+    const forced = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context, mode: "force",
+    });
+    expect(forced.failed.map((f) => f.path)).toEqual(["files"]);
+  });
+
+  it("i18next ICU plural/select values are recorded, not thrown, in a strict dry run", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item",
+      item_other: "{{count}} items",
+      pick: "{g, select, female {She} other {They}}",
+    }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      continueOnError: false, dryRun: true,
+    });
+    expect(summary.failed.map((f) => f.path)).toEqual(["pick"]);
+    expect(summary.failed[0].reason).toMatch(/ICU MessageFormat in an i18next catalog at pick/);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("i18next plural keys holding an ICU plural keep source in every regenerated form", async () => {
+    const icu = "{n, plural, one {# file} other {# files}}";
+    const src = writeSrc("en.json", JSON.stringify({ item_one: icu, item_other: icu }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    const forms = ["item_zero", "item_one", "item_two", "item_few", "item_many", "item_other"];
+    expect(summary.failed.map((f) => f.path).sort()).toEqual([...forms].sort());
+    expect(summary.translated).toBe(0);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    for (const k of forms) expect(after[k]).toBe(icu);
+  });
+
+  it("--format raw-json sends a misdetected i18next file's ICU values down the ICU path", async () => {
+    const icu = "{n, plural, one {# file} other {# files}}";
+    const src = writeSrc("en.json", JSON.stringify({ size_one: "Small", size_other: "Large", files: icu }));
+    const out = join(dir, "fr.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context,
+      format: "raw-json",
+    });
+    expect(summary.contentFormat).toBe("vanilla");
+    expect(summary.failed).toEqual([]);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.files).not.toBe(icu);
+    expect(after.files).toMatch(/^\{n, plural, /);
+  });
+
+  it("i18next catalogs abort on ICU plural/select values under strict mode", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item",
+      item_other: "{{count}} items",
+      pick: "{g, select, female {She} other {They}}",
+    }));
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      continueOnError: false,
+    })).rejects.toThrow(/ICU MessageFormat in an i18next catalog at pick/);
+  });
+
   it("malformed ICU falls back to source by default", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
     const out = join(dir, "ar.json");
