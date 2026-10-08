@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
+import pkg from "../package.json" with { type: "json" };
 import { TlError } from "@translate-local/shared/errors";
 import { makeTranslateCommand } from "./commands/translate";
 import { makeGlossaryCommand } from "./commands/glossary";
@@ -12,7 +13,7 @@ import { makeCompletionCommand } from "./commands/completion";
 const program = new Command()
   .name("tl")
   .description("Translation CLI — glossary-aware, context-rich, model-agnostic")
-  .version("0.5.1")
+  .version(pkg.version)
   .allowExcessArguments(false);
 
 // `tl <text>` — translate is the default action when a positional argument is passed

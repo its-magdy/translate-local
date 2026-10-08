@@ -96,7 +96,7 @@ t/
 - **Unified versioning**: all packages share a single version number, bumped together on each release.
 - Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 - A single root `CHANGELOG.md` tracks all changes (no per-package changelogs).
-- When completing a feature, bump the version in **all** `package.json` files, the CLI `.version()` string, and update the root `CHANGELOG.md`.
+- When completing a feature, bump the version in **all** `package.json` files (the CLI reads its `--version` from `apps/cli/package.json`) and update the root `CHANGELOG.md`.
 - Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
 
 ## Key Patterns
