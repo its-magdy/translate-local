@@ -49,6 +49,9 @@ TEST_ADAPTER=1 bun run test
 # Build all packages
 bun run build
 
+# Type-check sources and tests (build excludes __tests__)
+bun run typecheck
+
 # Run the CLI directly (no build needed)
 bun run apps/cli/src/index.ts "hello" --to ar
 
