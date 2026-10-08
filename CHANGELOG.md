@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-10-08
+
+### Upgrade notes
+- **The context database upgrade is one-way.** The first time 0.5.0 opens your `context.db` it re-indexes it in a new format, and 0.4.2 and earlier can't open the result. To downgrade, delete `context.db` and run `tl context add` again for each source.
+- **`context.minRelevance` is on a new 0–1 scale, and the default is now `0.09`** (was `0.3`). If you set `minRelevance` explicitly (for example to `0.3`), you will now get almost no context: remove the setting or use a value around `0.05`–`0.15`.
+- **File mode writes lock files under `.tl/locks/`** at your project root (the nearest `.git`). Commit `.tl/` so teammates and CI share the same changed-source baseline.
+- **New dependency:** `@translate-local/core` now depends on `@formatjs/icu-messageformat-parser` (ICU MessageFormat support).
+
+### Added
+- **ICU MessageFormat in file mode.** Values with `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}` or `{x, number|date|time}` are now translated structure-preserving instead of being refused: only literal text changes; argument names, selectors, `#`, offsets, `=N` branches and number/date skeletons are kept verbatim. Each top-level message and plural/select branch is translated as one whole message. Plural branches follow the target locale's CLDR categories (en→ar adds `zero`/`two`/`few`/`many`, en→ja keeps only `other`) and are translated with a representative number so the noun inflects correctly. Messages that fail to re-parse with the same arguments fall back to source (or abort under `--strict`).
+- **FormatJS / react-intl catalogs are supported.** `defaultMessage` values are translated as ICU; `description` and other fields are copied verbatim. Compiled FormatJS AST catalogs are refused.
+- **i18next plural keys are regenerated for the target locale's CLDR plural categories** (`Intl.PluralRules`). en→ar now writes `_zero`/`_one`/`_two`/`_few`/`_many`/`_other`, and en→ja writes only `_other`. Cardinal and `_ordinal_` groups, a kept source `_zero`, JSON and YAML (in place, comments kept) are all supported. Each form is translated with a sample count in place of `{{count}}` (e.g. `3 files`) so the model picks the right grammatical number. Forms that couldn't get one are listed in a warning and counted in the `--json` summary as `pluralFallbacks`.
+- **Changed-source detection.** `tl translate --file` writes a small per-target lock at `.tl/locks/<target path>.lock` under the project root (nearest `.git`; never inside the locale directory) with a hash per source key. Keys whose source changed since the last run are re-translated even if the target already has a value (`Source changed: N`). With no lock (first run), existing translations are kept and only hashes are recorded.
+- **`--prune`** for file mode: removes keys and array elements present in the target but absent from the source (JSON and YAML). Target-only plural forms are kept (i18next `cart_few`, Rails nested `inbox.few`, i18next v3 `item_0`…`item_5`). Refuses with the new `PRUNE_REFUSED` error when it would remove more than half of the target or when source and target share no top-level keys; `--allow-large-prune` confirms. Combine with `--dry-run` to preview; the summary prints `Pruned: N`.
+- File-mode `--json` summary includes `changed` and `pruned` arrays of JSON Pointer paths.
+- File mode warns when a JSON source contains duplicate keys (key path and line); the last value still wins. Duplicate YAML keys are rejected by the parser, as documented.
+
+### Changed
+- Existing context databases are re-indexed automatically the first time they are opened after upgrading (one-way, see Upgrade notes). This scales with corpus size and runs once. Sources whose folder is unavailable keep their old index until it returns, and read-only databases keep working on their old index.
+- `context.minRelevance` default is `0.09` on the new 0–1 relevance scale (see Upgrade notes).
+- `tl context add` and `tl context index` skip unreadable subfolders with a warning instead of failing, and a failed `tl context add` no longer leaves a broken source behind.
+- File mode: the "i18next plural keys are translated 1:1 … review output manually" warning is now emitted only when the target language's plural rules are unknown to the runtime, or, under `--from auto`, for lone `_other` keys.
+- `{x, number}` / `{x, date}` / `{x, time}` without a style are now recognized as ICU.
+- Release workflow: publish tokens are checked before anything is built, and npm publishing fails on real errors (expired token, missing 2FA bypass) instead of logging them as "already published"; re-running a release skips versions that are already published or still being staged by the registry.
+
+### Fixed
+- **Context snippets are no longer translated into the output.** They are now passed to TranslateGemma as reference material before the translate instruction, instead of being appended to the text to translate (which leaked them into file-mode catalogs).
+- **Context retrieval works for non-Latin text.** The tokenizer is Unicode-aware: NFKC normalization, Arabic diacritics/Hebrew niqqud stripping, Arabic alef and digit folding, `Intl.Segmenter` word boundaries (including Thai), and character bigrams for Chinese, Japanese, and Korean. Accented Latin words are no longer split. The whole of a long Chinese/Japanese/Korean document is now searchable, not just its first ~100 characters.
+- Context retrieval no longer scans the whole term table: the context database is about 10x smaller and queries about 100x faster on a 1,000-file corpus.
+- **Context relevance is a cosine similarity between 0 and 1**, so `context.minRelevance` means what it says. One-file context sources no longer score 0, and stopwords in English, French, German, Spanish, Italian, Portuguese, Russian and Arabic (Snowball lists) no longer count as matches.
+- File mode now applies `context.minRelevance` and `context.maxSnippets`, like single-string mode. It previously injected every match, up to a hardcoded 3 snippets.
+- **Glossary term matching is Unicode-aware:** accented Latin, Cyrillic, Arabic and other space-delimited scripts use whole-word boundaries (no more `caf` matching inside `café`), and CJK, Japanese kana, Thai, Lao, Khmer and Myanmar terms match inside running text without needing surrounding spaces or punctuation.
+- Glossary lookup falls back along the BCP-47 chain on both source and target (`en-US` → `en`, `zh-Hant-TW` → `zh-Hant` → `zh`), case-insensitively; the most specific entry for a source term wins.
+- **Rails-style locale-rooted catalogs** (`en:` root in `config/locales/en.yml`) now get their root key renamed to the target locale (`fr:`), keeping comments and styles. Previously the output kept `en:`, so Rails loaded the translations as the source locale. Also applies to JSON catalogs with a single locale root. With `--from auto` the locale is taken from the filename. An existing target still rooted at the source locale is refused with a hint instead of being merged. Plural regeneration, changed-source detection and `--prune` all work on the renamed root.
+- i18next formatted interpolations (`{{count, number}}`, `{{val, currency(USD)}}`, chained `{{value, number, uppercase}}`) are now protected as placeholders instead of being sent to the model, which translated them.
+
 ## [0.4.2] - 2026-10-08
 
 0.4.0 was never published as a binary release; this is the first release containing the 0.4.0 features below.
