@@ -99,6 +99,9 @@ export function makeTranslateCommand(): Command {
               throw new TlError("INVALID_INPUT", `Invalid --max-size: "${opts.maxSize}"`, "Use a positive number of MB, e.g. --max-size 10");
             }
 
+            // `\r` progress only makes sense on a terminal; in CI/piped logs it
+            // would concatenate into one line, so stay silent there.
+            const showProgress = !opts.json && !opts.dryRun && !!process.stderr.isTTY;
             let lastReportedDone = -1;
             const result = await translateFile({
               sourcePath,
@@ -121,14 +124,14 @@ export function makeTranslateCommand(): Command {
               minRelevance: config.context.minRelevance,
               prune: opts.prune ?? false,
               allowLargePrune: opts.allowLargePrune ?? false,
-              onProgress: opts.json || opts.dryRun ? undefined : (e) => {
+              onProgress: showProgress ? (e) => {
                 if (e.done !== lastReportedDone) {
                   lastReportedDone = e.done;
                   process.stderr.write(`\rTranslated ${e.done}/${e.total}`);
                 }
-              },
+              } : undefined,
             });
-            if (!opts.json && !opts.dryRun) process.stderr.write("\n");
+            if (showProgress) process.stderr.write("\n");
 
             if (opts.json) {
               console.log(JSON.stringify(result, null, 2));
