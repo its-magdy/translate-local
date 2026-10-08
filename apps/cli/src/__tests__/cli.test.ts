@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import pkg from "../../package.json" with { type: "json" };
 
 const CLI = join(import.meta.dir, "../../src/index.ts");
 // tl resolves ~/.config/tl from homedir(), so every spawn gets a throwaway HOME —
@@ -57,10 +58,10 @@ describe("tl CLI", () => {
   });
 
   describe("--version", () => {
-    it("prints version", () => {
+    it("prints the version from package.json", () => {
       const r = run(["--version"]);
       expect(r.exitCode).toBe(0);
-      expect(r.stdout.trim()).toMatch(/\d+\.\d+\.\d+/);
+      expect(r.stdout.trim()).toBe(pkg.version);
     });
   });
 

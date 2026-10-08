@@ -9,6 +9,9 @@
       "dependsOn": ["build"],
       "env": ["TEST_ADAPTER"]
     },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
     "lint": {},
     "dev": {
       "cache": false,

@@ -9,12 +9,29 @@ permissions:
   contents: write
 
 jobs:
-  # Check the publish tokens before building anything. Both have expired
-  # between releases before, which left a release half-published.
-  check-secrets:
-    name: check secrets
+  # Check the tag and the publish tokens before building anything. Both tokens
+  # have expired between releases before, which left a release half-published.
+  preflight:
+    name: preflight
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
+      # A tag pushed without the version bump would ship binaries and npm
+      # packages that report the previous version.
+      - name: Tag matches package versions
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          bad=0
+          for f in packages/*/package.json apps/*/package.json; do
+            v=$(jq -r .version "$f")
+            if [ "$v" != "$version" ]; then
+              echo "::error file=$f::$f is $v, tag is $GITHUB_REF_NAME. Bump every package.json before tagging."
+              bad=1
+            fi
+          done
+          exit $bad
+
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -32,7 +49,7 @@ jobs:
 
   build:
     name: build (${{ matrix.target.name }})
-    needs: check-secrets
+    needs: preflight
     runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
@@ -131,7 +148,8 @@ jobs:
 
   release:
     name: release
-    needs: build
+    # After npm, so a failed publish leaves no GitHub Release or Homebrew bump.
+    needs: [build, publish-npm]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
