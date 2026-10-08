@@ -9,13 +9,14 @@ import { runPipeline } from "../pipeline";
 import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } from "./detect";
 import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
-import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
+import { diffForSync, makeEmptyTargetLike, pruneTarget, type SyncMode } from "./sync";
+import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
 import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
 import { classifyValue } from "./skip";
 import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
 import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
 import { sampleRegex } from "./plurals";
-import type { JsonValue } from "./walk";
+import { walkLeaves, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
   sourcePath: string;
@@ -47,6 +48,13 @@ export type FileTranslateOptions = {
   maxSnippets?: number;
   /** Minimum context relevance, 0–1 (config `context.minRelevance`). */
   minRelevance?: number;
+  /** When true, remove target keys / array elements that no longer exist in the source. */
+  prune?: boolean;
+  /**
+   * Prune refuses when it would remove more than half of the target's values,
+   * or when source and target share no top-level keys. True overrides both.
+   */
+  allowLargePrune?: boolean;
   onProgress?: (info: { done: number; total: number; path: string }) => void;
 };
 
@@ -56,6 +64,10 @@ export type FileTranslateSummary = {
   translated: number;
   skipped: { count: number; reasons: Record<string, number> };
   failed: { path: string; reason: string }[];
+  /** Keys re-queued because their source value changed since the last run (per the lock file). */
+  changed: string[];
+  /** Target paths removed (or that would be, under dryRun) by prune. */
+  pruned: string[];
   warnings: string[];
   /** i18next plural forms translated without the sample count meant to set their grammatical number. */
   pluralFallbacks: number;
@@ -96,6 +108,41 @@ function sameFile(sourcePath: string, outPath: string): boolean {
   return a === b;
 }
 
+function isMap(v: JsonValue): v is { [k: string]: JsonValue } {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function countValues(node: JsonValue): number {
+  if (node === null || typeof node !== "object") return 1;
+  const children = Array.isArray(node) ? node : Object.values(node);
+  return children.reduce((n: number, c) => n + countValues(c), 0);
+}
+
+// A prune that empties or mostly empties the target almost always means source
+// and target don't line up (wrong --out, a Rails root key `en:` vs `ar:`), not
+// that the source really lost most of its keys. Runs before any translation or
+// write, so a refusal leaves everything untouched; allowLargePrune confirms.
+const PRUNE_MAX_FRACTION = 0.5;
+const PRUNE_HINT = "Check that --file and --out point at matching catalogs. If the removal is intended, re-run with --allow-large-prune (preview with --dry-run --allow-large-prune).";
+
+function guardPrune(removed: number, total: number, topKeysBefore: string[], after: JsonValue): void {
+  if (topKeysBefore.length > 0 && isMap(after) && Object.keys(after).length === 0) {
+    const shown = topKeysBefore.slice(0, 3).map((k) => JSON.stringify(k)).join(", ") + (topKeysBefore.length > 3 ? ", ..." : "");
+    throw new TlError(
+      "PRUNE_REFUSED",
+      `--prune refused: the target's top-level keys (${shown}) appear nowhere in the source — source and target share no top-level keys, so every target value would be removed`,
+      "A Rails-style catalog keyed by its locale (`en:` in the source, `ar:` in the target) looks like this when the root locale is unknown (--from auto with no locale in the filename); pass --from. " + PRUNE_HINT,
+    );
+  }
+  if (removed / total > PRUNE_MAX_FRACTION) {
+    throw new TlError(
+      "PRUNE_REFUSED",
+      `--prune refused: it would remove ${removed} of ${total} target values (${Math.round((removed / total) * 100)}%, limit ${PRUNE_MAX_FRACTION * 100}%)`,
+      PRUNE_HINT,
+    );
+  }
+}
+
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
   const {
     sourcePath,
@@ -115,6 +162,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     dryRun = false,
     maxSnippets = DEFAULT_MAX_SNIPPETS,
     minRelevance = DEFAULT_MIN_RELEVANCE,
+    prune = false,
+    allowLargePrune = false,
     onProgress,
   } = opts;
 
@@ -232,7 +281,30 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
   targetData ??= makeEmptyTargetLike(diffSource);
 
-  const pending = diffForSync(diffSource, targetData, mode);
+
+  // The lock records the source hash each key was last synced from. No lock
+  // (first run) means no change detection: existing target values are trusted.
+  const lockPath = lockPathFor(outPath);
+  const lock = readLock(lockPath);
+  const pending = diffForSync(
+    diffSource,
+    targetData,
+    mode,
+    lock ? (path, src) => {
+      const prev = lock[lockKey(path)];
+      return prev !== undefined && prev !== hashSource(src);
+    } : undefined,
+  );
+  let pruned: (string | number)[][] = [];
+  if (prune) {
+    const before = countValues(targetData);
+    const topKeysBefore = isMap(targetData) ? Object.keys(targetData) : [];
+    pruned = pruneTarget(diffSource, targetData);
+    if (!allowLargePrune && pruned.length > 0) {
+      guardPrune(before - countValues(targetData), before, topKeysBefore, targetData);
+    }
+  }
+  const failedKeys = new Set<string>();
 
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
@@ -246,6 +318,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     translated: 0,
     skipped: { count: 0, reasons: {} },
     failed: [],
+    // JSON Pointers (like the lock keys): a dotted key ("nav.home") stays distinct from nav → home.
+    changed: pending.filter((p) => p.changed).map((p) => lockKey(p.path)),
+    pruned: pruned.map(lockKey),
     warnings: [],
     pluralFallbacks: 0,
     outPath,
@@ -292,6 +367,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       const reason = `Contains ICU MessageFormat at ${pathStr}`;
       if (continueOnError) {
         summary.failed.push({ path: pathStr, reason });
+        failedKeys.add(lockKey(p.path));
         if (!dryRun) p.set(p.source);
         continue;
       }
@@ -412,6 +488,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       if (continueOnError) {
         // Fall back to source so every key has a value; user can grep source text to find failures.
         summary.failed.push({ path: pathStr, reason: lastReason });
+        failedKeys.add(lockKey(p.path));
         p.set(p.source);
         continue;
       }
@@ -449,6 +526,27 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_WRITE_FAILED", `Failed to write ${outPath}: ${msg}`, "Check that the output path is writable.", err);
+  }
+
+  // Written after the target so a crash in between only costs a redundant
+  // re-translation next run, never a missed one. Entries are rebuilt from the
+  // current source, so keys removed from the source drop out. A failed key
+  // keeps its previous hash (if any): when that was a source change, the next
+  // run sees the mismatch again and retries it.
+  const checksums: Checksums = {};
+  for (const leaf of walkLeaves(diffSource)) {
+    const key = lockKey(leaf.path);
+    if (failedKeys.has(key)) {
+      if (lock?.[key] !== undefined) checksums[key] = lock[key];
+    } else {
+      checksums[key] = hashSource(leaf.value);
+    }
+  }
+  try {
+    writeLock(lockPath, checksums);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new TlError("FILE_WRITE_FAILED", `Failed to write ${lockPath}: ${msg}`, "Check that the lock directory is writable.", err);
   }
 
   return summary;

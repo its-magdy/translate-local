@@ -31,13 +31,15 @@ export function makeTranslateCommand(): Command {
     .option("--out <path>", "Output path for file mode (default: locale-token replacement)")
     .option("--force", "File mode: re-translate every leaf (overwrite existing target values)")
     .option("--dry-run", "File mode: list keys that would be translated without writing")
+    .option("--prune", "File mode: remove target keys that no longer exist in the source")
+    .option("--allow-large-prune", "File mode: let --prune remove more than half of the target (or all of it)")
     .addOption(new Option("--format <fmt>", "File mode: format override").choices(["auto", "json", "yaml", "raw-json", "raw-yaml"]).default("auto"))
     .option("--strict", "File mode: abort the run on first validation failure (default: keep going, fall back to source for failed keys)")
     .option("--translate-all", "File mode: bypass URL/email/semver/all-caps skip heuristics")
     .option("--max-size <mb>", "File mode: max source file size in MB", "20")
     .action(async (text: string | undefined, opts: {
       from?: string; to?: string; image?: string; glossary: "prefer" | "strict"; json?: boolean;
-      file?: string; out?: string; force?: boolean; dryRun?: boolean;
+      file?: string; out?: string; force?: boolean; dryRun?: boolean; prune?: boolean; allowLargePrune?: boolean;
       format: FormatOpt; strict?: boolean; translateAll?: boolean; maxSize: string;
     }) => {
       let exitCode = 0;
@@ -117,6 +119,8 @@ export function makeTranslateCommand(): Command {
               dryRun: opts.dryRun ?? false,
               maxSnippets: config.context.maxSnippets,
               minRelevance: config.context.minRelevance,
+              prune: opts.prune ?? false,
+              allowLargePrune: opts.allowLargePrune ?? false,
               onProgress: opts.json || opts.dryRun ? undefined : (e) => {
                 if (e.done !== lastReportedDone) {
                   lastReportedDone = e.done;
@@ -139,6 +143,14 @@ export function makeTranslateCommand(): Command {
               if (result.skipped.count > 0) {
                 console.log(`[dry-run] Would skip: ${result.skipped.count}`);
               }
+              if (result.changed.length > 0) {
+                console.log(`[dry-run] Source changed: ${result.changed.length}`);
+                for (const p of result.changed) console.log(`  ${p}`);
+              }
+              if (opts.prune) {
+                console.log(`[dry-run] Would prune: ${result.pruned.length}`);
+                for (const p of result.pruned) console.log(`  ${p}`);
+              }
               for (const w of result.warnings) console.error(`Warning: ${w}`);
             } else {
               console.log(`Wrote ${result.outPath}`);
@@ -147,6 +159,8 @@ export function makeTranslateCommand(): Command {
                 console.log(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
               }
               console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
+              if (result.changed.length > 0) console.log(`Source changed: ${result.changed.length}`);
+              if (opts.prune) console.log(`Pruned: ${result.pruned.length}`);
               if (result.skipped.count > 0) {
                 const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
                 console.log(`Skipped: ${result.skipped.count} (${reasons})`);

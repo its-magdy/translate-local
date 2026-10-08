@@ -145,7 +145,12 @@ tl translate --file en.json --to ar --force
 
 # Preview
 tl translate --file en.json --to ar --dry-run
+
+# Remove keys that were deleted from the source
+tl translate --file en.json --to ar --prune
 ```
+
+Keys whose source string changed since the last run are re-translated too: `tl` records a hash per source key in a per-target lock under `.tl/locks/` at your project root (never inside the locale directory). Commit `.tl/`.
 
 Recognized layouts: `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`. Pass `--out <path>` when no locale token can be inferred.
 

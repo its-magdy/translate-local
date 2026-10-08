@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, basename } from "path";
 import { parse as parseYaml } from "yaml";
 import { GlossaryStore } from "../glossary";
 import { ContextStore } from "../context";
@@ -1089,5 +1089,336 @@ describe("translateFile", () => {
       });
       expect(seen.get("Sign in to Dashboard")).toHaveLength(1);
     });
+  });
+
+  // ── Lock file (changed-source detection) ─────────────────────────
+
+  // The test dir has no .git ancestor, so .tl/locks/ sits in the target's directory.
+  const lockFile = (target = "ar.json") => join(dir, ".tl", "locks", `${target}.lock`);
+  function readLockFile(out: string): Record<string, string> {
+    return JSON.parse(readFileSync(lockFile(basename(out)), "utf8")).checksums;
+  }
+
+  it("writes .tl/locks/<target>.lock with a truncated sha256 per source key path", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "nested": { "b": "World" }\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const sums = readLockFile(out);
+    expect(Object.keys(sums)).toEqual(["/a", "/nested/b"]);
+    expect(sums["/a"]).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("re-translates only keys whose source changed since the last run", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+
+    writeFileSync(src, '{\n  "a": "Hello there",\n  "b": "World"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+
+    expect(summary.translated).toBe(1);
+    expect(summary.changed).toEqual(["/a"]);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.a).toBe("[ar] Hello there");
+    expect(after.b).toBe("[ar] World");
+  });
+
+  it("missing lock: existing target values are kept, hashes recorded", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "a": "HAND-TRANSLATED"\n}\n');
+
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.translated).toBe(1);
+    expect(summary.changed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8")).a).toBe("HAND-TRANSLATED");
+    expect(Object.keys(readLockFile(out))).toEqual(["/a", "/b"]);
+
+    // Second run with unchanged source: nothing to do.
+    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(again.translated).toBe(0);
+  });
+
+  it("drops lock entries for keys no longer in the source", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    writeFileSync(src, '{\n  "a": "Hello"\n}\n');
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
+  });
+
+  it("dry-run reports changed keys but writes neither target nor lock", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const lockBefore = readFileSync(lockFile(), "utf8");
+    const outBefore = readFileSync(out, "utf8");
+
+    writeFileSync(src, '{\n  "a": "Hello there",\n  "b": "World"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    expect(summary.changed).toEqual(["/a"]);
+    expect(summary.translated).toBe(1);
+    expect(readFileSync(lockFile(), "utf8")).toBe(lockBefore);
+    expect(readFileSync(out, "utf8")).toBe(outBefore);
+  });
+
+  it("dry-run on a first run does not create a lock", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    expect(existsSync(lockFile())).toBe(false);
+  });
+
+  it("--force refreshes the lock to current source hashes", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
+    const out = join(dir, "ar.json");
+    mkdirSync(join(dir, ".tl", "locks"), { recursive: true });
+    writeFileSync(lockFile(), JSON.stringify({ version: 1, checksums: { "/a": "stale", "/gone": "x" } }));
+    writeFileSync(out, '{\n  "a": "OLD"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, mode: "force" });
+    expect(summary.translated).toBe(1);
+    expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
+    expect(readLockFile(out)["/a"]).not.toBe("stale");
+  });
+
+  it("a changed key that fails keeps its old hash so the next run retries it", async () => {
+    class DropSentinelAdapter extends MockAdapter {
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        return {
+          translated: `[${req.targetLang}] ${req.source.replace(/__TLPH_\d+__/g, "")}`,
+          sourceLang: req.sourceLang, targetLang: req.targetLang,
+          glossaryCoverage: 1, missingTerms: [],
+          metadata: { adapter: "drop", durationMs: 0, retries: 0 },
+        };
+      }
+    }
+    const src = writeSrc("en.json", '{\n  "g": "Hello"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const oldHash = readLockFile(out)["/g"];
+
+    writeFileSync(src, '{\n  "g": "Hello {{name}}"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter: new DropSentinelAdapter(), glossary, context });
+    expect(summary.failed).toHaveLength(1);
+    expect(readLockFile(out)["/g"]).toBe(oldHash);
+
+    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    expect(retry.changed).toEqual(["/g"]);
+  });
+
+  it("in a git project the lock lives at the root, not in the locale dir (--out elsewhere)", async () => {
+    mkdirSync(join(dir, ".git"));
+    mkdirSync(join(dir, "src-locales"));
+    mkdirSync(join(dir, "public/locales/ar"), { recursive: true });
+    const src = join(dir, "src-locales/en.json");
+    writeFileSync(src, '{\n  "a": "Hello"\n}\n');
+    const out = join(dir, "public/locales/ar/common.json");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+
+    expect(readdirSync(join(dir, "public/locales/ar"))).toEqual(["common.json"]);
+    expect(readdirSync(join(dir, ".tl", "locks"))).toEqual(["public"]);
+    const lock = JSON.parse(readFileSync(join(dir, ".tl/locks/public/locales/ar/common.json.lock"), "utf8"));
+    expect(Object.keys(lock.checksums)).toEqual(["/a"]);
+
+    writeFileSync(src, '{\n  "a": "Hello there"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.changed).toEqual(["/a"]);
+  });
+
+  it("each target has its own lock: syncing ar does not mark fr as up to date", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
+    const ar = join(dir, "ar.json");
+    const fr = join(dir, "fr.json");
+    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+
+    writeFileSync(src, '{\n  "a": "Hello there"\n}\n');
+    expect((await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context })).changed).toEqual(["/a"]);
+    expect((await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context })).changed).toEqual(["/a"]);
+    expect(readdirSync(join(dir, ".tl", "locks")).sort()).toEqual(["ar.json.lock", "fr.json.lock"]);
+  });
+
+  it("a corrupt (e.g. conflicted) lock blocks only its own target", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
+    const ar = join(dir, "ar.json");
+    const fr = join(dir, "fr.json");
+    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    writeFileSync(lockFile("ar.json"), "<<<<<<< HEAD\n");
+    await expect(translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context }))
+      .rejects.toMatchObject({ tag: "FILE_PARSE_FAILED", hint: expect.stringContaining("ar.json.lock") });
+    const summary = await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+    expect(summary.translated).toBe(1);
+  });
+
+  it("a changed source does not overwrite a target value of a different shape", async () => {
+    const src = writeSrc("en.json", '{\n  "item": "Item"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "item": { "one": "x", "other": "y" }\n}\n');
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+
+    writeFileSync(src, '{\n  "item": "Item (edited)"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.changed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ item: { one: "x", other: "y" } });
+  });
+
+  it("corrupt lock aborts with FILE_PARSE_FAILED before writing the target", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
+    const out = join(dir, "ar.json");
+    mkdirSync(join(dir, ".tl", "locks"), { recursive: true });
+    writeFileSync(lockFile(), "not json");
+    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context }))
+      .rejects.toThrow(/Invalid lock file/);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("change detection works for YAML targets", async () => {
+    const src = writeSrc("en.yml", "# greeting\ngreeting: Hello\nbye: Goodbye\n");
+    const out = join(dir, "ar.yml");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    writeFileSync(src, "# greeting\ngreeting: Hi\nbye: Goodbye\n");
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.changed).toEqual(["/greeting"]);
+    const text = readFileSync(out, "utf8");
+    expect(text).toContain("[ar] Hi");
+    expect(text).toContain("[ar] Goodbye");
+    expect(text).toContain("# greeting");
+  });
+
+  // ── --prune ───────────────────────────────────────────────────────
+
+  it("prune removes target-only keys and array elements (JSON)", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "A",\n  "list": ["x"],\n  "n": { "keep": "K" }\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "a": "TA",\n  "stale": "S",\n  "list": ["TX", "TY"],\n  "n": { "keep": "TK", "old": "O" }\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.pruned).toEqual(["/stale", "/list/1", "/n/old"]);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA", list: ["TX"], n: { keep: "TK" } });
+  });
+
+  it("prune keeps target-only i18next plural forms (ar adds few/many)", async () => {
+    const src = writeSrc("en.json", '{\n  "cart_one": "{{count}} item",\n  "cart_other": "{{count}} items"\n}\n');
+    const out = join(dir, "ar.json");
+    const target = { cart_one: "A1", cart_other: "A2", cart_few: "A3", cart_many: "A4", cart_zero: "A5", gone: "G" };
+    writeFileSync(out, JSON.stringify(target, null, 2) + "\n");
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.pruned).toEqual(["/gone"]);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    // cart_two is missing from the target, so plural regeneration (#56) fills it in.
+    expect(after).toEqual({ cart_one: "A1", cart_other: "A2", cart_two: "[ar] {{count}} items", cart_few: "A3", cart_many: "A4", cart_zero: "A5" });
+  });
+
+  it("prune keeps target-only categories in nested plural maps (Rails YAML)", async () => {
+    const src = writeSrc("en.yml", "en:\n  inbox:\n    one: \"%{count} message\"\n    other: \"%{count} messages\"\n  title: Inbox\n  gone: Old\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "ar:\n  inbox:\n    zero: Z\n    one: O\n    two: T\n    few: F\n    many: M\n    other: X\n  title: TI\n  gone: G\n");
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    writeFileSync(src, "en:\n  inbox:\n    one: \"%{count} message\"\n    other: \"%{count} messages\"\n  title: Inbox\n");
+    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.pruned).toEqual([]);
+    expect(second.pruned).toEqual(["/ar/gone"]);
+    const text = readFileSync(out, "utf8");
+    // one/other keep the source's double-quoted style; target-only forms are appended plain.
+    for (const cat of ["zero: Z", "two: T", "few: F", "many: M", 'one: "O"', 'other: "X"']) expect(text).toContain(cat);
+  });
+
+  it("prune works across a Rails root rename (en: → ar:)", async () => {
+    const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Bye\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "ar:\n  hello: TH\n  bye: TB\n  old: TO\n");
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.pruned).toEqual(["/ar/old"]);
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ ar: { hello: "TH", bye: "TB" } });
+  });
+
+  it("detects a changed source string under a Rails root (lock keyed by the target root)", async () => {
+    const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Bye\n");
+    const out = join(dir, "ar.yml");
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(Object.keys(readLockFile(out)).sort()).toEqual(["/ar/bye", "/ar/hello"]);
+    writeFileSync(src, "en:\n  hello: Hello there\n  bye: Bye\n");
+    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(second.changed).toEqual(["/ar/hello"]);
+    expect(parseYaml(readFileSync(out, "utf8")).ar.hello).toBe("[ar] Hello there");
+  });
+
+  it("prune refuses when source and target share no top-level keys (root not re-rooted)", async () => {
+    // --from auto with no locale in the filename: the en: root can't be matched to ar:.
+    const src = writeSrc("strings.yml", "en:\n  hello: Hello\n  bye: Bye\n");
+    const out = join(dir, "ar.yml");
+    const before = "ar:\n  hello: TH\n  bye: TB\n";
+    writeFileSync(out, before);
+    for (const dryRun of [false, true]) {
+      await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "auto", targetLang: "ar", adapter, glossary, context, prune: true, dryRun }))
+        .rejects.toMatchObject({ tag: "PRUNE_REFUSED", message: expect.stringContaining("no top-level keys") });
+    }
+    expect(readFileSync(out, "utf8")).toBe(before);
+    expect(existsSync(lockFile())).toBe(false);
+  });
+
+  it("prune refuses to remove more than half of the target's values", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    const before = '{\n  "a": "TA",\n  "x": "X",\n  "y": { "z": "Z" }\n}\n';
+    writeFileSync(out, before);
+    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true }))
+      .rejects.toMatchObject({ tag: "PRUNE_REFUSED", message: expect.stringContaining("2 of 3") });
+    expect(readFileSync(out, "utf8")).toBe(before);
+  });
+
+  it("allowLargePrune confirms a large prune", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "a": "TA",\n  "x": "X",\n  "y": { "z": "Z" }\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true, allowLargePrune: true });
+    expect(summary.pruned).toEqual(["/x", "/y"]);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA" });
+  });
+
+  it("summary paths are JSON Pointers, so a dotted key is distinguishable from nesting", async () => {
+    const src = writeSrc("en.json", '{\n  "nav.home": "Home",\n  "nav": { "home": "Home" }\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "nav.home": "T1",\n  "nav": { "home": "T2" },\n  "a.b": "x"\n}\n');
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    writeFileSync(src, '{\n  "nav.home": "Home page",\n  "nav": { "home": "Home" }\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.changed).toEqual(["/nav.home"]);
+    expect(summary.pruned).toEqual(["/a.b"]);
+  });
+
+  it("without prune, target-only keys are kept and pruned is empty", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "a": "TA",\n  "stale": "S"\n}\n');
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.pruned).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8")).stale).toBe("S");
+  });
+
+  it("prune with dry-run reports but does not write", async () => {
+    const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
+    const out = join(dir, "ar.json");
+    const before = '{\n  "a": "TA",\n  "stale": "S"\n}\n';
+    writeFileSync(out, before);
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true, dryRun: true });
+    expect(summary.pruned).toEqual(["/stale"]);
+    expect(readFileSync(out, "utf8")).toBe(before);
+  });
+
+  it("prune drops target-only YAML keys and keeps comments/styles of survivors", async () => {
+    const src = writeSrc("en.yml", "# Greeting shown on home\ngreeting: Hello\nbody: |\n  Line one\n  Line two\nnested:\n  # keep me\n  keep: \"Keep\"\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "greeting: TG\nbody: |\n  TB\nnested:\n  keep: TK\n  old: gone\nlegacy: removed\n");
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    expect(summary.pruned).toEqual(["/nested/old", "/legacy"]);
+    const text = readFileSync(out, "utf8");
+    expect(text).not.toContain("legacy");
+    expect(text).not.toContain("old: gone");
+    expect(text).toContain("# Greeting shown on home");
+    expect(text).toContain("# keep me");
+    expect(text).toContain("body: |\n  TB\n");
+    expect(text).toContain('keep: "TK"');
+    expect(text).toContain("greeting: TG");
   });
 });

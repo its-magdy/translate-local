@@ -171,6 +171,10 @@ Setup: source `en.json` has 10 keys, target `ar.json` has a known sentinel value
 | Behavior | Result |
 |---|---|
 | `--dry-run` reports counts, writes nothing | ✅ |
+| Edited source string → only that key re-translated on rerun (`Source changed: 1`), via the per-target lock in `.tl/locks/` | ✅ |
+| `--prune` removes keys deleted from the source (JSON and YAML; source-template comments / block scalars of survivors kept) | ✅ |
+| `--prune` keeps target-only plural forms (i18next v4 suffixes, Rails nested plural maps, i18next v3 `_<n>`/`_plural`); refuses a Rails `en:`→`ar:` root mismatch and >50% removals without `--allow-large-prune` | ✅ |
+| `--dry-run --prune` lists changed and to-be-pruned paths; target and lock byte-identical afterwards | ✅ |
 | `--out <path>` overrides inferred locale-token output | ✅ |
 | Locale-token inference: `en.json` → `ar.json` | ✅ |
 | Locale-token inference: `messages.en.yaml` → `messages.ar.yaml` | ✅ |
@@ -210,8 +214,9 @@ These are documented behaviors, not bugs. Each is described in `docs/file-transl
 | **ICU plural/select bodies refused** | Strings containing `{n, plural, ...}` or `{x, select, ...}` are refused. | Default behavior: source-fallback for these keys; pass `--strict` to abort instead. |
 | **Shared YAML anchors refused** | Files using `&anchor` / `*alias` are refused. | Inline the anchor before translating. |
 | **Multi-document YAML refused** | Files with `---` document separators are refused. | Split into separate single-document files. |
-| **Source-changed detection unsupported** | If a source string changed but the target key still exists, `tl` cannot tell — there is no translation memory in v1. | Use `--force` to retranslate everything; or delete the target key. |
-| **Stale-key pruning unsupported** | Keys present in the target but absent from the source are left in place. | Remove manually; or wait for an opt-in `--prune` flag in a future release. |
+| **Source-changed detection starts at the first locked run** | Changed-source detection relies on the per-target lock in `.tl/locks/`. A target synced before the lock existed (or after the lock was deleted) is trusted as-is on the first run; edits made to the source before that run are not detected. | Run with `--force` once if you suspect existing drift; afterwards the lock catches changes. |
+| **Failed new keys are not retried automatically** | A key that was missing and failed (placeholder mismatch / ICU) gets the source text as fallback; the next run sees a non-empty target and leaves it. (A *changed* key that fails keeps its old lock hash and *is* retried.) | Delete the fallback value from the target, or use `--force`. |
+| **Stale keys kept unless `--prune`** | Keys present in the target but absent from the source are left in place by default. | Pass `--prune` (combine with `--dry-run` to preview). |
 
 ---
 

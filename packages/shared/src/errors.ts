@@ -18,6 +18,7 @@ export type ErrorTag =
   | "FILE_WRITE_FAILED"
   | "FILE_INVALID_FORMAT"
   | "PLACEHOLDER_MISMATCH"
+  | "PRUNE_REFUSED"
   | "SAME_LOCALE";
 
 export class TlError extends Error {
