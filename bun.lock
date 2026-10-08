@@ -23,7 +23,7 @@
         "commander": "^14.0.3",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "^1.3.14",
         "typescript": "^6.0",
       },
     },
@@ -37,7 +37,7 @@
         "@translate-local/shared": "workspace:*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "^1.3.14",
         "typescript": "^6.0",
       },
     },
@@ -46,7 +46,7 @@
       "version": "0.4.2",
       "devDependencies": {
         "@translate-local/shared": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "^1.3.14",
         "typescript": "^6.0",
       },
       "peerDependencies": {
@@ -63,7 +63,7 @@
       "devDependencies": {
         "@translate-local/adapters": "workspace:*",
         "@translate-local/shared": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "^1.3.14",
         "typescript": "^6.0",
       },
       "peerDependencies": {
@@ -108,7 +108,7 @@
       "name": "@translate-local/shared",
       "version": "0.4.2",
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "^1.3.14",
         "typescript": "^6.0",
       },
     },
@@ -200,8 +200,6 @@
 
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
-    "@translate-local/cli/@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
-
     "@translate-local/tl/@translate-local/tl-darwin-arm64": ["@translate-local/tl-darwin-arm64@0.3.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-rjaX10+tWMzE0VHRmWuvZpcCW+UB7i8I1XGIPGxSlLc2MpCJ8YcMUaFbOSW5yNkqUnFa70ON4p/xykGQYr0EPg=="],
 
     "@translate-local/tl/@translate-local/tl-darwin-x64": ["@translate-local/tl-darwin-x64@0.3.4", "", { "os": "darwin", "cpu": "x64" }, "sha512-6gcpPZVzY3M9emv6n33pQjckolv1Lf+eKqP5evmX+DUnjWgb/JmunqnLpMHSYxdaE3zDdUIPAM5l6zRSvtmJTg=="],
@@ -211,11 +209,5 @@
     "@translate-local/tl/@translate-local/tl-linux-x64": ["@translate-local/tl-linux-x64@0.3.4", "", { "os": "linux", "cpu": "x64" }, "sha512-0QFng3o5eQge6gr44cgRwbms8Xclbi/r4TwPFe6cvCtmSh5W5UVpFw5KDEN8rMYmM+m8dstA9Ms8vacGDRVUdQ=="],
 
     "@translate-local/tl/@translate-local/tl-win32-x64": ["@translate-local/tl-win32-x64@0.3.4", "", { "os": "win32", "cpu": "x64" }, "sha512-dL2uQ8JkJNDfEdByj4M5bc4jtZO9T1aodDcMltVTiwSW6ipRk/7WL8DwXTy6ugNnINDUuBwnwfJ3DFXxxcf1cg=="],
-
-    "@translate-local/tui/@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
-
-    "@translate-local/cli/@types/bun/bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
-
-    "@translate-local/tui/@types/bun/bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
   }
 }
