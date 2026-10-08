@@ -45,7 +45,8 @@ jobs:
           # condition), so they don't need the tsc build; that runs in the
           # typecheck job. --only skips turbo's test -> build dependency.
           - name: Test
-            run: bun run test --only
+            timeout-minutes: 5
+            run: bun run test --only --log-order=stream
 
           # Release binaries are only built on tags, so compile the host
           # binary here and check that it starts and can open bun:sqlite.
