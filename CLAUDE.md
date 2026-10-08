@@ -85,7 +85,7 @@ t/
 
 ## npm Scope & Publishing
 
-- **Scope**: `@translate-local/*` — all packages under `packages/` are publishable (`@translate-local/shared`, `@translate-local/core`, `@translate-local/adapters`)
+- **Scope**: `@translate-local/*`. Only the `tl` wrapper (`packages/npm-tl`) and its per-platform binary packages (`packages/npm-tl-*`) are published. `@translate-local/shared`, `core` and `adapters` are `"private": true`: the CLI bundles them into the binary, and their `exports` (`"bun"` → `src/`) and `workspace:*` peer deps are not publish-ready.
 - **Apps** (`apps/cli`, `apps/tui`) are private, not published
 - **Subpath exports**: Each package uses the `exports` field for granular imports (e.g., `@translate-local/shared/types`, `@translate-local/core/pipeline`)
 - **Peer deps**: `@translate-local/core` and `@translate-local/adapters` peer-depend on `@translate-local/shared`
