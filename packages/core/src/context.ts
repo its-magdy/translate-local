@@ -5,13 +5,16 @@ import { join } from "path";
 import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { ensurePrivateDir } from "./fsutil";
+import { STOPWORDS } from "./stopwords";
 
 // Bump whenever tokenize() output or the stored term weights change. Terms are
 // persisted in context_terms, so each source records the version it was
 // indexed with (context_sources.index_version; 0 = before this column existed)
 // and older sources are rebuilt on open.
 // 2 = integer doc ids (context_docs.id) and a WITHOUT ROWID term table.
-export const CONTEXT_INDEX_VERSION = 2;
+// 3 = cosine-normalized weights with smoothed idf, stopwords.
+// 4 = Snowball stopword lists (en/fr/de/es/it/pt/ru).
+export const CONTEXT_INDEX_VERSION = 4;
 
 // Most-weighted terms stored per document: BASE_TERMS_PER_DOC plus one per
 // distinct CJK bigram, up to MAX_TERMS_PER_DOC. English recall stopped
@@ -66,7 +69,7 @@ export function tokenize(text: string): string[] {
       // A segment is a word if it has a letter or digit. isWordLike isn't
       // used: on some ICU builds (Bun on Linux) it is false for numbers.
       // 3+ code points, as before, to drop short function words.
-      if (WORD_CHAR.test(segment) && [...segment].length >= 3) tokens.push(segment);
+      if (WORD_CHAR.test(segment) && [...segment].length >= 3 && !STOPWORDS.has(segment)) tokens.push(segment);
     }
   });
   return tokens;
@@ -233,12 +236,19 @@ export class ContextStore {
     return skipped;
   }
 
-  retrieve(query: string, limit = 5): ContextSnippet[] {
+  /**
+   * Snippets ranked by cosine similarity in [0, 1] between the query and each
+   * document. Stored term weights are already components of the document's
+   * unit-length vector; the query is a binary vector over its unique terms,
+   * so cosine = SUM(matched weights) / sqrt(#query terms). Results scoring
+   * below `minRelevance` are dropped before `limit` applies.
+   */
+  retrieve(query: string, limit = 5, minRelevance = 0): ContextSnippet[] {
     // Dedupe: bigram tokenization repeats terms, and each one is a bind param.
     const terms = [...new Set(tokenize(query))];
     if (terms.length === 0) return [];
 
-    const { sql, params } = this._retrieveQuery(terms, limit);
+    const { sql, params } = this._retrieveQuery(terms, limit, minRelevance);
     const rows = this.db.query(sql).all(...params) as { source_id: string; file_path: string; content: string | null; score: number }[];
     return rows.map((r) => ({
       sourceId: r.source_id,
@@ -248,35 +258,38 @@ export class ContextStore {
     }));
   }
 
-  private _retrieveQuery(terms: string[], limit: number): { sql: string; params: (string | number)[] } {
+  private _retrieveQuery(terms: string[], limit: number, minRelevance = 0): { sql: string; params: (string | number)[] } {
+    const queryNorm = Math.sqrt(terms.length);
     const placeholders = terms.map(() => "?").join(", ");
     if (this.legacySchema) {
       return {
         sql: `
-          SELECT t.source_id, t.file_path, d.content, SUM(t.tf_idf) AS score
+          SELECT t.source_id, t.file_path, d.content, MIN(1.0, SUM(t.tf_idf) / ?) AS score
           FROM context_terms t
           LEFT JOIN context_docs d ON d.source_id = t.source_id AND d.file_path = t.file_path
           WHERE t.term IN (${placeholders})
           GROUP BY t.source_id, t.file_path
+          HAVING score >= ?
           ORDER BY score DESC
           LIMIT ?`,
-        params: [...terms, limit],
+        params: [queryNorm, ...terms, minRelevance, limit],
       };
     }
     return {
       sql: `
         SELECT d.source_id, d.file_path, d.content, s.score
         FROM (
-          SELECT doc_id, SUM(weight) AS score
+          SELECT doc_id, MIN(1.0, SUM(weight) / ?) AS score
           FROM context_terms
           WHERE term IN (${placeholders})
           GROUP BY doc_id
+          HAVING score >= ?
           ORDER BY score DESC
           LIMIT ?
         ) s
         JOIN context_docs d ON d.id = s.doc_id
         ORDER BY s.score DESC`,
-      params: [...terms, limit],
+      params: [queryNorm, ...terms, minRelevance, limit],
     };
   }
 
@@ -305,6 +318,26 @@ export class ContextStore {
     return skipped;
   }
 
+  // Rows of sources that couldn't be re-indexed (copied legacy rows, or an
+  // older index version) were weighted on an older, unbounded scale. Scale each
+  // such doc to unit length so retrieve() stays a cosine in [0, 1]; a doc whose
+  // weights are all zero (the old idf ln(N/df) can zero everything) loses its
+  // term rows instead of keeping meaningless ones.
+  private _normalizeStaleRows(): void {
+    const docs = this.db.query(`
+      SELECT d.id, COALESCE(SUM(t.weight * t.weight), 0) AS ss
+      FROM context_docs d
+      JOIN context_sources s ON s.id = d.source_id
+      LEFT JOIN context_terms t ON t.doc_id = d.id
+      WHERE s.index_version < ?
+      GROUP BY d.id
+    `).all(CONTEXT_INDEX_VERSION) as { id: number; ss: number }[];
+    for (const { id, ss } of docs) {
+      if (ss > 0) this.db.run(`UPDATE context_terms SET weight = weight / ? WHERE doc_id = ?`, [Math.sqrt(ss), id]);
+      else this.db.run(`DELETE FROM context_terms WHERE doc_id = ?`, [id]);
+    }
+  }
+
   // Rebuild sources indexed by an older CONTEXT_INDEX_VERSION. Runs as one
   // IMMEDIATE transaction so concurrent opens serialize (busy_timeout) and a
   // crash mid-migration leaves the old index intact.
@@ -318,9 +351,14 @@ export class ContextStore {
     const reachable = (src: { path: string }) => {
       try { readdirSync(src.path); return true; } catch { return false; }
     };
-    // Read-only check first: if the only stale sources are unreachable, there
-    // is nothing to do, so don't take a write lock on every open.
-    if (!this._hasLegacySchema() && hasColumn() && !stale().some(reachable)) return;
+    // PRAGMA user_version records that every stored row, including rows of
+    // sources still waiting to be re-indexed, is on the current weight scale.
+    const rowsCurrent = () =>
+      (this.db.query(`PRAGMA user_version`).get() as { user_version: number }).user_version >= CONTEXT_INDEX_VERSION;
+    // Read-only check first: if the only stale sources are unreachable and
+    // their rows are already re-normalized, there is nothing to do, so don't
+    // take a write lock on every open.
+    if (!this._hasLegacySchema() && hasColumn() && rowsCurrent() && !stale().some(reachable)) return;
 
     try {
       this.db.transaction(() => {
@@ -328,7 +366,8 @@ export class ContextStore {
         if (!hasColumn()) {
           this.db.run(`ALTER TABLE context_sources ADD COLUMN index_version INTEGER NOT NULL DEFAULT 0`);
         }
-        if (this._hasLegacySchema()) {
+        const converted = this._hasLegacySchema();
+        if (converted) {
           // Convert to integer doc ids, copying the old rows so a source that
           // can't be re-indexed right now (see below) still has an index.
           this.db.exec(`
@@ -353,6 +392,10 @@ export class ContextStore {
           } catch (err) {
             if (isSqliteError(err)) throw err;
           }
+        }
+        if (converted || !rowsCurrent()) {
+          this._normalizeStaleRows();
+          this.db.run(`PRAGMA user_version = ${CONTEXT_INDEX_VERSION}`);
         }
       }).immediate();
     } catch (err: unknown) {
@@ -405,19 +448,24 @@ export class ContextStore {
 
         const docId = insertDoc.run(sourceId, file, snippet).lastInsertRowid;
 
+        // Log tf × smoothed idf (scikit-learn's smooth_idf: never zero, so a
+        // one-file source still scores). Keep the top terms (see
+        // BASE_TERMS_PER_DOC) and L2-normalize what is kept: stored weights are
+        // then the exact unit vector retrieve() compares against, so its sum is
+        // a cosine in [0, 1] and long documents aren't penalized for terms that
+        // were dropped.
         const scored: { term: string; score: number }[] = [];
         let cjkTerms = 0;
         for (const [term, freq] of termFreq) {
-          const tf = freq / tokenCount;
-          const idf = Math.log(totalDocs / (docFrequency.get(term) ?? 1));
-          scored.push({ term, score: tf * idf });
+          const idf = Math.log((1 + totalDocs) / (1 + (docFrequency.get(term) ?? 0))) + 1;
+          scored.push({ term, score: (1 + Math.log(freq)) * idf });
           if (CJK_CHAR.test(term)) cjkTerms++;
         }
-
         scored.sort((a, b) => b.score - a.score);
-        const cap = Math.min(MAX_TERMS_PER_DOC, BASE_TERMS_PER_DOC + cjkTerms);
-        for (const { term, score } of scored.slice(0, cap)) {
-          insertTerm.run(term, docId, score);
+        const kept = scored.slice(0, Math.min(MAX_TERMS_PER_DOC, BASE_TERMS_PER_DOC + cjkTerms));
+        const norm = Math.sqrt(kept.reduce((sum, { score }) => sum + score * score, 0));
+        for (const { term, score } of kept) {
+          insertTerm.run(term, docId, score / norm);
         }
       }
 

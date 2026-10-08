@@ -229,7 +229,7 @@ See [docs/glossary-guide.md](docs/glossary-guide.md) for the full reference.
 
 ### Context sources
 
-Index local `.md`, `.txt`, `.mdx`, or `.rst` files. On each translation, the most relevant passages are retrieved via TF-IDF and added to the prompt.
+Index local `.md`, `.txt`, `.mdx`, or `.rst` files. On each translation, the most relevant passages (by TF-IDF cosine similarity, filtered by `context.minRelevance`) are added to the prompt as reference material.
 
 **Add a directory:**
 

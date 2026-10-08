@@ -203,8 +203,98 @@ describe("tokenize", () => {
     expect(tokenize("שָׁלוֹם")).toEqual(["שלום"]);
   });
 
+  test("drops Snowball stopwords for en/fr/de/es/it/pt/ru", () => {
+    expect(tokenize("You have been logged out of your account")).toEqual(["logged", "account"]);
+    expect(tokenize("Don’t share your password")).toEqual(["share", "password"]);
+    // Snowball keeps "été" (also "summer").
+    expect(tokenize("Vous avez été déconnecté de votre compte")).toEqual(["été", "déconnecté", "compte"]);
+    expect(tokenize("Sie wurden von Ihrem Konto abgemeldet")).toEqual(["wurden", "konto", "abgemeldet"]);
+    expect(tokenize("Se ha cerrado la sesión de su cuenta")).toEqual(["cerrado", "sesión", "cuenta"]);
+    expect(tokenize("Sei stato disconnesso dal tuo account")).toEqual(["stato", "disconnesso", "account"]);
+    expect(tokenize("Você foi desconectado da sua conta")).toEqual(["desconectado", "conta"]);
+    expect(tokenize("Вы вышли из своей учётной записи")).toEqual(["вышли", "своей", "учётной", "записи"]);
+  });
+
+  test("drops English and Arabic stopwords", () => {
+    expect(tokenize("The invoice and the payment")).toEqual(["invoice", "payment"]);
+    expect(tokenize("ذهب إلى السوق")).toEqual(["ذهب", "السوق"]);
+  });
+
   test("applies NFKC normalization (full-width Latin)", () => {
     expect(tokenize("ＡＢＣＤ")).toEqual(["abcd"]);
+  });
+});
+
+describe("ContextStore relevance score", () => {
+  let tmpDir: string;
+  let store: ContextStore;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "tl-ctx-score-"));
+    store = new ContextStore(join(tmpDir, "context.db"));
+  });
+
+  afterEach(() => {
+    store?.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function source(files: Record<string, string>): string {
+    const docs = mkdtempSync(join(tmpDir, "docs-"));
+    for (const [name, body] of Object.entries(files)) writeFileSync(join(docs, name), body);
+    store.addSource(docs);
+    return docs;
+  }
+
+  test("a single-file source scores above zero", () => {
+    source({ "style.md": "Always say sign in, never log in. The product is called Dashboard." });
+    const s = store.retrieve("sign in to dashboard");
+    expect(s).toHaveLength(1);
+    expect(s[0].score).toBeGreaterThan(0);
+  });
+
+  test("a query identical to a document scores 1", () => {
+    source({ "a.md": "alpha bravo charlie", "b.md": "delta echo foxtrot" });
+    const [top] = store.retrieve("alpha bravo charlie");
+    expect(top.filePath).toContain("a.md");
+    expect(top.score).toBeCloseTo(1, 5);
+  });
+
+  test("scores stay within (0, 1]", () => {
+    source({
+      "a.md": "machine learning machine learning neural network training data gradient",
+      "b.md": "cooking recipe flour butter sugar oven machine",
+      "c.md": "machine",
+    });
+    for (const q of ["machine", "machine learning", "machine machine machine", "flour sugar butter oven recipe cooking"]) {
+      for (const r of store.retrieve(q)) {
+        expect(r.score).toBeGreaterThan(0);
+        expect(r.score).toBeLessThanOrEqual(1 + 1e-9);
+      }
+    }
+  });
+
+  test("a query matching one rare term of a long doc ranks below a focused doc", () => {
+    source({
+      "focused.md": "invoice billing payment invoice",
+      "long.md": "release notes for the dashboard covering search filters export themes sidebar invoice widgets",
+    });
+    const s = store.retrieve("invoice billing");
+    expect(s[0].filePath).toContain("focused.md");
+    expect(s[0].score).toBeGreaterThan(s[1].score);
+  });
+
+  test("minRelevance drops results scoring below it", () => {
+    source({
+      "focused.md": "invoice billing payment invoice",
+      "long.md": "release notes for the dashboard covering search filters export themes sidebar invoice widgets",
+    });
+    const all = store.retrieve("invoice billing", 5);
+    expect(all).toHaveLength(2);
+    const cut = (all[0].score + all[1].score) / 2;
+    const kept = store.retrieve("invoice billing", 5, cut);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].filePath).toContain("focused.md");
   });
 });
 
@@ -294,9 +384,10 @@ describe("ContextStore index migration", () => {
   // Turn the db into what the pre-Unicode release wrote: no index_version
   // column, terms keyed by (source_id, file_path), and no terms for the
   // Chinese file (the old ASCII tokenizer had none).
-  function makeLegacy(): void {
+  function makeLegacy(oldWeight = 0.1): void {
     const db = new Database(dbPath);
     db.exec(`
+      PRAGMA user_version = 0;
       ALTER TABLE context_sources DROP COLUMN index_version;
       DROP TABLE context_terms;
       ALTER TABLE context_docs RENAME TO new_docs;
@@ -312,7 +403,7 @@ describe("ContextStore index migration", () => {
       );
       CREATE INDEX idx_terms_lookup ON context_terms(source_id, term);
       INSERT INTO context_terms
-        SELECT source_id, file_path, w.term, 0.1 FROM context_docs,
+        SELECT source_id, file_path, w.term, ${oldWeight} FROM context_docs,
           (SELECT 'cooking' AS term UNION SELECT 'recipe' UNION SELECT 'flour' UNION SELECT 'butter') w
         WHERE file_path LIKE '%en.md';
     `);
@@ -370,18 +461,66 @@ describe("ContextStore index migration", () => {
     expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION + 1);
   });
 
+  function expectBounded(snippets: { score: number }[]): void {
+    for (const s of snippets) {
+      expect(s.score).toBeGreaterThan(0);
+      expect(s.score).toBeLessThanOrEqual(1);
+    }
+  }
+
   test("a missing source folder keeps its old index and is retried on a later open", () => {
     makeLegacy();
     renameSync(docs, `${docs}-moved`);
     // Old terms still answer queries; the source is not marked migrated.
     const before = open((store) => store.retrieve("cooking recipe"));
     expect(before.length).toBe(1);
+    expectBounded(before);
     expect(open((store) => store.listSources()[0].fileCount)).toBe(2);
     expect(indexVersion()).toBe(0);
 
     renameSync(`${docs}-moved`, docs);
-    expect(open((store) => store.retrieve("神经网络")).length).toBeGreaterThan(0);
+    const after = open((store) => store.retrieve("神经网络"));
+    expect(after.length).toBeGreaterThan(0);
+    expectBounded(after);
     expect(indexVersion()).toBe(CONTEXT_INDEX_VERSION);
+  });
+
+  test("copied legacy rows are re-normalized and never outrank a fresh exact match", () => {
+    // main's sums of tf*idf could reach ~3; a stale doc must not score above 1.
+    makeLegacy(3);
+    renameSync(docs, `${docs}-moved`);
+    const fresh = join(tmpDir, "fresh");
+    mkdirSync(fresh);
+    writeFileSync(join(fresh, "a.md"), "cooking recipe flour butter");
+    writeFileSync(join(fresh, "b.md"), "volcano eruption lava");
+    open((store) => store.addSource(fresh));
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expectBounded(s);
+    expect(s.map((x) => x.filePath).sort()).toEqual([join(`${docs}`, "en.md"), join(fresh, "a.md")].sort());
+    expect(s[0].score).toBeCloseTo(s[1].score, 5);
+  });
+
+  test("a stale doc whose old weights are all zero is dropped, not kept as garbage", () => {
+    makeLegacy(0); // main's idf ln(N/df) is 0 for a term in every file
+    renameSync(docs, `${docs}-moved`);
+    expect(open((store) => store.retrieve("cooking recipe"))).toEqual([]);
+  });
+
+  test("rows of a source left at an older index version are re-normalized", () => {
+    renameSync(docs, `${docs}-moved`);
+    const db = new Database(dbPath);
+    db.run(`UPDATE context_terms SET weight = weight * 7`);
+    db.run(`UPDATE context_sources SET index_version = ?`, [CONTEXT_INDEX_VERSION - 1]);
+    db.run(`PRAGMA user_version = ${CONTEXT_INDEX_VERSION - 1}`);
+    db.close();
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expect(s.length).toBe(1);
+    expectBounded(s);
+  });
+
+  test("scores are clamped to 1", () => {
+    const s = open((store) => store.retrieve("cooking recipe flour butter"));
+    expect(s[0].score).toBeLessThanOrEqual(1);
   });
 
   test("an unreachable source does not take a write lock on later opens", () => {

@@ -35,6 +35,10 @@ export const DEFAULT_CONFIG_PATH = "~/.config/tl/config.jsonc";
 export const DEFAULT_GLOSSARY_DB_PATH = "~/.config/tl/glossary.db";
 export const DEFAULT_CONTEXT_DB_PATH = "~/.config/tl/context.db";
 export const DEFAULT_GLOSSARY_MODE = "prefer" as const;
+export const DEFAULT_MAX_SNIPPETS = 3;
+// Minimum cosine similarity (0–1) for a context snippet to be used. Picked from
+// measurements on English/Arabic/Chinese reference docs (see docs/context-guide.md).
+export const DEFAULT_MIN_RELEVANCE = 0.09;
 export const DEFAULT_OLLAMA_TIMEOUT_MS = 60_000;
 
 // ASCII sentinels that file mode substitutes for placeholders before translation.

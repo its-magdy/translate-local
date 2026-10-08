@@ -115,6 +115,8 @@ export function makeTranslateCommand(): Command {
               translateAll: opts.translateAll ?? false,
               maxFileBytes: maxBytes,
               dryRun: opts.dryRun ?? false,
+              maxSnippets: config.context.maxSnippets,
+              minRelevance: config.context.minRelevance,
               onProgress: opts.json || opts.dryRun ? undefined : (e) => {
                 if (e.done !== lastReportedDone) {
                   lastReportedDone = e.done;
@@ -182,10 +184,9 @@ export function makeTranslateCommand(): Command {
           }
 
           const queryText = text ?? "";
-          const snippets = queryText ? contextStore.retrieve(queryText, config.context.maxSnippets) : [];
-          const contextSnippets = snippets
-            .filter((s) => s.score >= config.context.minRelevance)
-            .map((s) => s.content);
+          const contextSnippets = queryText
+            ? contextStore.retrieve(queryText, config.context.maxSnippets, config.context.minRelevance).map((s) => s.content)
+            : [];
 
           const isJson = opts.json ?? false;
           // Stream only to an interactive terminal. Piped stdout must carry

@@ -1,0 +1,165 @@
+// Stopwords removed by the context tokenizer (see tokenize() in context.ts).
+//
+// en/fr/de/es/it/pt/ru: the Snowball stop word lists
+// (https://snowballstem.org/algorithms/<language>/stop.txt), BSD-licensed
+// (https://snowballstem.org/license.html). Only words of 3+ characters are
+// listed, since the tokenizer already drops shorter ones. English contractions
+// also match with a typographic apostrophe (don’t).
+// ar: the most frequent 3+ letter particles and demonstratives from Lucene's
+// ArabicAnalyzer stop list, in their alef-folded form (tokenize() folds أ/إ/آ).
+//
+// All lists apply to every text, because the source language isn't known at
+// index time. A few words collide with content words in another language
+// (e.g. German "die", Italian "come", Spanish "con"); those are dropped too.
+
+const EN = [
+  "myself", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "him",
+  "his", "himself", "she", "her", "hers", "herself", "its", "itself", "they", "them", "their",
+  "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "are",
+  "was", "were", "been", "being", "have", "has", "had", "having", "does", "did", "doing", "would",
+  "should", "could", "ought", "i'm", "you're", "he's", "she's", "it's", "we're", "they're", "i've",
+  "you've", "we've", "they've", "i'd", "you'd", "he'd", "she'd", "we'd", "they'd", "i'll",
+  "you'll", "he'll", "she'll", "we'll", "they'll", "isn't", "aren't", "wasn't", "weren't",
+  "hasn't", "haven't", "hadn't", "doesn't", "don't", "didn't", "won't", "wouldn't", "shan't",
+  "shouldn't", "can't", "cannot", "couldn't", "mustn't", "let's", "that's", "who's", "what's",
+  "here's", "there's", "when's", "where's", "why's", "how's", "the", "and", "but", "because",
+  "until", "while", "for", "with", "about", "against", "between", "into", "through", "during",
+  "before", "after", "above", "below", "from", "down", "out", "off", "over", "under", "again",
+  "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both",
+  "each", "few", "more", "most", "other", "some", "such", "nor", "not", "only", "own", "same",
+  "than", "too", "very",
+];
+const FR = [
+  "aux", "avec", "ces", "dans", "des", "elle", "eux", "leur", "lui", "mais", "même", "mes", "moi",
+  "mon", "nos", "notre", "nous", "par", "pas", "pour", "que", "qui", "ses", "sur", "tes", "toi",
+  "ton", "une", "vos", "votre", "vous", "étée", "étées", "étant", "suis", "êtes", "sont", "serai",
+  "seras", "sera", "serons", "serez", "seront", "serais", "serait", "serions", "seriez",
+  "seraient", "étais", "était", "étions", "étiez", "étaient", "fus", "fut", "fûmes", "fûtes",
+  "furent", "sois", "soit", "soyons", "soyez", "soient", "fusse", "fusses", "fussions", "fussiez",
+  "fussent", "ayant", "eue", "eues", "eus", "avons", "avez", "ont", "aurai", "aurons", "aurez",
+  "auront", "aurais", "aurait", "aurions", "auriez", "auraient", "avais", "avait", "aviez",
+  "avaient", "eut", "eûmes", "eûtes", "eurent", "aie", "aies", "ait", "ayons", "ayez", "aient",
+  "eusse", "eusses", "eût", "eussions", "eussiez", "eussent", "ceci", "cela", "celà", "cet",
+  "cette", "ici", "ils", "les", "leurs", "quel", "quels", "quelle", "quelles", "sans", "soi",
+];
+const DE = [
+  "aber", "alle", "allem", "allen", "aller", "alles", "als", "also", "ander", "andere", "anderem",
+  "anderen", "anderer", "anderes", "anderm", "andern", "anderr", "anders", "auch", "auf", "aus",
+  "bei", "bin", "bis", "bist", "damit", "dann", "der", "den", "des", "dem", "die", "das", "daß",
+  "derselbe", "derselben", "denselben", "desselben", "demselben", "dieselbe", "dieselben",
+  "dasselbe", "dazu", "dein", "deine", "deinem", "deinen", "deiner", "deines", "denn", "derer",
+  "dessen", "dich", "dir", "dies", "diese", "diesem", "diesen", "dieser", "dieses", "doch", "dort",
+  "durch", "ein", "eine", "einem", "einen", "einer", "eines", "einig", "einige", "einigem",
+  "einigen", "einiger", "einiges", "einmal", "ihn", "ihm", "etwas", "euer", "eure", "eurem",
+  "euren", "eurer", "eures", "für", "gegen", "gewesen", "hab", "habe", "haben", "hat", "hatte",
+  "hatten", "hier", "hin", "hinter", "ich", "mich", "mir", "ihr", "ihre", "ihrem", "ihren",
+  "ihrer", "ihres", "euch", "indem", "ins", "ist", "jede", "jedem", "jeden", "jeder", "jedes",
+  "jene", "jenem", "jenen", "jener", "jenes", "jetzt", "kann", "kein", "keine", "keinem", "keinen",
+  "keiner", "keines", "können", "könnte", "machen", "man", "manche", "manchem", "manchen",
+  "mancher", "manches", "mein", "meine", "meinem", "meinen", "meiner", "meines", "mit", "muss",
+  "musste", "nach", "nicht", "nichts", "noch", "nun", "nur", "oder", "ohne", "sehr", "sein",
+  "seine", "seinem", "seinen", "seiner", "seines", "selbst", "sich", "sie", "ihnen", "sind",
+  "solche", "solchem", "solchen", "solcher", "solches", "soll", "sollte", "sondern", "sonst",
+  "über", "und", "uns", "unse", "unsem", "unsen", "unser", "unses", "unter", "viel", "vom", "von",
+  "vor", "während", "war", "waren", "warst", "was", "weg", "weil", "weiter", "welche", "welchem",
+  "welchen", "welcher", "welches", "wenn", "werde", "werden", "wie", "wieder", "will", "wir",
+  "wird", "wirst", "wollen", "wollte", "würde", "würden", "zum", "zur", "zwar", "zwischen",
+];
+const ES = [
+  "que", "los", "del", "las", "por", "para", "con", "una", "como", "más", "pero", "sus", "este",
+  "porque", "esta", "entre", "cuando", "muy", "sin", "sobre", "también", "hasta", "hay", "donde",
+  "quien", "desde", "todo", "nos", "durante", "todos", "uno", "les", "contra", "otros", "ese",
+  "eso", "ante", "ellos", "esto", "antes", "algunos", "qué", "unos", "otro", "otras", "otra",
+  "tanto", "esa", "estos", "mucho", "quienes", "nada", "muchos", "cual", "poco", "ella", "estar",
+  "estas", "algunas", "algo", "nosotros", "mis", "tus", "ellas", "nosotras", "vosotros",
+  "vosotras", "mío", "mía", "míos", "mías", "tuyo", "tuya", "tuyos", "tuyas", "suyo", "suya",
+  "suyos", "suyas", "nuestro", "nuestra", "nuestros", "nuestras", "vuestro", "vuestra", "vuestros",
+  "vuestras", "esos", "esas", "estoy", "estás", "está", "estamos", "estáis", "están", "esté",
+  "estés", "estemos", "estéis", "estén", "estaré", "estarás", "estará", "estaremos", "estaréis",
+  "estarán", "estaría", "estarías", "estaríamos", "estaríais", "estarían", "estaba", "estabas",
+  "estábamos", "estabais", "estaban", "estuve", "estuviste", "estuvo", "estuvimos", "estuvisteis",
+  "estuvieron", "estuviera", "estuvieras", "estuviéramos", "estuvierais", "estuvieran",
+  "estuviese", "estuvieses", "estuviésemos", "estuvieseis", "estuviesen", "estando", "estado",
+  "estada", "estados", "estadas", "estad", "has", "hemos", "habéis", "han", "haya", "hayas",
+  "hayamos", "hayáis", "hayan", "habré", "habrás", "habrá", "habremos", "habréis", "habrán",
+  "habría", "habrías", "habríamos", "habríais", "habrían", "había", "habías", "habíamos",
+  "habíais", "habían", "hube", "hubiste", "hubo", "hubimos", "hubisteis", "hubieron", "hubiera",
+  "hubieras", "hubiéramos", "hubierais", "hubieran", "hubiese", "hubieses", "hubiésemos",
+  "hubieseis", "hubiesen", "habiendo", "habido", "habida", "habidos", "habidas", "soy", "eres",
+  "somos", "sois", "son", "sea", "seas", "seamos", "seáis", "sean", "seré", "serás", "será",
+  "seremos", "seréis", "serán", "sería", "serías", "seríamos", "seríais", "serían", "era", "eras",
+  "éramos", "erais", "eran", "fui", "fuiste", "fue", "fuimos", "fuisteis", "fueron", "fuera",
+  "fueras", "fuéramos", "fuerais", "fueran", "fuese", "fueses", "fuésemos", "fueseis", "fuesen",
+  "siendo", "sido", "tengo", "tienes", "tiene", "tenemos", "tenéis", "tienen", "tenga", "tengas",
+  "tengamos", "tengáis", "tengan", "tendré", "tendrás", "tendrá", "tendremos", "tendréis",
+  "tendrán", "tendría", "tendrías", "tendríamos", "tendríais", "tendrían", "tenía", "tenías",
+  "teníamos", "teníais", "tenían", "tuve", "tuviste", "tuvo", "tuvimos", "tuvisteis", "tuvieron",
+  "tuviera", "tuvieras", "tuviéramos", "tuvierais", "tuvieran", "tuviese", "tuvieses",
+  "tuviésemos", "tuvieseis", "tuviesen", "teniendo", "tenido", "tenida", "tenidos", "tenidas",
+  "tened",
+];
+const IT = [
+  "allo", "agli", "all", "agl", "alla", "alle", "con", "col", "coi", "dal", "dallo", "dai",
+  "dagli", "dall", "dagl", "dalla", "dalle", "del", "dello", "dei", "degli", "dell", "degl",
+  "della", "delle", "nel", "nello", "nei", "negli", "nell", "negl", "nella", "nelle", "sul",
+  "sullo", "sui", "sugli", "sull", "sugl", "sulla", "sulle", "per", "tra", "contro", "lui", "lei",
+  "noi", "voi", "loro", "mio", "mia", "miei", "mie", "tuo", "tua", "tuoi", "tue", "suo", "sua",
+  "suoi", "sue", "nostro", "nostra", "nostri", "nostre", "vostro", "vostra", "vostri", "vostre",
+  "gli", "uno", "una", "perché", "anche", "come", "dov", "dove", "che", "chi", "cui", "non", "più",
+  "quale", "quanto", "quanti", "quanta", "quante", "quello", "quelli", "quella", "quelle",
+  "questo", "questi", "questa", "queste", "tutto", "tutti", "hai", "abbiamo", "avete", "hanno",
+  "abbia", "abbiate", "abbiano", "avrò", "avrai", "avrà", "avremo", "avrete", "avranno", "avrei",
+  "avresti", "avrebbe", "avremmo", "avreste", "avrebbero", "avevo", "avevi", "aveva", "avevamo",
+  "avevate", "avevano", "ebbi", "avesti", "ebbe", "avemmo", "aveste", "ebbero", "avessi", "avesse",
+  "avessimo", "avessero", "avendo", "avuto", "avuta", "avuti", "avute", "sono", "sei", "siamo",
+  "siete", "sia", "siate", "siano", "sarò", "sarai", "sarà", "saremo", "sarete", "saranno",
+  "sarei", "saresti", "sarebbe", "saremmo", "sareste", "sarebbero", "ero", "eri", "era", "eravamo",
+  "eravate", "erano", "fui", "fosti", "fummo", "foste", "furono", "fossi", "fosse", "fossimo",
+  "fossero", "essendo", "faccio", "fai", "facciamo", "fanno", "faccia", "facciate", "facciano",
+  "farò", "farai", "farà", "faremo", "farete", "faranno", "farei", "faresti", "farebbe", "faremmo",
+  "fareste", "farebbero", "facevo", "facevi", "faceva", "facevamo", "facevate", "facevano", "feci",
+  "facesti", "fece", "facemmo", "faceste", "fecero", "facessi", "facesse", "facessimo",
+  "facessero", "facendo", "sto", "stai", "sta", "stiamo", "stanno", "stia", "stiate", "stiano",
+  "starò", "starai", "starà", "staremo", "starete", "staranno", "starei", "staresti", "starebbe",
+  "staremmo", "stareste", "starebbero", "stavo", "stavi", "stava", "stavamo", "stavate", "stavano",
+  "stetti", "stesti", "stette", "stemmo", "steste", "stettero", "stessi", "stesse", "stessimo",
+  "stessero", "stando",
+];
+const PT = [
+  "que", "para", "com", "não", "uma", "por", "mais", "dos", "como", "mas", "ele", "das", "seu",
+  "sua", "quando", "muito", "nos", "também", "pelo", "pela", "até", "isso", "ela", "entre",
+  "depois", "sem", "mesmo", "aos", "seus", "quem", "nas", "esse", "eles", "você", "essa", "num",
+  "nem", "suas", "meu", "minha", "numa", "pelos", "elas", "qual", "nós", "lhe", "deles", "essas",
+  "esses", "pelas", "este", "dele", "vocês", "vos", "lhes", "meus", "minhas", "teu", "tua", "teus",
+  "tuas", "nosso", "nossa", "nossos", "nossas", "dela", "delas", "esta", "estes", "estas",
+  "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo", "estou", "está", "estamos", "estão",
+  "estive", "esteve", "estivemos", "estiveram", "estava", "estávamos", "estavam", "estivera",
+  "estivéramos", "esteja", "estejamos", "estejam", "estivesse", "estivéssemos", "estivessem",
+  "estiver", "estivermos", "estiverem", "hei", "havemos", "hão", "houve", "houvemos", "houveram",
+  "houvera", "houvéramos", "haja", "hajamos", "hajam", "houvesse", "houvéssemos", "houvessem",
+  "houver", "houvermos", "houverem", "houverei", "houverá", "houveremos", "houverão", "houveria",
+  "houveríamos", "houveriam", "sou", "somos", "são", "era", "éramos", "eram", "fui", "foi",
+  "fomos", "foram", "fora", "fôramos", "seja", "sejamos", "sejam", "fosse", "fôssemos", "fossem",
+  "for", "formos", "forem", "serei", "será", "seremos", "serão", "seria", "seríamos", "seriam",
+  "tenho", "tem", "temos", "tém", "tinha", "tínhamos", "tinham", "tive", "teve", "tivemos",
+  "tiveram", "tivera", "tivéramos", "tenha", "tenhamos", "tenham", "tivesse", "tivéssemos",
+  "tivessem", "tiver", "tivermos", "tiverem", "terei", "terá", "teremos", "terão", "teria",
+  "teríamos", "teriam",
+];
+const RU = [
+  "что", "как", "все", "она", "так", "его", "только", "мне", "было", "вот", "меня", "еще", "нет",
+  "ему", "теперь", "когда", "даже", "вдруг", "если", "уже", "или", "быть", "был", "него", "вас",
+  "нибудь", "опять", "вам", "сказал", "ведь", "там", "потом", "себя", "ничего", "может", "они",
+  "тут", "где", "есть", "надо", "ней", "для", "тебя", "чем", "была", "сам", "чтоб", "без", "будто",
+  "человек", "чего", "раз", "тоже", "себе", "под", "жизнь", "будет", "тогда", "кто", "этот",
+  "говорил", "того", "потому", "этого", "какой", "совсем", "ним", "здесь", "этом", "один", "почти",
+  "мой", "тем", "чтобы", "нее", "кажется", "сейчас", "были", "куда", "зачем", "сказать", "всех",
+  "никогда", "сегодня", "можно", "при", "наконец", "два", "другой", "хоть", "после", "над",
+  "больше", "тот", "через", "эти", "нас", "про", "всего", "них", "какая", "много", "разве",
+  "сказала", "три", "эту", "моя", "впрочем", "хорошо", "свою", "этой", "перед", "иногда", "лучше",
+  "чуть", "том", "нельзя", "такой", "более", "всегда", "конечно", "всю", "между",
+];
+const AR = ["الى", "على", "هذا", "هذه", "ذلك", "التي", "الذي", "الذين", "كان", "كانت", "حتى", "عند", "بين"];
+
+const ALL = [...EN, ...FR, ...DE, ...ES, ...IT, ...PT, ...RU, ...AR];
+export const STOPWORDS: ReadonlySet<string> = new Set([...ALL, ...ALL.filter((w) => w.includes("'")).map((w) => w.replaceAll("'", "\u2019"))]);

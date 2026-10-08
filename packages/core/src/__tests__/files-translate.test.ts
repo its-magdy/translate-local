@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
@@ -767,6 +767,63 @@ describe("translateFile", () => {
 
       expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
       expect(existsSync(out)).toBe(false);
+    });
+  });
+
+  describe("context retrieval", () => {
+    function captureSnippets(): Map<string, string[]> {
+      const seen = new Map<string, string[]>();
+      const translate = adapter.translate.bind(adapter);
+      adapter.translate = async (req) => {
+        seen.set(req.source, req.contextSnippets ?? []);
+        return translate(req);
+      };
+      return seen;
+    }
+
+    beforeEach(() => {
+      const docs = join(dir, "docs");
+      mkdirSync(docs);
+      writeFileSync(join(docs, "style.md"), "Always say sign in to Dashboard, never log in.");
+      context.addSource(docs);
+    });
+
+    it("passes snippets that clear minRelevance", async () => {
+      const seen = captureSnippets();
+      const src = writeSrc("en.json", '{ "a": "Sign in to Dashboard" }');
+      await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context, minRelevance: 0.1,
+      });
+      expect(seen.get("Sign in to Dashboard")).toHaveLength(1);
+    });
+
+    it("drops snippets below minRelevance", async () => {
+      const seen = captureSnippets();
+      const src = writeSrc("en.json", '{ "a": "Sign in to Dashboard" }');
+      await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context, minRelevance: 0.99,
+      });
+      expect(seen.get("Sign in to Dashboard")).toEqual([]);
+    });
+
+    it("caps snippets at maxSnippets", async () => {
+      const seen = captureSnippets();
+      const docs2 = join(dir, "docs2");
+      mkdirSync(docs2);
+      writeFileSync(join(docs2, "a.md"), "Dashboard sign in help");
+      writeFileSync(join(docs2, "b.md"), "Dashboard sign in troubleshooting");
+      context.addSource(docs2);
+      const src = writeSrc("en.json", '{ "a": "Sign in to Dashboard" }');
+      await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context, minRelevance: 0, maxSnippets: 1,
+      });
+      expect(seen.get("Sign in to Dashboard")).toHaveLength(1);
     });
   });
 });

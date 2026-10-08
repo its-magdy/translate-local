@@ -11,6 +11,8 @@ import {
   DEFAULT_GLOSSARY_DB_PATH,
   DEFAULT_CONTEXT_DB_PATH,
   DEFAULT_GLOSSARY_MODE,
+  DEFAULT_MAX_SNIPPETS,
+  DEFAULT_MIN_RELEVANCE,
 } from "@translate-local/shared/constants";
 import { ensurePrivateDir } from "./fsutil";
 
@@ -121,8 +123,8 @@ export const configSchema = z.object({
   }).prefault({}),
   context: z.object({
     dbPath: z.string().default(DEFAULT_CONTEXT_DB_PATH),
-    maxSnippets: envNumber(z.number().int().min(0)).default(3),
-    minRelevance: envNumber(z.number().min(0).max(1)).default(0.3),
+    maxSnippets: envNumber(z.number().int().min(0)).default(DEFAULT_MAX_SNIPPETS),
+    minRelevance: envNumber(z.number().min(0).max(1)).default(DEFAULT_MIN_RELEVANCE),
   }).prefault({}),
   defaults: z.object({
     sourceLang: z.string().default("auto"),

@@ -2,6 +2,7 @@ import { existsSync, lstatSync, realpathSync } from "fs";
 import { extname, resolve, dirname, basename, join } from "path";
 import type { Adapter, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { DEFAULT_MAX_SNIPPETS, DEFAULT_MIN_RELEVANCE } from "@translate-local/shared/constants";
 import type { GlossaryStore } from "../glossary";
 import type { ContextStore } from "../context";
 import { runPipeline } from "../pipeline";
@@ -40,6 +41,10 @@ export type FileTranslateOptions = {
   maxFileBytes?: number;
   /** When true, classify and count leaves without calling the adapter or writing output. */
   dryRun?: boolean;
+  /** Context snippets per leaf (config `context.maxSnippets`). */
+  maxSnippets?: number;
+  /** Minimum context relevance, 0–1 (config `context.minRelevance`). */
+  minRelevance?: number;
   onProgress?: (info: { done: number; total: number; path: string }) => void;
 };
 
@@ -100,6 +105,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     translateAll = false,
     maxFileBytes = DEFAULT_MAX_BYTES,
     dryRun = false,
+    maxSnippets = DEFAULT_MAX_SNIPPETS,
+    minRelevance = DEFAULT_MIN_RELEVANCE,
     onProgress,
   } = opts;
 
@@ -289,7 +296,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       }
     }
 
-    const snippets = context.retrieve(p.source, 3).map((s) => s.content);
+    const snippets = context.retrieve(p.source, maxSnippets, minRelevance).map((s) => s.content);
 
     let restored = "";
     let lastReason = "";
