@@ -44,9 +44,10 @@ describe("tl completion", () => {
     // The other shells are exercised in-process below; spawning them all would
     // pay 3x cold-Bun startup for no extra signal.
     it("end-to-end: `bun run tl completion bash` produces output and exits 0", () => {
+      const home = mkdtempSync(join(tmpdir(), "tl-home-"));
       const r = spawnSync("bun", ["run", CLI, "completion", "bash"], {
         encoding: "utf8",
-        env: { ...process.env, NO_COLOR: "1", HOME: mkdtempSync(join(tmpdir(), "tl-home-")) },
+        env: { ...process.env, NO_COLOR: "1", HOME: home, USERPROFILE: home },
       });
       expect(r.status).toBe(0);
       expect((r.stdout ?? "").length).toBeGreaterThan(500);

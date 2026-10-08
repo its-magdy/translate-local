@@ -8,8 +8,9 @@ import { ContextStore, tokenize, CONTEXT_INDEX_VERSION } from "../context";
 // Temp SQLite + local files only — no external services, so run by default.
 // The former TEST_INTEGRATION gate hid the whole suite from plain `bun run test`.
 const testFn = test;
-// chmod 000 doesn't stop root (e.g. tests run in a container as root).
-const permTest = test.skipIf(process.getuid?.() === 0);
+// chmod 000 doesn't stop root (e.g. tests run in a container as root), and on
+// Windows chmod only toggles the read-only attribute.
+const permTest = test.skipIf(process.platform === "win32" || process.getuid?.() === 0);
 
 describe("ContextStore", () => {
   let tmpDir: string;

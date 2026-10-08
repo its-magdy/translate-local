@@ -437,8 +437,10 @@ export class ContextStore {
     const totalDocs = fileData.size;
 
     // Pass 2: compute TF-IDF per file
-    const insertDoc = this.db.prepare(`INSERT INTO context_docs (source_id, file_path, content) VALUES (?, ?, ?)`);
-    const insertTerm = this.db.prepare(`INSERT INTO context_terms (term, doc_id, weight) VALUES (?, ?, ?)`);
+    // query(), not prepare(): cached statements are finalized by close(), while
+    // a prepared one keeps the db file open (EBUSY when deleting it on Windows).
+    const insertDoc = this.db.query(`INSERT INTO context_docs (source_id, file_path, content) VALUES (?, ?, ?)`);
+    const insertTerm = this.db.query(`INSERT INTO context_terms (term, doc_id, weight) VALUES (?, ?, ?)`);
 
     this.db.transaction(() => {
       let indexedCount = 0;

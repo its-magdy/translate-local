@@ -1,20 +1,21 @@
 import { describe, test, expect } from "bun:test";
+import { join } from "path";
 import { inferOutputPath, inferSourceLocale } from "../locale-path";
 
 describe("inferOutputPath", () => {
   test("layout 1: <lang>.<ext>", () => {
-    expect(inferOutputPath("/locales/en.json", "en", "ar")).toBe("/locales/ar.json");
+    expect(inferOutputPath("/locales/en.json", "en", "ar")).toBe(join("/locales", "ar.json"));
     expect(inferOutputPath("./en.yaml", "en", "fr")).toBe("fr.yaml");
   });
 
   test("layout 2: <file>.<lang>.<ext>", () => {
-    expect(inferOutputPath("/path/messages.en.yaml", "en", "ar")).toBe("/path/messages.ar.yaml");
+    expect(inferOutputPath("/path/messages.en.yaml", "en", "ar")).toBe(join("/path", "messages.ar.yaml"));
     expect(inferOutputPath("./common.en.json", "en", "fr")).toBe("common.fr.json");
   });
 
   test("layout 3: <parent>/<lang>/<file>", () => {
-    expect(inferOutputPath("/locales/en/common.json", "en", "ar")).toBe("/locales/ar/common.json");
-    expect(inferOutputPath("/i18n/en/auth.json", "en", "fr")).toBe("/i18n/fr/auth.json");
+    expect(inferOutputPath("/locales/en/common.json", "en", "ar")).toBe(join("/locales", "ar", "common.json"));
+    expect(inferOutputPath("/i18n/en/auth.json", "en", "fr")).toBe(join("/i18n", "fr", "auth.json"));
   });
 
   test("returns null when no locale token detected", () => {
