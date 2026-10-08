@@ -16,7 +16,7 @@
     "@translate-local/shared": "workspace:*",
     "@translate-local/core": "workspace:*",
     "@translate-local/adapters": "workspace:*",
-    "@opentui/core": "0.2.1"
+    "@opentui/core": "0.5.17"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",
