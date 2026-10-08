@@ -7,7 +7,7 @@ The context system indexes local files and retrieves relevant passages to includ
 1. You register one or more directories as context sources
 2. `tl` walks the directory, reads supported files, and builds a TF-IDF index in SQLite
 3. When translating, the pipeline tokenizes your source text and queries the index
-4. The top-scoring snippets are included in the adapter prompt under a "Context:" section
+4. The top-scoring snippets are included in the adapter prompt as reference material (each wrapped in `<reference>` tags, placed before the translate instruction so the model uses them without translating them)
 
 The model uses these snippets to match tone, terminology, and style from your reference material.
 
