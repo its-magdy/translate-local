@@ -191,7 +191,7 @@ Long translated strings are not reflowed — the writer is configured with `line
 
 Glossary terms are applied per leaf, exactly as they would be for a single-string translation. The same `--glossary prefer|strict` flag governs both modes.
 
-Context retrieval also runs per leaf, with the source value as the query. If you've added a context source via `tl context add`, snippets are retrieved per-key. The current tokenizer is best for Latin-script source values; short or non-Latin values may yield empty context (a known limitation).
+Context retrieval also runs per leaf, with the source value as the query. If you've added a context source via `tl context add`, snippets are retrieved per-key. The tokenizer is Unicode-aware — Arabic, Cyrillic, CJK, and Thai values retrieve context as well as Latin ones (see [Tokenization](context-guide.md#tokenization)).
 
 ---
 

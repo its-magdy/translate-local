@@ -7,6 +7,10 @@ function withContext<T>(fn: (s: ContextStore) => T | Promise<T>): Promise<T> {
   return withStore((config) => new ContextStore(config.context.dbPath), fn);
 }
 
+function warnSkipped(dirs: string[]): void {
+  for (const d of dirs) console.error(`Warning: skipped unreadable folder: ${d}`);
+}
+
 export function makeContextCommand(): Command {
   const cmd = new Command("context").description("Manage context sources");
 
@@ -15,6 +19,7 @@ export function makeContextCommand(): Command {
     .description("Add a directory as context source")
     .action((path: string) => runAction(async () => {
       const source = await withContext((store) => store.addSource(path));
+      warnSkipped(source.skippedDirs);
       console.log(`Added: ${source.path} (${source.fileCount} files, id: ${source.id.slice(0, 8)})`);
     }));
 
@@ -53,7 +58,7 @@ export function makeContextCommand(): Command {
     .command("index")
     .description("Re-index all context sources")
     .action(() => runAction(async () => {
-      await withContext((store) => store.reindex());
+      warnSkipped(await withContext((store) => store.reindex()));
       console.log("Re-indexed all context sources.");
     }));
 
