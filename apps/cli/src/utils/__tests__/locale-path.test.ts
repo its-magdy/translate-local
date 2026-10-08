@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { inferOutputPath } from "../locale-path";
+import { inferOutputPath, inferSourceLocale } from "../locale-path";
 
 describe("inferOutputPath", () => {
   test("layout 1: <lang>.<ext>", () => {
@@ -25,5 +25,19 @@ describe("inferOutputPath", () => {
   test("does not match when source lang is not the actual token", () => {
     // file.de.json with sourceLang=en should not be treated as having an en token
     expect(inferOutputPath("/path/messages.de.yaml", "en", "ar")).toBeNull();
+  });
+});
+
+describe("inferSourceLocale", () => {
+  test("returns the filename locale token for each layout", () => {
+    expect(inferSourceLocale("/config/locales/en.yml", "auto")).toBe("en");
+    expect(inferSourceLocale("/config/locales/pt-BR.yml", "auto")).toBe("pt-BR");
+    expect(inferSourceLocale("/path/messages.de.yaml", "auto")).toBe("de");
+    expect(inferSourceLocale("/locales/fr/common.json", "auto")).toBe("fr");
+  });
+
+  test("returns null when no locale token is present", () => {
+    expect(inferSourceLocale("/path/strings.json", "auto")).toBeNull();
+    expect(inferSourceLocale("/path/messages.de.yaml", "en")).toBeNull();
   });
 });

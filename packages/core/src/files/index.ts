@@ -11,6 +11,7 @@ import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, type SyncMode } from "./sync";
 import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
 import { classifyValue } from "./skip";
+import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
 import type { JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
@@ -18,6 +19,11 @@ export type FileTranslateOptions = {
   outPath: string;
   sourceLang: string;
   targetLang: string;
+  /**
+   * Locale used to recognise a locale-rooted catalog (Rails `en:` root).
+   * Defaults to sourceLang; pass the filename's locale token when sourceLang is "auto".
+   */
+  sourceLocale?: string;
   adapter: Adapter;
   glossary: GlossaryStore;
   context: ContextStore;
@@ -45,6 +51,8 @@ export type FileTranslateSummary = {
   failed: { path: string; reason: string }[];
   warnings: string[];
   outPath: string;
+  /** Set when the source's root locale key (Rails `en:`) was renamed to the target locale. */
+  rootLocaleKey?: RootLocaleRename;
 };
 
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
@@ -81,6 +89,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     outPath,
     sourceLang,
     targetLang,
+    sourceLocale = sourceLang === "auto" ? undefined : sourceLang,
     adapter,
     glossary,
     context,
@@ -177,7 +186,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  let targetData: JsonValue;
+  let targetData: JsonValue | undefined;
   if (existsSync(outPath)) {
     try {
       if (parseFormat === "yaml") {
@@ -189,11 +198,15 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError("FILE_PARSE_FAILED", `Failed to parse existing target ${outPath}: ${msg}`, "Fix or delete the existing target file before re-running.", err);
     }
-  } else {
-    targetData = makeEmptyTargetLike(sourceData);
   }
 
-  const pending = diffForSync(sourceData, targetData, mode);
+  // Diff against the source re-rooted under the target locale, so sync and
+  // target-only key preservation see the target's own root (`fr:`).
+  const localeRoot = rebaseLocaleRoot(sourceData, targetData, sourceLocale, targetLang);
+  const diffSource = localeRoot?.source ?? sourceData;
+  targetData ??= makeEmptyTargetLike(diffSource);
+
+  const pending = diffForSync(diffSource, targetData, mode);
 
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
@@ -209,6 +222,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     failed: [],
     warnings: [],
     outPath,
+    ...(localeRoot && { rootLocaleKey: localeRoot.rename }),
   };
 
   for (const d of duplicateKeys) {
@@ -216,6 +230,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       `Duplicate key "${d.path}" in source (line ${d.line}). The last value wins, matching JSON.parse.`,
     );
   }
+  if (localeRoot?.warning) summary.warnings.push(localeRoot.warning);
 
   if (detected.content === "i18next-plurals") {
     summary.warnings.push(
@@ -335,6 +350,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // serialization never replaces the existing target.
   try {
     if (parseFormat === "yaml") {
+      if (localeRoot) renameYamlRootKey(yamlRead!.doc, localeRoot.rename);
       writeYaml(outPath, yamlRead!.doc, yamlRead!.meta, targetData);
     } else {
       writeJson(outPath, targetData, jsonMeta!);

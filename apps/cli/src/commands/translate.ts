@@ -11,7 +11,7 @@ import { TlError } from "@translate-local/shared/errors";
 import { IMAGE_EXT_RE, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult, formatError } from "../formatters/output";
-import { inferOutputPath } from "../utils/locale-path";
+import { inferOutputPath, inferSourceLocale } from "../utils/locale-path";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
@@ -102,6 +102,8 @@ export function makeTranslateCommand(): Command {
               sourcePath,
               outPath,
               sourceLang,
+              // Lets core recognise a Rails `en:` root when --from is auto.
+              sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
               targetLang,
               adapter,
               glossary: glossaryStore,
@@ -128,6 +130,9 @@ export function makeTranslateCommand(): Command {
               console.log(`[dry-run] Source: ${sourcePath}`);
               console.log(`[dry-run] Target: ${outPath} (NOT written)`);
               console.log(`[dry-run] Format: ${result.contentFormat}`);
+              if (result.rootLocaleKey) {
+                console.log(`[dry-run] Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+              }
               console.log(`[dry-run] Would translate: ${result.translated}`);
               if (result.skipped.count > 0) {
                 console.log(`[dry-run] Would skip: ${result.skipped.count}`);
@@ -136,6 +141,9 @@ export function makeTranslateCommand(): Command {
             } else {
               console.log(`Wrote ${result.outPath}`);
               console.log(`Format: ${result.contentFormat}`);
+              if (result.rootLocaleKey) {
+                console.log(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+              }
               console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
               if (result.skipped.count > 0) {
                 const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");

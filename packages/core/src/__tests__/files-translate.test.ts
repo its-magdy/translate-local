@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { parse as parseYaml } from "yaml";
 import { GlossaryStore } from "../glossary";
 import { ContextStore } from "../context";
 import { MockAdapter } from "@translate-local/adapters/mock";
@@ -498,5 +499,274 @@ describe("translateFile", () => {
       sourceLang: "en", targetLang: "ar",
       adapter, glossary, context,
     })).rejects.toThrow(/anchors|alias/i);
+  });
+
+  describe("locale-rooted catalogs (Rails)", () => {
+    it("renames the YAML root locale key to the target and keeps comments", async () => {
+      const src = writeSrc("en.yml", "# Rails catalog\nen:\n  # greeting shown on home\n  hello: \"Hello\"\n  bye: \"Goodbye\"\n");
+      const out = join(dir, "fr.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(readFileSync(out, "utf8")).toBe(
+        "# Rails catalog\nfr:\n  # greeting shown on home\n  hello: \"[fr] Hello\"\n  bye: \"[fr] Goodbye\"\n",
+      );
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
+      expect(summary.translated).toBe(2);
+    });
+
+    it("matches pt_BR against pt-BR case- and separator-insensitively", async () => {
+      const src = writeSrc("pt_BR.yml", "pt_BR:\n  hello: Olá\n");
+      const out = join(dir, "en.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "pt-br", targetLang: "en",
+        adapter, glossary, context,
+      });
+
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ en: { hello: "[en] Olá" } });
+      expect(summary.rootLocaleKey).toEqual({ from: "pt_BR", to: "en" });
+    });
+
+    it("writes the target root key exactly as passed in --to (pt-BR)", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "pt-BR.yml");
+
+      await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "pt-BR",
+        adapter, glossary, context,
+      });
+
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ "pt-BR": { hello: "[pt-BR] Hello" } });
+    });
+
+    it("syncs into an existing fr: target: missing-only, target-only keys kept, no en: root", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Goodbye\n  welcome: \"Hi %{name}\"\n");
+      const out = join(dir, "fr.yml");
+      writeFileSync(out, "fr:\n  hello: Bonjour\n  legacy: Ancien\n");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(summary.translated).toBe(2);
+      expect(summary.failed).toEqual([]);
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({
+        fr: { hello: "Bonjour", bye: "[fr] Goodbye", welcome: "[fr] Hi %{name}", legacy: "Ancien" },
+      });
+    });
+
+    it("refuses an existing target that is still rooted at the source locale", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+      writeFileSync(out, "en:\n  hello: Bonjour\n");
+
+      await expect(translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      })).rejects.toThrow(/root/i);
+      expect(readFileSync(out, "utf8")).toBe("en:\n  hello: Bonjour\n");
+    });
+
+    it("uses sourceLocale when sourceLang is auto", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "auto", sourceLocale: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(readFileSync(out, "utf8")).toStartWith("fr:\n");
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
+    });
+
+    it("does not rewrite when sourceLang is auto and no sourceLocale is known", async () => {
+      const src = writeSrc("strings.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "out.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "auto", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(readFileSync(out, "utf8")).toStartWith("en:\n");
+      expect(summary.rootLocaleKey).toBeUndefined();
+    });
+
+    it("leaves a vanilla single-top-level-key catalog alone", async () => {
+      const src = writeSrc("en.yml", "app:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(readFileSync(out, "utf8")).toStartWith("app:\n");
+      expect(summary.rootLocaleKey).toBeUndefined();
+    });
+
+    it("leaves a root with more than one key alone, even if one is the locale", async () => {
+      const src = writeSrc("en.json", '{\n  "en": { "hello": "Hello" },\n  "meta": { "v": "one" }\n}\n');
+      const out = join(dir, "fr.json");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(Object.keys(JSON.parse(readFileSync(out, "utf8")))).toEqual(["en", "meta"]);
+      expect(summary.rootLocaleKey).toBeUndefined();
+    });
+
+    it("renames the JSON root locale key and syncs into an existing target", async () => {
+      const src = writeSrc("en.json", '{\n  "en": { "hello": "Hello", "bye": "Goodbye" }\n}\n');
+      const out = join(dir, "fr.json");
+      writeFileSync(out, '{\n  "fr": { "hello": "Bonjour" }\n}\n');
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ fr: { hello: "Bonjour", bye: "[fr] Goodbye" } });
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
+    });
+
+    it("keeps the existing target's root spelling (fr_FR vs --to fr-FR)", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Goodbye\n");
+      const out = join(dir, "fr-FR.yml");
+      writeFileSync(out, "fr_FR:\n  hello: Bonjour\n");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr-FR",
+        adapter, glossary, context,
+      });
+
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ fr_FR: { hello: "Bonjour", bye: "[fr-FR] Goodbye" } });
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr_FR" });
+      expect(summary.warnings).toEqual([]);
+    });
+
+    it("warns (does not refuse) when the existing target is rooted under another locale", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+      writeFileSync(out, "ar:\n  hello: مرحبا\n");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ ar: { hello: "مرحبا" }, fr: { hello: "[fr] Hello" } });
+      expect(summary.warnings.some((w) => w.includes("two roots"))).toBe(true);
+    });
+
+    it("warns when the existing target is flat", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+      writeFileSync(out, "hello: Bonjour\n");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ hello: "Bonjour", fr: { hello: "[fr] Hello" } });
+      expect(summary.warnings.some((w) => w.includes("mixed structure"))).toBe(true);
+    });
+
+    it("treats --to fr against an existing fr-FR: root as no match (warns)", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+      writeFileSync(out, "fr-FR:\n  hello: Bonjour\n");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(Object.keys(parseYaml(readFileSync(out, "utf8")))).toEqual(["fr", "fr-FR"]);
+      expect(summary.warnings.length).toBe(1);
+    });
+
+    it("does not rename a region-qualified root (en-US:) with --from en", async () => {
+      const src = writeSrc("en.yml", "en-US:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context,
+      });
+
+      expect(readFileSync(out, "utf8")).toStartWith("en-US:\n");
+      expect(summary.rootLocaleKey).toBeUndefined();
+    });
+
+    it("renames a quoted root key and keeps its quoting", async () => {
+      const src = writeSrc("en.yml", "\"en\":\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+
+      expect(readFileSync(out, "utf8")).toStartWith("\"fr\":\n");
+    });
+
+    it("keeps a comment on the root key line", async () => {
+      const src = writeSrc("en.yml", "en: # English catalog\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+
+      const text = readFileSync(out, "utf8");
+      expect(text).toStartWith("fr:");
+      expect(text).toContain("# English catalog");
+      expect(parseYaml(text)).toEqual({ fr: { hello: "[fr] Hello" } });
+    });
+
+    it("renames a flow-style root", async () => {
+      const src = writeSrc("en.yml", "{ en: { hello: Hello } }\n");
+      const out = join(dir, "fr.yml");
+
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+
+      const text = readFileSync(out, "utf8");
+      expect(text).toStartWith("{");
+      expect(parseYaml(text)).toEqual({ fr: { hello: "[fr] Hello" } });
+    });
+
+    it("reports the rename in dry-run without writing", async () => {
+      const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
+      const out = join(dir, "fr.yml");
+
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter, glossary, context, dryRun: true,
+      });
+
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
+      expect(existsSync(out)).toBe(false);
+    });
   });
 });
