@@ -5,15 +5,80 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+# A new push to a PR cancels its older run; runs on main always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-and-test:
+  typecheck:
+    name: build and typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13 # keep in sync with release.yml
-      - run: bun install --frozen-lockfile
+          persist-credentials: false
+      - uses: ./.github/actions/setup
       - run: bun run build
       - run: bun run typecheck
-      - run: bun run test
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - parallel:
+          # Tests import workspace packages from src/ (the "bun" export
+          # condition), so they don't need the tsc build; that runs in the
+          # typecheck job. --only skips turbo's test -> build dependency.
+          - name: Test
+            run: bun run test --only
+
+          # Release binaries are only built on tags, so compile the host
+          # binary here and check that it starts and can open bun:sqlite.
+          - name: Compiled binary smoke test
+            shell: bash
+            env:
+              TL_ADAPTER: mock
+              NO_COLOR: "1"
+            run: |
+              bin="$RUNNER_TEMP/tl"
+              if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
+              bun build --compile --minify apps/cli/src/index.ts --outfile "$bin"
+
+              export HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home"
+              mkdir -p "$HOME"
+
+              expected=$(jq -r .version apps/cli/package.json)
+              actual=$("$bin" --version)
+              [ "$actual" = "$expected" ] || { echo "::error::tl --version printed '$actual', expected '$expected'"; exit 1; }
+
+              "$bin" glossary add --source hello --target bonjour --from en --to fr
+              "$bin" glossary list --from en --to fr | grep -q bonjour
+              "$bin" "hello world" --from en --to fr
+
+  # The one required status check: passes only when every job above passed,
+  # so jobs can be added or renamed without touching branch protection.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [typecheck, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All CI jobs passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
