@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **CI** runs the tests on Linux, macOS and Windows and smoke-tests the compiled binary on every pull request. Dependabot proposes monthly dependency and GitHub Actions updates.
 - `@translate-local/shared`, `core` and `adapters` are marked private. They were never published; the CLI bundles them.
 - `adapters`, `cli` and `tui` no longer compile their tests into `dist/`.
+- Updated dependencies: `yaml` 2.9, `zod` 4.6 and `turbo` 2.11.
 
 ## [0.5.1] - 2026-10-08
 
