@@ -770,6 +770,46 @@ describe("translateFile", () => {
     expect(after.item_other).toBe("[ar] {{count}} items at {{price, number}}");
   });
 
+  it("i18next catalogs keep source for ICU plural/select values and report them", async () => {
+    const icu = "{n, plural, one {# file} other {# files}}";
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item",
+      item_other: "{{count}} items",
+      files: icu,
+      greet: "Hello {{name}}",
+    }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.contentFormat).toBe("i18next-plurals");
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.files).toBe(icu);
+    expect(after.greet).toBe("[ar] Hello {{name}}");
+    expect(after.item_other).toBe("[ar] {{count}} items");
+    expect(summary.failed.map((f) => f.path)).toEqual(["files"]);
+    expect(summary.warnings.some((w) => w.includes("files") && /ICU/.test(w))).toBe(true);
+    // Failed keys get no lock hash, so they are retried next run.
+    const lock = JSON.parse(readFileSync(join(dir, ".tl", "locks", "ar.json.lock"), "utf8"));
+    expect(lock.checksums["/files"]).toBeUndefined();
+  });
+
+  it("i18next catalogs abort on ICU plural/select values under strict mode", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item",
+      item_other: "{{count}} items",
+      pick: "{g, select, female {She} other {They}}",
+    }));
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      continueOnError: false,
+    })).rejects.toThrow(/ICU MessageFormat in an i18next catalog at pick/);
+  });
+
   it("malformed ICU falls back to source by default", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
     const out = join(dir, "ar.json");

@@ -30,6 +30,10 @@ const COMBINED = new RegExp(PATTERN_SOURCES.map((s) => `(?:${s})`).join("|"), "g
 // `(?<!\{)`: i18next's `{{val, number}}` is interpolation, not ICU.
 const ICU = /(?<!\{)\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*[,}]/;
 
+// The ICU arguments with branches. i18next has no equivalent, so in an i18next
+// catalog these can't be translated as plain text.
+const ICU_BRANCHING = /(?<!\{)\{[^{}]*,\s*(?:plural|select|selectordinal)\s*,/;
+
 const SENTINEL_RE = new RegExp(`${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}`, "g");
 
 export type Placeholder = { raw: string; index: number };
@@ -42,6 +46,10 @@ export type ValidationResult = {
 
 export function containsICU(text: string): boolean {
   return ICU.test(text);
+}
+
+export function containsICUBranching(text: string): boolean {
+  return ICU_BRANCHING.test(text);
 }
 
 export function extract(text: string): Placeholder[] {
