@@ -110,11 +110,117 @@ describe("matchTerms", () => {
     expect(hits).toHaveLength(1);
   });
 
-  it("does not match CJK term when adjacent to other CJK characters", () => {
-    // CJK has no word boundaries; adjacent letters prevent matching
-    // This is expected — CJK glossary matching requires punctuation/space delimiters
-    const hits = matchTerms("我喜欢机器学习技术", [entry("机器学习", "machine learning")]);
-    expect(hits).toHaveLength(0);
+  it("matches CJK term embedded in running text (no word spaces)", () => {
+    const text = "我喜欢机器学习技术";
+    const hits = matchTerms(text, [entry("机器学习", "machine learning")]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].startIndex, hits[0].endIndex)).toBe("机器学习");
+  });
+
+  it("matches Japanese kana/kanji term followed by a particle", () => {
+    const text = "東京タワーに行きました";
+    const hits = matchTerms(text, [entry("東京タワー", "Tokyo Tower")]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].startIndex, hits[0].endIndex)).toBe("東京タワー");
+  });
+
+  it("matches a katakana term inside a sentence", () => {
+    const hits = matchTerms("新しいコンピューターを買った", [entry("コンピューター", "computer")]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("matches a Thai term without word spaces", () => {
+    const hits = matchTerms("ฉันชอบปัญญาประดิษฐ์มาก", [entry("ปัญญาประดิษฐ์", "artificial intelligence")]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("matches a Latin term written directly against Japanese text", () => {
+    const text = "このAPIキーを使う";
+    const hits = matchTerms(text, [entry("API", "API")]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].startIndex, hits[0].endIndex)).toBe("API");
+  });
+
+  it("does not match an accented-Latin prefix of a longer word", () => {
+    // \b is ASCII-only: \bcaf\b used to match inside "café"
+    expect(matchTerms("un café noir", [entry("caf", "x")])).toHaveLength(0);
+  });
+
+  it("matches accented Latin terms as whole words", () => {
+    const text = "Un café, s'il vous plaît";
+    const hits = matchTerms(text, [entry("café", "coffee")]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].startIndex, hits[0].endIndex)).toBe("café");
+    expect(matchTerms("cafés", [entry("café", "coffee")])).toHaveLength(0);
+  });
+
+  it("does not split a word on a combining mark", () => {
+    // "cafe" + U+0301 (decomposed é): "cafe" must not match the first four code units
+    expect(matchTerms("cafe\u0301 noir", [entry("cafe", "x")])).toHaveLength(0);
+  });
+
+  it("matches Russian (Cyrillic) terms as whole words", () => {
+    const text = "Этот компьютер быстрый";
+    const hits = matchTerms(text, [entry("компьютер", "computer")]);
+    expect(hits).toHaveLength(1);
+    expect(text.slice(hits[0].startIndex, hits[0].endIndex)).toBe("компьютер");
+    expect(matchTerms("компьютеры", [entry("компьютер", "computer")])).toHaveLength(0);
+  });
+
+  it("is case-insensitive for Cyrillic", () => {
+    expect(matchTerms("Компьютер работает", [entry("компьютер", "computer")])).toHaveLength(1);
+  });
+
+  it("does not match an Arabic term behind an attached prefix (whole-word only)", () => {
+    // Documented decision: ال / و / ب clitics are not stripped; add الكتاب as its own entry.
+    expect(matchTerms("قرأت الكتاب", [entry("كتاب", "book")])).toHaveLength(0);
+    expect(matchTerms("قرأت كتاب جميل", [entry("كتاب", "book")])).toHaveLength(1);
+  });
+
+  it("treats a trailing harakat mark as part of the word", () => {
+    // Combining marks (\p{M}) never form a boundary, so the hit can't end mid-grapheme
+    expect(matchTerms("هذا كتابٌ", [entry("كتاب", "book")])).toHaveLength(0);
+  });
+
+  it("treats ZWNJ/ZWJ as part of a word (Persian کتاب‌ها is one word)", () => {
+    expect(matchTerms("این کتاب\u200Cها خوب است", [entry("کتاب", "book")])).toHaveLength(0);
+    expect(matchTerms("این کتاب خوب است", [entry("کتاب", "book")])).toHaveLength(1);
+    expect(matchTerms("x\u200Dcafé", [entry("café", "coffee")])).toHaveLength(0);
+  });
+
+  it("still finds a valid occurrence that overlaps a rejected one", () => {
+    // "xa-a" is rejected (preceded by x); the occurrence starting at the second "a" is valid
+    const text = "xa-a-a";
+    const hits = matchTerms(text, [entry("a-a", "y")]);
+    expect(hits.map((h) => [h.startIndex, h.endIndex])).toEqual([[3, 6]]);
+  });
+
+  it("checks boundaries by code point around astral characters", () => {
+    // U+1D400 MATHEMATICAL BOLD CAPITAL A is a letter (surrogate pair in UTF-16)
+    expect(matchTerms("\u{1D400}API", [entry("API", "x")])).toHaveLength(0);
+    expect(matchTerms("😀API😀", [entry("API", "x")])).toHaveLength(1);
+  });
+
+  it("matches 500 entries against ~10 KB of text quickly (perf regression)", () => {
+    const words = ["alpha", "bravo", "charlie", "delta", "café", "компьютер", "كتاب", "机器学习", "東京タワー"];
+    const entries = Array.from({ length: 500 }, (_, i) => entry(`${words[i % words.length]}${i}`, `t${i}`));
+    entries.push(...words.map((w) => entry(w, `t-${w}`)));
+    let text = "";
+    while (text.length < 10_000) text += `${words.join(" ")} lorem ipsum ${text.length} `;
+    const t0 = performance.now();
+    const hits = matchTerms(text, entries);
+    const elapsed = performance.now() - t0;
+    expect(hits.length).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(200);
+  });
+
+  it("escapes regex metacharacters in terms", () => {
+    const entries = [entry("C++", "x"), entry("Node.js", "y"), entry("(beta)", "z"), entry("a|b", "w")];
+    const text = "C++ and Node.js (beta) a|b";
+    const hits = matchTerms(text, entries);
+    expect(hits.map((h) => text.slice(h.startIndex, h.endIndex))).toEqual(["C++", "Node.js", "(beta)", "a|b"]);
+    expect(matchTerms("NodeXjs", [entry("Node.js", "y")])).toHaveLength(0);
+    expect(matchTerms("ab", [entry("a|b", "w")])).toHaveLength(0);
   });
 });
 
@@ -162,6 +268,77 @@ describe("GlossaryStore", () => {
     expect(store.list("en", "ar")).toHaveLength(1);
     expect(store.list("en", "fr")).toHaveLength(1);
     expect(store.list()).toHaveLength(2);
+  });
+
+  it("lookup falls back from a regional tag to the base language", () => {
+    store.add({ sourceTerm: "API", targetTerm: "interface", sourceLang: "en", targetLang: "fr" });
+    expect(store.lookup("en-US", "fr")).toHaveLength(1);
+    expect(store.lookup("en", "fr-CA")).toHaveLength(1);
+    expect(store.lookup("en-GB", "fr-FR")).toHaveLength(1);
+  });
+
+  it("lookup does not widen a base query to regional entries", () => {
+    store.add({ sourceTerm: "API", targetTerm: "interface", sourceLang: "en-US", targetLang: "fr" });
+    expect(store.lookup("en", "fr")).toHaveLength(0);
+    expect(store.lookup("en-GB", "fr")).toHaveLength(0);
+    expect(store.lookup("en-US", "fr")).toHaveLength(1);
+  });
+
+  it("lookup is case-insensitive on language tags", () => {
+    store.add({ sourceTerm: "API", targetTerm: "interface", sourceLang: "en-US", targetLang: "FR" });
+    expect(store.lookup("en-us", "fr")).toHaveLength(1);
+    expect(store.lookup("EN-US", "fr-ca")).toHaveLength(1);
+  });
+
+  it("lookup walks multi-subtag tags down to the base (zh-Hant-TW → zh-Hant → zh)", () => {
+    store.add({ sourceTerm: "model", targetTerm: "模型", sourceLang: "en", targetLang: "zh" });
+    store.add({ sourceTerm: "software", targetTerm: "軟體", sourceLang: "en", targetLang: "zh-Hant" });
+    const terms = store.lookup("en", "zh-Hant-TW").map((e) => e.targetTerm).sort();
+    expect(terms).toEqual(["模型", "軟體"]);
+  });
+
+  it("lookup prefers the most specific entry for the same source term", () => {
+    store.add({ sourceTerm: "color", targetTerm: "couleur", sourceLang: "en", targetLang: "fr" });
+    store.add({ sourceTerm: "color", targetTerm: "teinte", sourceLang: "en-US", targetLang: "fr" });
+    store.add({ sourceTerm: "truck", targetTerm: "camion", sourceLang: "en", targetLang: "fr" });
+    const entries = store.lookup("en-US", "fr");
+    expect(entries.map((e) => `${e.sourceTerm}=${e.targetTerm}`).sort()).toEqual(["color=teinte", "truck=camion"]);
+    // Base query still sees only the base entry
+    expect(store.lookup("en", "fr").map((e) => e.targetTerm).sort()).toEqual(["camion", "couleur"]);
+  });
+
+  it("lookup prefers a target-region entry over a base-target entry", () => {
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en", targetLang: "fr" });
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    expect(store.lookup("en", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    expect(store.lookup("en", "fr-FR").map((e) => e.targetTerm)).toEqual(["e-mail"]);
+  });
+
+  it("lookup precedence ignores source-term case (matching is case-insensitive)", () => {
+    // "Email" sorts before "email" in SQL; the more specific en-US entry must still win
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en-US", targetLang: "fr" });
+    store.add({ sourceTerm: "Email", targetTerm: "mél", sourceLang: "en", targetLang: "fr" });
+    expect(store.lookup("en-US", "fr").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    const hits = store.findMatches("Send an email", "en-US", "fr");
+    expect(hits.map((h) => h.entry.targetTerm)).toEqual(["courriel"]);
+  });
+
+  it("lookup breaks specificity ties by target first, then source", () => {
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en-US", targetLang: "fr" });
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    expect(store.lookup("en-US", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    // Insertion order must not matter
+    store.close();
+    rmSync(dbPath, { force: true });
+    store = new GlossaryStore(dbPath);
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en-US", targetLang: "fr" });
+    expect(store.lookup("en-US", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
+  });
+
+  it("findMatches uses language fallback", () => {
+    store.add({ sourceTerm: "API", targetTerm: "interface", sourceLang: "en", targetLang: "fr" });
+    expect(store.findMatches("The API is ready", "en-US", "fr-CA")).toHaveLength(1);
   });
 
   it("findMatches delegates to matchTerms", () => {
