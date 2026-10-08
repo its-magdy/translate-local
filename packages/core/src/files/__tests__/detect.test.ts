@@ -102,11 +102,19 @@ describe("detect (full resolution)", () => {
     expect(r.supported).toBe(false);
   });
 
-  test("FormatJS refused", () => {
+  test("compiled FormatJS (AST arrays) refused", () => {
+    const compiled = { greeting: [{ type: 0, value: "Hello " }, { type: 1, value: "name" }] };
+    expect(detectContentFormat(compiled as never)).toBe("formatjs-compiled");
+    const r = detect(".json", compiled as never, "auto");
+    expect(r.supported).toBe(false);
+    expect(r.refusalHint).toContain("compiled");
+  });
+
+  test("FormatJS supported", () => {
     const fj = { id1: { defaultMessage: "Save" } };
     const r = detect(".json", fj as never, "auto");
     expect(r.content).toBe("formatjs");
-    expect(r.supported).toBe(false);
+    expect(r.supported).toBe(true);
   });
 
   test("--format raw-json bypasses content checks", () => {

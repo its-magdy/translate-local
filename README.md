@@ -154,7 +154,7 @@ Keys whose source string changed since the last run are re-translated too: `tl` 
 
 Recognized layouts: `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`. Pass `--out <path>` when no locale token can be inferred.
 
-Supports vanilla JSON (flat or nested), YAML (Rails / Hugo / Symfony non-ICU), and i18next plural-key files. ARB, xcstrings, and FormatJS-with-ICU are refused by default — use `--format raw-json` to bypass at your own risk.
+Supports vanilla JSON (flat or nested), YAML (Rails / Hugo / Symfony), i18next plural-key files, and FormatJS / react-intl catalogs. ICU MessageFormat (`{n, plural, ...}`, `{x, select, ...}`) is translated structure-preserving, with plural branches adjusted to the target locale. ARB and xcstrings are refused by default — use `--format raw-json` to bypass at your own risk.
 
 See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) for sync semantics, placeholder protection, edge-case behavior, and refused-format rationales.
 

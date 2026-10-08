@@ -110,15 +110,15 @@ tl translate --file en.json --to ar --strict
 | Lingui minimal mode | ✅ supported | Treated as vanilla. |
 | i18next with plural keys (`_one`, `_other`, …) | ✅ supported | Plural groups are regenerated for the target locale's CLDR categories (en→ar: `_zero` … `_other`; en→ja: `_other` only). See the [file translation guide](file-translate-guide.md#i18next-plurals). |
 | YAML (Rails / Hugo / Symfony non-ICU) | ✅ supported | Default for `.yaml` / `.yml`. Comments, key order, and block scalar style preserved on round-trip. |
-| Flutter ARB | ❌ refused | `@key` metadata + ICU MessageFormat. Use `--format raw-json` to override. |
+| Flutter ARB | ❌ refused | `@key` metadata, `@@locale`, and gen-l10n apostrophe semantics. Use `--format raw-json` to override. |
 | Apple `.xcstrings` | ❌ refused | Per-locale `stringUnit` state machine. Use `--format raw-json` to override. |
-| FormatJS / react-intl extracted catalog | ❌ refused | ICU bodies in `defaultMessage`. Use `--format raw-json` to override. |
+| FormatJS / react-intl extracted catalog | ✅ supported | `defaultMessage` translated as ICU MessageFormat; `description` copied verbatim. |
 | Lingui full mode | ❌ refused | Multi-field per-key shape. |
 | YAML with anchors / aliases | ❌ refused | Modifying an anchored value mutates all aliases. Inline before translating. |
 | YAML 1.1 directive (`%YAML 1.1`) | ❌ refused | Norway problem and other implicit-typing edge cases. Re-save as 1.2. |
 | Multi-document YAML | ❌ refused | Split into separate files. |
 
-**Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` blocks are refused; under the default (continue-on-failure) behavior these keys fall back to the source value, or pass `--strict` to abort.
+**Placeholder protection.** All common placeholder syntaxes are detected and protected: `{{name}}` (i18next), `{name}` (Vue / ICU simple), `%{name}` (Rails), `%s`/`%d`/`%1$s` (printf), `$t(...)` (i18next nesting), `@:linked` (Vue), HTML tags. Strings containing ICU `{n, plural, ...}` / `{x, select, ...}` / `{x, number, ...}` are parsed and translated structure-preserving: only literal text changes, and plural branches are adjusted to the target locale's CLDR categories. A value that fails ICU validation falls back to the source value, or pass `--strict` to abort. See [`file-translate-guide.md`](file-translate-guide.md#icu-messageformat).
 
 **Skip heuristics.** Values that look like URLs (`https?://...`), email addresses, semver versions, single characters, or ALL-CAPS short tokens (`OK`, `API`, `ID_X`) are passed through unchanged. Override with `--translate-all`.
 

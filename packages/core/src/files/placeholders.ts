@@ -27,7 +27,8 @@ const PATTERN_SOURCES = [
 
 const COMBINED = new RegExp(PATTERN_SOURCES.map((s) => `(?:${s})`).join("|"), "g");
 
-const ICU = /\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*,/;
+// `(?<!\{)`: i18next's `{{val, number}}` is interpolation, not ICU.
+const ICU = /(?<!\{)\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*[,}]/;
 
 const SENTINEL_RE = new RegExp(`${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}`, "g");
 
@@ -54,13 +55,34 @@ export function extract(text: string): Placeholder[] {
 
 export function mask(text: string): { masked: string; placeholders: Placeholder[] } {
   const placeholders: Placeholder[] = [];
-  let i = 0;
-  const masked = text.replace(COMBINED, (m) => {
-    const idx = i++;
-    placeholders.push({ raw: m, index: idx });
-    return sentinelFor(idx);
+  return { masked: maskAppend(text, placeholders), placeholders };
+}
+
+/** mask() that appends to an existing list, so sentinel indices continue from its length. */
+export function maskAppend(text: string, placeholders: Placeholder[]): string {
+  return text.replace(COMBINED, (m) => {
+    const index = placeholders.length;
+    placeholders.push({ raw: m, index });
+    return sentinelFor(index);
   });
-  return { masked, placeholders };
+}
+
+/** Sentinel indices in `masked`, in order of appearance. */
+export function sentinelIndices(masked: string): number[] {
+  return [...masked.matchAll(SENTINEL_RE)].map((m) => parseInt(m[1], 10));
+}
+
+/** Splits `masked` into text runs (strings) and sentinel indices (numbers). */
+export function splitSentinels(masked: string): (string | number)[] {
+  const out: (string | number)[] = [];
+  let last = 0;
+  for (const m of masked.matchAll(SENTINEL_RE)) {
+    if (m.index > last) out.push(masked.slice(last, m.index));
+    out.push(parseInt(m[1], 10));
+    last = m.index + m[0].length;
+  }
+  if (last < masked.length) out.push(masked.slice(last));
+  return out;
 }
 
 export function unmask(masked: string, placeholders: Placeholder[]): string {

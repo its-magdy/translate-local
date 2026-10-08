@@ -11,7 +11,8 @@ import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
 import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, pruneTarget, type SyncMode } from "./sync";
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
-import { mask, unmask, validate, containsICU, sentinelFor } from "./placeholders";
+import { mask, unmask, validate, containsICU, sentinelFor, sentinelIndices } from "./placeholders";
+import { parseICU, translateICU, type UnitTranslator } from "./icu";
 import { classifyValue } from "./skip";
 import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
 import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
@@ -140,6 +141,59 @@ function guardPrune(removed: number, total: number, topKeysBefore: string[], aft
       `--prune refused: it would remove ${removed} of ${total} target values (${Math.round((removed / total) * 100)}%, limit ${PRUNE_MAX_FRACTION * 100}%)`,
       PRUNE_HINT,
     );
+  }
+}
+
+/** A leaf that could not be translated; recorded as failed (or thrown under --strict). */
+class UnitFailed extends Error {
+  constructor(
+    message: string,
+    /** Set when the pipeline itself threw; rethrown as-is under --strict. */
+    readonly pipelineError?: unknown,
+    readonly tag: "PLACEHOLDER_MISMATCH" | "FILE_INVALID_FORMAT" = "PLACEHOLDER_MISMATCH",
+  ) {
+    super(message);
+  }
+}
+
+// translategemma reliably honors <term> tags from the glossary path; routing
+// sentinels through that channel preserves them better than naked-token instructions.
+function sentinelHits(masked: string, sourceLang: string, targetLang: string): GlossaryHit[] {
+  const hits: GlossaryHit[] = [];
+  for (const index of sentinelIndices(masked)) {
+    const tok = sentinelFor(index);
+    const idx = masked.indexOf(tok);
+    hits.push({
+      entry: { id: `__sentinel_${index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
+      startIndex: idx,
+      endIndex: idx + tok.length,
+    });
+  }
+  return hits;
+}
+
+function parsesAsICU(source: string): boolean {
+  try {
+    parseICU(source);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function translateIcuLeaf(source: string, pathStr: string, targetLang: string, runUnit: UnitTranslator): Promise<string> {
+  try {
+    parseICU(source);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new UnitFailed(`Invalid ICU MessageFormat at ${pathStr}: ${msg}`, undefined, "FILE_INVALID_FORMAT");
+  }
+  try {
+    return await translateICU(source, targetLang, runUnit);
+  } catch (err) {
+    if (err instanceof UnitFailed) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new UnitFailed(`ICU validation failed at ${pathStr}: ${msg}`);
   }
 }
 
@@ -353,6 +407,15 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     const pathStr = p.path.map(String).join(".");
     onProgress?.({ done: i, total: pending.length, path: pathStr });
 
+    // FormatJS: only defaultMessage is a message; description and friends are
+    // notes for translators and are copied verbatim.
+    if (detected.content === "formatjs" && p.path[p.path.length - 1] !== "defaultMessage") {
+      if (!dryRun) p.set(p.source);
+      summary.skipped.count++;
+      summary.skipped.reasons.metadata = (summary.skipped.reasons.metadata ?? 0) + 1;
+      continue;
+    }
+
     if (!translateAll) {
       const cls = classifyValue(p.source);
       if (cls.skip) {
@@ -363,22 +426,69 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       }
     }
 
-    if (containsICU(p.source)) {
-      const reason = `Contains ICU MessageFormat at ${pathStr}`;
-      if (continueOnError) {
-        summary.failed.push({ path: pathStr, reason });
-        failedKeys.add(lockKey(p.path));
-        if (!dryRun) p.set(p.source);
-        continue;
-      }
-      throw new TlError(
-        "FILE_INVALID_FORMAT",
-        reason,
-        "ICU plural/select bodies are not translated in v1. The default run continues and falls back to source for these keys; pass --strict to abort instead.",
-      );
-    }
+    // i18next doesn't speak ICU: a single-brace "{x, number}" there is literal text.
+    const isICU = detected.content === "formatjs" || (detected.content !== "i18next-plurals" && containsICU(p.source));
 
     if (dryRun) {
+      if (isICU && !parsesAsICU(p.source)) {
+        summary.failed.push({ path: pathStr, reason: `Invalid ICU MessageFormat at ${pathStr}` });
+      } else {
+        summary.translated++;
+      }
+      continue;
+    }
+
+    const snippets = context.retrieve(p.source, maxSnippets, minRelevance).map((s) => s.content);
+
+    if (isICU) {
+      // Runs the pipeline on `masked` until `check` accepts the output (null =
+      // accepted), retrying placeholder failures. Throws UnitFailed on give-up.
+      const runUnit: UnitTranslator = async (masked, check) => {
+        const hits = sentinelHits(masked, sourceLang, targetLang);
+        let lastReason = "";
+        for (let attempt = 0; attempt < MAX_PLACEHOLDER_RETRIES; attempt++) {
+          let translated: string;
+          try {
+            const result = await runPipeline(masked, sourceLang, targetLang, adapter, glossary, {
+              glossaryMode,
+              contextSnippets: snippets,
+              extraGlossaryHits: hits,
+              glossaryEntries,
+            });
+            translated = result.translated;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new UnitFailed(`Pipeline failed at ${pathStr}: ${msg}`, err);
+          }
+          const problem = check(translated);
+          if (problem === null) return translated;
+          lastReason = `Placeholder mismatch at ${pathStr} (attempt ${attempt + 1}/${MAX_PLACEHOLDER_RETRIES}) — ${problem}`;
+        }
+        throw new UnitFailed(lastReason);
+      };
+
+      let translatedValue: string;
+      try {
+        translatedValue = await translateIcuLeaf(p.source, pathStr, targetLang, runUnit);
+      } catch (err) {
+        if (!(err instanceof UnitFailed)) throw err;
+        if (continueOnError) {
+          // Fall back to source so every key has a value; user can grep source text to find failures.
+          summary.failed.push({ path: pathStr, reason: err.message });
+          failedKeys.add(lockKey(p.path));
+          p.set(p.source);
+          continue;
+        }
+        if (err.pipelineError !== undefined) throw err.pipelineError;
+        throw new TlError(
+          err.tag,
+          err.message,
+          err.tag === "FILE_INVALID_FORMAT"
+            ? "Fix the ICU syntax in the source value. The default run continues and falls back to source for these keys; --strict aborts instead."
+            : "The model output dropped or altered placeholders across all retries. Pass --strict only if you want abort-on-failure; otherwise the default continues with source-as-fallback.",
+        );
+      }
+      p.set(translatedValue);
       summary.translated++;
       continue;
     }
@@ -402,7 +512,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       }
       return hits;
     };
-    const sentinelHits = sentinelHitsFor(masked);
+    const maskedHits = sentinelHitsFor(masked);
 
     // For a plural form, swap {{count}} for the category's sample number so the
     // model inflects for it ("3 files", not "__TLPH_0__ files"); the number is
@@ -426,8 +536,6 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       hinted = { text, hits: sentinelHitsFor(text), countTok: sentinelFor(counts[0].index), re: sampleRegex(hint.value, targetLang) };
     }
 
-    const snippets = context.retrieve(p.source, maxSnippets, minRelevance).map((s) => s.content);
-
     let restored = "";
     let lastReason = "";
     let succeeded = false;
@@ -441,7 +549,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
         const result = await runPipeline(useHint ? hinted!.text : masked, sourceLang, targetLang, adapter, glossary, {
           glossaryMode,
           contextSnippets: snippets,
-          extraGlossaryHits: useHint ? hinted!.hits : sentinelHits,
+          extraGlossaryHits: useHint ? hinted!.hits : maskedHits,
           glossaryEntries,
         });
         translatedMasked = result.translated;

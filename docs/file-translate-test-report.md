@@ -66,7 +66,7 @@ All run by piping a tiny synthesized fixture through `tl translate --file ... --
 | Lingui minimal `{ id: "translation" }` | accept (as vanilla) | ✅ |
 | Flutter ARB (`@key` metadata) | refuse | ✅ refused with rationale |
 | Apple `.xcstrings` (`sourceLanguage`+`version`+`strings`) | refuse | ✅ refused |
-| FormatJS catalog (`{ defaultMessage, description }`) | refuse | ✅ refused |
+| FormatJS catalog (`{ defaultMessage, description }`) | refuse | ✅ refused (supported since ICU MessageFormat support — see below) |
 | Lingui full mode (`{ translation, message, ... }`) | refuse | ✅ refused |
 | `--format raw-json` over ARB | translate every leaf | ✅ |
 | YAML (Rails-style) | accept | ✅ |
@@ -151,6 +151,17 @@ Same source `{"greeting":"Hello, {{name}}!", "welcome":"Welcome back", "items_ot
 
 All 5 preserve `{{name}}` and `{{count}}` byte-identical.
 
+### ICU MessageFormat (added after v0.4.0)
+
+9-key catalog — plural with `=0`, a plural inside a sentence, select → plural nesting, `selectordinal`, `offset:1` with `=1`, number skeleton + date style, plural + apostrophe, `<b>#</b>` inside plural branches, and a plain `{name}` string. Every output leaf re-parses with formatjs defaults (tags enabled), 30/30.
+
+| Target | Translated | Notes |
+|---|---|---|
+| en → ar | 8 / 9 | Categories regenerated to `zero one two few many other`; dual forms come out right (`two {قامت بدعوة صديقين.}`, `two {هذان الملفان}`), `other` uses the 100-form singular. `cart.summary` (`{name} added {count, plural, ...} to the order`) fell back to source: the model drops the subject sentinel, and the non-ICU `{name} added {item} to the order` fails the same way. |
+| en → fr | 9 / 9 | `selectordinal` → `one {#er} other {#e}`; `n'a` left unescaped. (This run predates the rule that skips adding French `many`.) |
+| en → ja | 9 / 9 | Plurals collapse to `other` (plus `=N`). |
+| FormatJS catalog en → fr (compiled `tl` binary) | 3 / 3 | `defaultMessage` translated, `description` copied (`metadata=3`), `<b>{name}</b>` preserved. |
+
 ### Glossary in file mode
 
 | Setup | Result |
@@ -208,10 +219,9 @@ These are documented behaviors, not bugs. Each is described in `docs/file-transl
 |---|---|---|
 | **i18next plural forms the model won't inflect with a number** | Plural groups are regenerated for the target locale (en→ar writes all six categories), and each form is translated with a sample count (`3 files`) in place of `{{count}}`. When the model keeps rewriting the number in a category that spans several numbers (e.g. French `one`: `1 new message` → `un nouveau message`), the form falls back to the placeholder text without a grammatical-number hint. Forms with no `{{count}}`, or whose every candidate number already appears in the text, get no hint either. Fraction-only (ru `other`) and million-only (fr `many`) categories are translated plainly by design. A warning lists the fallback keys, and `pluralFallbacks` counts them. | Review the listed keys. Passing `--from` helps the sample match the source text (Arabic ordinals: `4th`, not `1st`). |
 | **Lone `_other` keys with `--from auto`** | A catalog from a one-category language (ja, zh) has only `_other` keys, which can't be told apart from ordinary keys like `gender_other` without knowing the source language. They are translated 1:1 and listed in a warning. | Pass `--from <lang>`. |
-| **Chained i18next formats** (`{{value, number, uppercase}}`) | Still matched by the ICU detector and refused like ICU strings. Single formats (`{{count, number}}`, `{{val, currency(USD)}}`) are masked as placeholders. | Use a single format per interpolation. |
 | **Stale plural keys not pruned** | Re-running against a target that already has categories the target locale doesn't use (e.g. `item_one` in `ja.json` from an older run) leaves them in place. i18next never looks them up. | Remove manually. |
 | **Plural rules unknown to the runtime** | If `Intl.PluralRules` can't resolve the target language, plural keys are translated 1:1 from source and a review warning is emitted. | Add the missing forms manually. |
-| **ICU plural/select bodies refused** | Strings containing `{n, plural, ...}` or `{x, select, ...}` are refused. | Default behavior: source-fallback for these keys; pass `--strict` to abort instead. |
+| **ICU sentence subjects can be dropped** | ICU plural/select are translated structure-aware, but translategemma sometimes drops the sentinel for a sentence's subject (`{name} added {count, plural, ...} to the order` → ar). Same limitation as non-ICU placeholders. | Default behavior: source-fallback for the key, reported with exit code `2`. |
 | **Shared YAML anchors refused** | Files using `&anchor` / `*alias` are refused. | Inline the anchor before translating. |
 | **Multi-document YAML refused** | Files with `---` document separators are refused. | Split into separate single-document files. |
 | **Source-changed detection starts at the first locked run** | Changed-source detection relies on the per-target lock in `.tl/locks/`. A target synced before the lock existed (or after the lock was deleted) is trusted as-is on the first run; edits made to the source before that run are not detected. | Run with `--force` once if you suspect existing drift; afterwards the lock catches changes. |

@@ -139,8 +139,8 @@ The summary prints `Pruned: N`, and `--json` output includes a `pruned` array of
 `tl` first parses by extension (`.json` / `.yaml` / `.yml`), then inspects the parsed content shape. Detection priority:
 
 1. **xcstrings** — `{ sourceLanguage, version, strings: { ... } }` → refused (Apple's per-locale state machine needs format-aware handling).
-2. **ARB** — any top-level key matching `@<name>` or `@@locale` / `@@last_modified` → refused (ARB metadata blocks must not be translated; ICU bodies need full parsing).
-3. **FormatJS catalog** — value shape `{ defaultMessage: string, ... }` → refused (defaultMessage commonly contains ICU MessageFormat).
+2. **ARB** — any top-level key matching `@<name>` or `@@locale` / `@@last_modified` → refused (`@key` metadata blocks must not be translated, `@@locale` must be rewritten, and Flutter's `gen-l10n` ignores ICU apostrophe quoting unless `use-escaping` is on — see the refused-formats table below).
+3. **FormatJS catalog** — value shape `{ defaultMessage: string, ... }` → supported. Every `defaultMessage` is translated as ICU MessageFormat (see [ICU MessageFormat](#icu-messageformat)); `description` and any other field are copied verbatim and counted as `metadata` skips. A *compiled* FormatJS catalog (`formatjs compile --ast`, values are AST arrays like `[{ "type": 0, "value": "Hi " }]`) is refused: translate the extracted catalog and compile it again.
 4. **Lingui full mode** — value shape `{ translation, message, description, origin }` → refused.
 5. **i18next plurals** — leaf key matching `_{zero|one|two|few|many|other}$` with sibling stem → supported; plural groups are regenerated for the target locale (see [i18next plurals](#i18next-plurals)).
 6. **Vanilla** — anything else.
@@ -148,7 +148,7 @@ The summary prints `Pruned: N`, and `--json` output includes a `pruned` array of
 Override detection with `--format <fmt>`:
 
 - `--format json` / `yaml` — force the parser, but still apply content-shape detection.
-- `--format raw-json` / `raw-yaml` — bypass content-shape detection entirely. Translates every string leaf regardless of metadata. Useful for one-off translation of refused formats, but **may corrupt** ARB `@key` metadata, xcstrings state fields, or ICU body keywords.
+- `--format raw-json` / `raw-yaml` — bypass content-shape detection entirely. Translates every string leaf regardless of metadata. Useful for one-off translation of refused formats, but **may corrupt** ARB `@key` metadata or xcstrings state fields. Leaves containing ICU plural/select are still translated structure-aware.
 
 ---
 
@@ -218,7 +218,42 @@ The prompt also includes few-shot examples showing the model how source-with-sen
 
 **Failure mode (default):** a placeholder mismatch is recorded in the run summary and the source value is written to the target as a fallback (so the output file remains complete and you can grep for un-translated source text). The exit code is non-zero (`2`) if any keys failed, so CI catches it. Pass `--strict` to switch to abort-on-first-failure (the original target file is then left untouched).
 
-**ICU MessageFormat** — strings containing `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}`, or ICU number/date format directives are refused. Partial-ICU translation requires a full ICU AST parser, which is deferred to a future phase. Under the default (continue-on-failure) behavior these keys fall back to the source value; pass `--strict` to abort instead.
+---
+
+## ICU MessageFormat
+
+Values containing `{n, plural, ...}`, `{x, select, ...}`, `{x, selectordinal, ...}` or `{x, number|date|time[, style]}` — and every FormatJS `defaultMessage` — are parsed with [`@formatjs/icu-messageformat-parser`](https://formatjs.github.io/docs/icu-messageformat-parser) and translated **structure-preserving**: only literal text changes. Argument names, select keys, `#`, `offset:N`, `=N` branches, nesting, and number/date/time styles and skeletons are re-emitted from the source.
+
+**How a message is split.** The top-level message and every plural/select branch are each translated as one whole message, with their nested syntax (arguments, `#`, a nested plural/select) masked as `__TLPH_N__` sentinels. Branches are never fragmented word-by-word. Adjacent placeholders (`<b>#</b>`) share one sentinel. A unit with no letters (`{a}: {b}`) is not sent to the model.
+
+```
+"{name} has {gender, select, female {{n, plural, one {# cat} other {# cats}}} other {...}}"
+  unit: "__TLPH_0__ has __TLPH_1__"     (outer sentence; the whole select is one token)
+  unit: "1 cat"                         (plural branch, count replaced by a sample number)
+  unit: "2 cats"
+```
+
+**Plural branches use a sample number.** Inside a plural branch the count (`#`, or the plural's own argument when there is no offset) is replaced by a representative number for that branch's category in the *target* locale — `one` → 1, Arabic `few` → 3, Arabic `many` → 11, Arabic `other` → 100, `=N` → N — so the model inflects the noun for that number ("100 رسالة جديدة", not "100 رسائل"). The number is then mapped back to `#`. If it doesn't come back exactly, or the model invents another number, the branch is re-translated with a `__TLPH_N__` sentinel instead. A category that holds a single value (`one` = 1 in English, Arabic `two` = 2, `=N`) may drop the number: "رسالتان جديدتان" (two new messages) is accepted. Tags that fully enclose the number (`<b>#</b>`) may go with it. Half a tag pair (`<b># file</b>`), a void tag (`#<br/>`) or another argument never does; those branches take the sentinel route instead.
+
+Sample details:
+- A category that holds only fractions (Russian / Polish `other`) gets no sample and is translated with a sentinel. "1.5 files" produced nonsense.
+- The sample skips numbers already written in the branch. In "# files in 5 folders" Russian `many` uses 6, not 5, so a dropped sample can't turn the literal 5 into `#`. If no such number exists, the branch takes the sentinel route.
+- The number is recognized in any decimal digit system ("3", "٣", "۳", "३"), with digit grouping ("1 000 000"), and glued to a sentinel (`__TLPH_0__3`).
+- A target code that `Intl.PluralRules` doesn't know (it silently falls back to the host locale) is detected, and the branches are left as in the source. `tl` is resolved as `fil`.
+
+**Plural categories follow the target locale** (`Intl.PluralRules(target).resolvedOptions().pluralCategories`; `type: "ordinal"` for `selectordinal`):
+
+- Missing categories are added, derived from `other` with the sample number (en → ar adds `zero`, `two`, `few`, `many`; en → ru / pl adds `few`, `many`). If that fails, the category gets a copy of the translated `other`.
+- A category whose smallest value is a million or more is **not added**: French / Spanish / Italian / Portuguese / Catalan `many` (1 000 000, 2 000 000, …). Runtimes fall back to `other`, and adding it would bloat every plural. If the source already has it, it is kept.
+- Categories the target doesn't use are dropped (en → ja keeps only `other`). That includes a source `zero` for a target without one (French, Japanese, …). This is correct: in those locales `zero` is never selected, not even for 0. To give the literal value 0 its own wording, use an exact branch, `=0 {No files}`, which every locale honors and which is always kept.
+- `other` and every `=N` branch are always kept. A category whose values are all covered by `=N` branches is not added (`=0` makes Arabic `zero` redundant).
+- An unknown target locale leaves the branches unchanged.
+
+**Output format.** The printer emits canonical spacing — `{n, plural, one {...} other {...}}` — with `=N` branches first, then categories in CLDR order (`zero one two few many other`). Arguments, number/date/time elements, and `offset:` are copied verbatim. Apostrophe escaping follows ICU: `{`, `}` (and `#` directly inside a plural branch) in translated text are quoted (`'{'`), and an apostrophe is doubled only where it would otherwise start a quote — "l'{item}" becomes `l''{item}`, while "n'a" stays `n'a`.
+
+**Validation.** The translated message must re-parse and keep the same arguments (names and types), select keys, and plural type / offset / `=N` keys as the source. Tags are parsed as literal text during translation. If the source also parses as rich text with tags enabled (react-intl / next-intl `<b>…</b>`), the output must too, with the same tag names in the same nesting. This catches half-dropped or reordered tags, and a quoted `'<b>'` coming back unquoted. Each unit must keep exactly its sentinels and must not gain placeholder-shaped text the source didn't have (a model-invented `<i>` or `{name}`). Units are retried up to 10 times like any other leaf. A model/pipeline error is never absorbed by a fallback route. A failure falls back to the source value and is reported (exit code `2`); `--strict` aborts instead. A value that does not parse as ICU (e.g. a plural without `other`, or ICU4J-only types like `spellout` / `choice`) is reported as `Invalid ICU MessageFormat` and falls back the same way.
+
+**Model limitation.** translategemma sometimes drops the sentinel standing for a sentence's subject (`{name} added {count, plural, ...} to the order` → Arabic). Non-ICU strings hit the same limitation (`{name} added {item} to the order` fails the same way); the key falls back to source and is reported.
 
 ---
 
@@ -310,14 +345,12 @@ Context retrieval also runs per leaf, with the source value as the query. If you
 
 | Format | Why refused | Workaround |
 |---|---|---|
-| **Flutter ARB** | `@key` blocks contain `placeholders` metadata that must not be translated; values frequently contain ICU MessageFormat. Translating every leaf would corrupt both. | `--format raw-json` translates every leaf (corrupts metadata). Wait for Phase C for proper ARB support. |
+| **Flutter ARB** | `@key` blocks contain `description` and `placeholders` metadata that must not be translated, and `@@locale` must be rewritten for the target. Flutter's `gen-l10n` also treats apostrophes literally unless `use-escaping: true`, so ICU quoting (`'{'`, `''`) would show up in the UI. | `--format raw-json` translates every leaf (corrupts metadata; ICU values are still translated structure-aware). Wait for Phase C for proper ARB support. |
 | **Apple `.xcstrings`** | Per-locale `stringUnit.state` machine (`translated`, `needs_review`, `new`, `stale`) drives Xcode's UI; the format also has plural variations. | `--format raw-json` translates every leaf (state fields will be left as English string values). Wait for Phase C. |
-| **FormatJS catalogs** | Values commonly contain ICU plural/select bodies. Treating them as opaque strings sends English fragments to the model unchanged; treating them as text corrupts ICU keywords. | `--format raw-json`. Better: keep your translations in Lingui-minimal style. |
 | **Lingui full mode** | The multi-field shape (`translation`, `message`, `description`, `origin`) needs a strategy for which fields to translate, which to leave. | Use Lingui minimal mode (`{ id: "translation" }`). |
 | **Multi-document YAML** (`---` separator) | Phase B refusal — uncommon in i18n catalogs; supporting it cleanly needs work we haven't done. | Split the file. |
 | **YAML 1.1 directive** (`%YAML 1.1`) | The Norway problem (`no` → `false`) and other implicit-typing bugs make round-trip unreliable. | Re-save as YAML 1.2 (modern editors default to this). |
 | **YAML anchors / aliases** | Modifying an anchored value mutates all aliases. Translating once propagates everywhere — sometimes desirable, sometimes not. Detecting "shared between translatable and non-translatable contexts" is hard to do safely. | Inline the alias. |
-| **Strings containing ICU plural/select** | Without a real ICU parser, we cannot reliably translate the natural-language fragments inside while leaving the keywords (`plural`, `=0`, `one`, `other`) unchanged. | The default run records them as failed and falls back to the source value; or pre-extract them into a separate non-ICU file. |
 
 ---
 
@@ -330,7 +363,7 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 | `FILE_NOT_FOUND` | Source file does not exist. |
 | `FILE_TOO_LARGE` | Source exceeds `--max-size`. |
 | `FILE_PARSE_FAILED` | JSON / YAML parse error. |
-| `FILE_INVALID_FORMAT` | Refused content shape (ARB, xcstrings, ICU, etc.), unsupported extension, or non-regular file (symlink, FIFO, device). |
+| `FILE_INVALID_FORMAT` | Refused content shape (ARB, xcstrings, etc.), unsupported extension, non-regular file (symlink, FIFO, device), or (under `--strict`) a value that is not valid ICU MessageFormat. |
 | `FILE_WRITE_FAILED` | Output write or pre-rename re-parse failed. |
 | `PLACEHOLDER_MISMATCH` | The model's output dropped or altered placeholders. |
 | `SAME_LOCALE` | `--from` and `--to` are the same, or the output path resolves to the source file. |
@@ -341,4 +374,4 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 ## What's coming next
 
 - **Phase B (YAML)** — Rails / Hugo / Symfony non-ICU catalogs with full comment, anchor, and block-scalar preservation.
-- **Phase C (later)** — proper ARB and xcstrings handling, ICU body translation with a real AST parser.
+- **Phase C (later)** — proper ARB and xcstrings handling.

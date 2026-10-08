@@ -6,7 +6,8 @@ export type ContentFormat =
   | "vanilla"           // plain nested JSON / YAML — supported (includes lingui-minimal)
   | "i18next-plurals"   // i18next v4 plural-key suffix style — supported; groups regenerated per target locale
   | "lingui-full"       // { id: { translation, message, description, origin } } — refused
-  | "formatjs"          // { id: { defaultMessage, description } } — refused if any value has ICU
+  | "formatjs"          // { id: { defaultMessage, description } } — supported (defaultMessage translated as ICU)
+  | "formatjs-compiled" // { id: [{ type: 0, value: "..." }, ...] } — compiled AST, refused
   | "arb"               // Flutter ARB with @key metadata — refused
   | "xcstrings";        // Apple String Catalog — refused
 
@@ -53,6 +54,14 @@ export function detectContentFormat(root: JsonValue): ContentFormat {
     obj.strings !== null
   ) {
     return "xcstrings";
+  }
+
+  // `formatjs compile --ast` output: every message is a parsed AST array. Walking
+  // it would translate argument names and type tags.
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v) && v.length > 0 && v.every((e) => e !== null && typeof e === "object" && !Array.isArray(e) && typeof (e as { type?: unknown }).type === "number")) {
+      return "formatjs-compiled";
+    }
   }
 
   for (const k of Object.keys(obj)) {
@@ -136,6 +145,7 @@ export function detect(ext: string, root: JsonValue, override: FormatOverride): 
   switch (content) {
     case "vanilla":
     case "i18next-plurals":
+    case "formatjs":
       return { parse, content, supported: true, raw };
     case "arb":
       return {
@@ -144,7 +154,7 @@ export function detect(ext: string, root: JsonValue, override: FormatOverride): 
         supported: false,
         raw,
         refusalHint:
-          "Flutter ARB files contain @key metadata and ICU MessageFormat that need format-specific handling. Pass --format raw-json to translate every leaf anyway (may corrupt metadata).",
+          "Flutter ARB files contain @key metadata (descriptions, placeholder types) and an @@locale that need format-specific handling. Pass --format raw-json to translate every leaf anyway (may corrupt metadata).",
       };
     case "xcstrings":
       return {
@@ -155,14 +165,14 @@ export function detect(ext: string, root: JsonValue, override: FormatOverride): 
         refusalHint:
           "Apple String Catalog (.xcstrings) files have a per-locale state machine that needs format-specific handling. Pass --format raw-json to translate every leaf anyway.",
       };
-    case "formatjs":
+    case "formatjs-compiled":
       return {
         parse,
         content,
         supported: false,
         raw,
         refusalHint:
-          "FormatJS catalogs contain ICU MessageFormat in defaultMessage values. Pass --format raw-json to translate every leaf anyway (ICU bodies may be corrupted).",
+          "This is a compiled FormatJS catalog (message ASTs). Translate the extracted source catalog ({ id: { defaultMessage } }) and compile it instead.",
       };
     case "lingui-full":
       return {
