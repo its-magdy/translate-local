@@ -53,6 +53,20 @@ describe("tl translate --file", () => {
     expect(after.foo).toBe("[ar] bar");
   });
 
+  it("emits no carriage-return progress when stderr is not a TTY", () => {
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "one apple",\n  "b": "two pears",\n  "c": "three plums"\n}\n');
+
+    const r = run(
+      ["translate", "--file", src, "--to", "ar"],
+      { TL_ADAPTER: "mock", XDG_CONFIG_HOME: dir },
+    );
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).not.toContain("\r");
+    expect(r.stderr).not.toContain("Translated ");
+    expect(r.stdout).toContain("Translated: 3 / 3");
+  });
+
   it("dry-run does not write the output file", () => {
     const src = join(dir, "en.json");
     writeFileSync(src, '{\n  "a": "1"\n}\n');
