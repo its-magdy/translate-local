@@ -152,7 +152,7 @@ export function loadConfig(configPath?: string): CoreConfig {
     raw = readFileSync(p, "utf8");
   } catch (err: any) {
     if (err.code === "ENOENT") {
-      return configSchema.parse({});
+      return expandDbPaths(configSchema.parse({}));
     }
     throw new TlError(
       "CONFIG_NOT_FOUND",
@@ -187,7 +187,10 @@ export function loadConfig(configPath?: string): CoreConfig {
     throw new TlError("CONFIG_INVALID", `Config validation failed: ${issues}`, `Check the config schema in ${p}`);
   }
 
-  const cfg = result.data;
+  return expandDbPaths(result.data);
+}
+
+function expandDbPaths(cfg: CoreConfig): CoreConfig {
   cfg.glossary.dbPath = expandTilde(cfg.glossary.dbPath);
   cfg.context.dbPath = expandTilde(cfg.context.dbPath);
   return cfg;
