@@ -20,6 +20,27 @@ need() {
   command -v "$1" >/dev/null 2>&1 || err "Required tool not found: $1 — please install it and retry."
 }
 
+# Print the lowercase SHA-256 of file $1. Linux (coreutils/busybox) ships
+# sha256sum, macOS ships shasum (Perl), openssl is the last resort.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print tolower($1) }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{ print tolower($1) }'
+  else
+    # "SHA2-256(file)= <hash>" (OpenSSL 3) or "SHA256(file)= <hash>" (older)
+    openssl dgst -sha256 "$1" | awk '{ print tolower($NF) }'
+  fi
+}
+
+# Print the expected SHA-256 for asset $2 from the SHA256SUMS file $1
+# (`<hash>  <name>` per line). The name must match exactly and appear once.
+expected_sha256() {
+  tr -d '\r' < "$1" | awk -v name="$2" '
+    $2 == name || $2 == "*" name { n++; hash = tolower($1) }
+    END { if (n == 1) print hash }'
+}
+
 # ── parse args ────────────────────────────────────────────────────────────────
 
 VERSION=""
@@ -52,6 +73,12 @@ TARGET="${os}-${arch}"
 # ── resolve version ───────────────────────────────────────────────────────────
 
 need curl
+need awk
+need tr
+command -v sha256sum >/dev/null 2>&1 \
+  || command -v shasum >/dev/null 2>&1 \
+  || command -v openssl >/dev/null 2>&1 \
+  || err "No SHA-256 tool found (sha256sum, shasum or openssl). Install one so downloads can be verified, then retry."
 
 if [ -z "$VERSION" ]; then
   info "Fetching latest release..."
@@ -66,13 +93,39 @@ info "Installing tl v${VERSION} (${TARGET})..."
 
 # ── download ──────────────────────────────────────────────────────────────────
 
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/tl-${TARGET}"
+ASSET="tl-${TARGET}"
+RELEASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+DOWNLOAD_URL="${RELEASE_URL}/${ASSET}"
+SUMS_URL="${RELEASE_URL}/SHA256SUMS"
 TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 TMP_BIN="${TMP_DIR}/tl"
+SUMS_FILE="${TMP_DIR}/SHA256SUMS"
 
 info "Downloading from ${DOWNLOAD_URL}..."
 curl -fsSL --progress-bar -o "$TMP_BIN" "$DOWNLOAD_URL" \
   || err "Download failed. Check that v${VERSION} exists at https://github.com/$REPO/releases"
+
+# ── verify checksum (fail closed) ─────────────────────────────────────────────
+# Must run before chmod/codesign: signing rewrites the binary.
+
+info "Verifying SHA-256 against ${SUMS_URL}..."
+curl -fsSL -o "$SUMS_FILE" "$SUMS_URL" \
+  || err "Could not download SHA256SUMS for v${VERSION}; refusing to install an unverified binary."
+
+EXPECTED="$(expected_sha256 "$SUMS_FILE" "$ASSET")"
+if [ "${#EXPECTED}" -ne 64 ]; then
+  err "SHA256SUMS has no single valid entry for ${ASSET}; refusing to install."
+fi
+case "$EXPECTED" in
+  *[!0-9a-f]*) err "SHA256SUMS entry for ${ASSET} is not a valid SHA-256; refusing to install." ;;
+esac
+
+ACTUAL="$(sha256_of "$TMP_BIN")"
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  err "Checksum mismatch for ${ASSET}: expected ${EXPECTED}, got ${ACTUAL:-<none>}. Nothing was installed."
+fi
+ok "Checksum verified (${EXPECTED})"
 
 chmod +x "$TMP_BIN"
 
