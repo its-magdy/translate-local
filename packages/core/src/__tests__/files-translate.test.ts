@@ -764,7 +764,8 @@ describe("translateFile", () => {
       continueOnError: false,
     });
     expect(summary.contentFormat).toBe("i18next-plurals");
-    expect(summary.translated).toBe(2);
+    // en one/other regenerate to all six Arabic categories (plural regeneration).
+    expect(summary.translated).toBe(6);
     const after = JSON.parse(readFileSync(out, "utf8"));
     expect(after.item_other).toBe("[ar] {{count}} items at {{price, number}}");
   });
