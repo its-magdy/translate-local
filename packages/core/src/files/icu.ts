@@ -12,8 +12,8 @@
 // ignoreTag (and for runtimes that parse tags, it would turn rich-text tags
 // into literal text).
 import { parse, TYPE, type MessageFormatElement, type PluralElement } from "@formatjs/icu-messageformat-parser";
-import { PLACEHOLDER_SENTINEL_PREFIX } from "@translate-local/shared/constants";
 import { extract, maskAppend, sentinelFor, sentinelIndices, splitSentinels, type Placeholder } from "./placeholders";
+import { PLURAL_CATEGORIES, pluralCategories, pluralSample, sampleRegex, type PluralType } from "./plurals";
 
 // ignoreTag: tags stay literal text, so the regular placeholder masker protects
 // them. captureLocation: simple arguments are re-emitted as their exact source slice.
@@ -414,82 +414,8 @@ function signature(els: MessageFormatElement[], out = new Set<string>()): Set<st
 
 // --- plural categories ------------------------------------------------------
 //
-// Same shape and names as files/plurals.ts on the i18next plural-regeneration
-// branch (PR #56), so the two can be folded into one module once both land.
-
-export type PluralType = "cardinal" | "ordinal";
-export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
-
-export const PLURAL_CATEGORIES: readonly PluralCategory[] = ["zero", "one", "two", "few", "many", "other"];
-
-// Candidate samples: positive integers first (most natural in a sentence), then
-// 0. Two multiples of a million so French `many` isn't mistaken for
-// single-valued. No decimals: a fraction-only category (ru/pl `other`) gets no
-// sample — "1.5 files" made the model write nonsense ("each 1.5 units in size").
-const SAMPLES: readonly number[] = [
-  ...Array.from({ length: 200 }, (_, i) => i + 1),
-  1000, 10000, 100000, 1000000, 2000000,
-  0,
-];
-// Only used to tell whether a category with one integer also holds fractions.
-const FRACTION_PROBES: readonly number[] = [0.5, 1.5, 2.5];
-
-const language = (tag: string): string => tag.split("-")[0].toLowerCase();
-
-/**
- * Intl.PluralRules for `lang`, or null when the runtime cannot resolve it. An
- * unknown-but-well-formed tag ("xx") silently falls back to the runtime's
- * default locale; that is detected and rejected rather than guessed at.
- */
-export function pluralRules(lang: string, type: PluralType = "cardinal"): Intl.PluralRules | null {
-  try {
-    // Bun's ICU knows Tagalog only by its macrolanguage-successor tag `fil`.
-    const requested = Intl.getCanonicalLocales(lang.replace(/^tl(?=$|[-_])/i, "fil"))[0];
-    const rules = new Intl.PluralRules(requested, { type });
-    if (language(rules.resolvedOptions().locale) !== language(requested)) return null;
-    return rules;
-  } catch {
-    return null;
-  }
-}
-
-/** The locale's plural categories in canonical CLDR order (zero → other), or null if unresolvable. */
-export function pluralCategories(lang: string, type: PluralType = "cardinal"): PluralCategory[] | null {
-  const rules = pluralRules(lang, type);
-  if (!rules) return null;
-  // resolvedOptions() order is engine-dependent; normalize it.
-  const used = new Set(rules.resolvedOptions().pluralCategories);
-  return PLURAL_CATEGORIES.filter((c) => used.has(c));
-}
-
-/**
- * A representative integer for `category` in `lang`, or null when the category
- * holds no integer (fraction-only categories are translated without a hint).
- * `exact` is true when the category holds only that one number (Arabic `two`
- * is 2 and nothing else), so a translation may spell the number out or drop it
- * without changing meaning. `prefer` picks the first value it accepts, if the
- * category has one.
- */
-export function pluralSample(
-  lang: string,
-  category: PluralCategory,
-  type: PluralType = "cardinal",
-  prefer?: (n: number) => boolean,
-): { value: number; exact: boolean } | null {
-  const rules = pluralRules(lang, type);
-  if (!rules) return null;
-  const hits = SAMPLES.filter((n) => rules.select(n) === category);
-  if (hits.length === 0) return null;
-  const value = (prefer && hits.find(prefer)) ?? hits[0];
-  const exact = hits.length === 1 && !FRACTION_PROBES.some((n) => rules.select(n) === category);
-  return { value, exact };
-}
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-// Digit-group separators models write in large numbers: "1,000,000",
-// "1.000.000", "1 000 000" (plain, no-break, or narrow no-break space), "1'000'000".
-const GROUP_SEP = "[ ,.'’\\u00a0\\u202f]?";
+// Locale rules, samples and sampleRegex come from files/plurals.ts (shared with
+// i18next plural regeneration); only the ICU key planning lives here.
 
 // Decimal digit systems a model may answer in (Arabic-Indic ٣, Persian ۳, Devanagari ३, …).
 const DIGIT_FORMATS: Intl.NumberFormat[] = [
@@ -509,32 +435,6 @@ const DIGIT_VALUES = new Map<string, string>(
 /** Rewrites every known decimal digit as its ASCII digit. */
 function asciiDigits(s: string): string {
   return s.replace(/\p{Nd}/gu, (c) => DIGIT_VALUES.get(c) ?? c);
-}
-
-const SENTINEL_INDEX = `${escapeRe(PLACEHOLDER_SENTINEL_PREFIX)}\\p{Nd}*`;
-
-/**
- * Global regex matching `value` as a whole number in model output, in any
- * decimal digit system ("3", "٣", "۳") or the way `lang` formats it ("1,5"),
- * with or without digit grouping ("1 000 000").
- */
-export function sampleRegex(value: number, lang: string): RegExp {
-  const forms = new Set([String(value), ...DIGIT_FORMATS.map((f) => f.format(value))]);
-  try {
-    forms.add(new Intl.NumberFormat(lang, { useGrouping: false, maximumFractionDigits: 20 }).format(value));
-  } catch {
-    // Unknown locale — the digit-system forms are still matched.
-  }
-  const grouped = (digits: string[]) =>
-    digits.map((d, i) => (i > 0 && (digits.length - i) % 3 === 0 ? GROUP_SEP : "") + escapeRe(d)).join("");
-  const alt = [...forms]
-    .map((f) => (/^\p{Nd}{4,}$/u.test(f) ? grouped([...f]) : escapeRe(f)))
-    .join("|");
-  // Not preceded by a digit, separator or ASCII letter ("mp3"), and not the
-  // index of a `__TLPH_1__` sentinel — but a number glued to a sentinel
-  // (`__TLPH_0__1__TLPH_2__`, i.e. `<b>#</b>`) still matches. A trailing
-  // suffix is allowed: ordinals ("1st", "2e") attach letters to the number.
-  return new RegExp(`(?<![\\p{Nd}.,٫A-Za-z]|${SENTINEL_INDEX})(?:${alt})(?![\\p{Nd}]|[.,٫]\\p{Nd})`, "gu");
 }
 
 export type PluralPlanEntry = { key: string; derived: boolean; sample?: number; exact?: boolean };

@@ -5,11 +5,9 @@ import {
   translateICU,
   escapeLiteral,
   planPluralKeys,
-  pluralCategories,
-  pluralSample,
-  sampleRegex,
   type UnitTranslator,
 } from "../icu";
+import { pluralCategories, pluralSample, sampleRegex } from "../plurals";
 
 // Location info differs between the source and the reprint; compare structure only.
 function shape(message: string): unknown {
