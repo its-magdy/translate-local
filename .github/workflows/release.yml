@@ -9,8 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  # Check the publish tokens before building anything. Both have expired
+  # between releases before, which left a release half-published.
+  check-secrets:
+    name: check secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: NPM_TOKEN is valid
+        run: npm whoami || { echo "::error::NPM_TOKEN is missing, expired or revoked. Create a granular token with Bypass 2FA and update the secret."; exit 1; }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: HOMEBREW_TAP_TOKEN is valid
+        run: gh api repos/its-magdy/homebrew-tap --silent || { echo "::error::HOMEBREW_TAP_TOKEN is missing, expired or has no access to its-magdy/homebrew-tap. Update the secret."; exit 1; }
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
   build:
     name: build (${{ matrix.target.name }})
+    needs: check-secrets
     runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
@@ -92,18 +114,18 @@ jobs:
       - name: Stage platform packages
         run: node scripts/stage-npm-packages.mjs "${GITHUB_REF_NAME#v}"
 
+      # Fails on real errors (expired token, missing 2FA bypass); skips versions
+      # that are already published or still staged, so re-running the job is safe.
       - name: Publish platform packages
         run: |
-          set -euo pipefail
           for dir in packages/npm-tl-*/; do
-            (cd "$dir" && npm publish --access public --provenance) || \
-              echo "Skipping $dir — already published"
+            scripts/npm-publish.sh "${dir%/}"
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish wrapper package
-        run: cd packages/npm-tl && npm publish --access public --provenance
+        run: scripts/npm-publish.sh packages/npm-tl
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
