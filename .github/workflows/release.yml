@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Check the tag and the Homebrew token before building anything. Publish
-  # tokens have expired between releases before, which left a release
+  # Check the tag and the Homebrew tap access before building anything. A
+  # publish token once expired between releases and left a release
   # half-published. npm needs no check: it publishes through trusted publishing.
   preflight:
     name: preflight
@@ -42,10 +42,22 @@ jobs:
           done
           exit $bad
 
-      - name: HOMEBREW_TAP_TOKEN is valid
-        run: gh api repos/its-magdy/homebrew-tap --silent || { echo "::error::HOMEBREW_TAP_TOKEN is missing, expired or has no access to its-magdy/homebrew-tap. Update the secret."; exit 1; }
+      # Fails if the GitHub App secrets are missing, or the App is not installed
+      # on homebrew-tap with Contents: write (needed for repository_dispatch).
+      - name: Homebrew tap token
+        id: tap-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.HOMEBREW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: its-magdy
+          repositories: homebrew-tap
+          permission-contents: write
+
+      - name: Homebrew tap is reachable
+        run: gh api repos/its-magdy/homebrew-tap --silent
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
 
   build:
     name: build (${{ matrix.target.name }})
@@ -184,9 +196,19 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
 
+      - name: Homebrew tap token
+        id: tap-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.HOMEBREW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: its-magdy
+          repositories: homebrew-tap
+          permission-contents: write
+
       - name: Trigger Homebrew tap update
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
           VERSION: ${{ github.ref_name }}
         run: |
           gh api repos/its-magdy/homebrew-tap/dispatches \
