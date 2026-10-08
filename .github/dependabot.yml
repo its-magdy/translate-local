@@ -17,6 +17,11 @@ updates:
       interval: monthly
     cooldown:
       default-days: 7
+    # Minor and patch updates share one PR; each major update gets its own, so
+    # one breaking release doesn't block the rest. @opentui is pre-1.0, where
+    # minor releases break the API, so it always gets its own PR.
     groups:
       dependencies:
         patterns: ["*"]
+        exclude-patterns: ["@opentui/*"]
+        update-types: ["minor", "patch"]
