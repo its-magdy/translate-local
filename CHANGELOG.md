@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.2] - 2026-10-07
+## [0.4.2] - 2026-10-08
 
 0.4.0 was never published as a binary release; this is the first release containing the 0.4.0 features below.
 
