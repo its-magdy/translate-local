@@ -402,7 +402,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // grammatical number; listed in a warning for review.
   const unhinted: string[] = [];
   // ICU plural/select values in an i18next catalog, kept as source.
-  const icuInI18next: string[] = [];
+  let icuInI18next = 0;
 
   for (let i = 0; i < pending.length; i++) {
     const p = pending[i];
@@ -435,16 +435,16 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     // text and come back garbled, so keep the source and report it.
     if (detected.content === "i18next-plurals" && containsICUBranching(p.source)) {
       const reason = `ICU MessageFormat in an i18next catalog at ${pathStr}`;
-      if (!continueOnError) {
+      if (!continueOnError && !dryRun) {
         throw new TlError(
           "FILE_INVALID_FORMAT",
           reason,
-          "i18next does not evaluate ICU plural/select, so the value is not translated. Use i18next plural keys (key_one, key_other) or i18next-icu; the default run keeps the source for these keys.",
+          "i18next does not evaluate ICU plural/select, so the value is not translated. Use i18next plural keys (key_one, key_other). If this is an ICU catalog misdetected as i18next because of _one/_other keys, pass --format raw-json (or raw-yaml) to translate ICU values structure-preserving; that also skips i18next plural regeneration. The default run keeps the source for these keys.",
         );
       }
       summary.failed.push({ path: pathStr, reason });
       failedKeys.add(lockKey(p.path));
-      icuInI18next.push(pathStr);
+      icuInI18next++;
       if (!dryRun) p.set(p.source);
       continue;
     }
@@ -640,9 +640,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  if (icuInI18next.length > 0) {
+  if (icuInI18next > 0) {
     summary.warnings.push(
-      `${icuInI18next.length} value(s) use ICU plural/select syntax, which i18next does not evaluate; kept as source, not translated: ${icuInI18next.join(", ")}`,
+      `${icuInI18next} value(s) use ICU plural/select syntax, which i18next does not evaluate; kept as source and reported as failed. Later missing-only runs leave the copied source in place; rewrite them as i18next plural keys, then re-run.`,
     );
   }
 
