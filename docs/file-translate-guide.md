@@ -70,13 +70,52 @@ Pass `--force` to re-translate every leaf regardless of existing target value.
 2. **ARB** — any top-level key matching `@<name>` or `@@locale` / `@@last_modified` → refused (ARB metadata blocks must not be translated; ICU bodies need full parsing).
 3. **FormatJS catalog** — value shape `{ defaultMessage: string, ... }` → refused (defaultMessage commonly contains ICU MessageFormat).
 4. **Lingui full mode** — value shape `{ translation, message, description, origin }` → refused.
-5. **i18next plurals** — leaf key matching `_{zero|one|two|few|many|other}$` with sibling stem → supported, with a warning that target-locale CLDR plural categories may differ from source.
+5. **i18next plurals** — leaf key matching `_{zero|one|two|few|many|other}$` with sibling stem → supported; plural groups are regenerated for the target locale (see [i18next plurals](#i18next-plurals)).
 6. **Vanilla** — anything else.
 
 Override detection with `--format <fmt>`:
 
 - `--format json` / `yaml` — force the parser, but still apply content-shape detection.
 - `--format raw-json` / `raw-yaml` — bypass content-shape detection entirely. Translates every string leaf regardless of metadata. Useful for one-off translation of refused formats, but **may corrupt** ARB `@key` metadata, xcstrings state fields, or ICU body keywords.
+
+---
+
+## i18next plurals
+
+i18next v4 picks a plural key at runtime with `Intl.PluralRules(lng).select(count)` and looks up `key_<category>` (`key_ordinal_<category>` with `ordinal: true`). A source catalog holds the **source** locale's categories, so `tl` rewrites every plural group to the **target** locale's categories before translating:
+
+| Source (`en`) | Target | Keys written |
+|---|---|---|
+| `item_one`, `item_other` | `ar` | `item_zero`, `item_one`, `item_two`, `item_few`, `item_many`, `item_other` |
+| `item_one`, `item_other` | `ru` | `item_one`, `item_few`, `item_many`, `item_other` |
+| `item_one`, `item_other` | `fr` | `item_one`, `item_many`, `item_other` |
+| `item_one`, `item_other` | `ja` | `item_other` |
+| `place_ordinal_one/two/few/other` | `ar` | `place_ordinal_other` |
+
+The target's categories come from `Intl.PluralRules(<target>).resolvedOptions().pluralCategories` (`{ type: "ordinal" }` for `_ordinal_` keys) — the same rules i18next uses, so the generated keys are exactly the ones it will look up.
+
+**Which keys form a group.** Keys in the same object that share a stem and end in `_zero|_one|_two|_few|_many|_other` (cardinal) or `_ordinal_<category>` (ordinal). A group must contain `_other` and at least one other category, and every member must be a string. A lone `_other` counts only when `--from` names a language whose only category is `other` (e.g. `ja`, `zh`). With `--from auto` (the default) lone `_other` keys are translated 1:1 and listed in a warning asking for `--from`. `step_one` / `step_two` / `step_three` has no `_other` and is left alone. When the source language is known, a group containing a category that language never uses is left alone too: in English, `player_one` / `player_two` / `player_other` are three keys, not plural forms, because English has no cardinal `two` (`_zero` is always allowed). Context keys (`friend_male_one`) group by their full stem.
+
+**What is generated:**
+
+- Each target category is translated from the source form of the **same category** when the source has it, otherwise from `_other`.
+- Source-only categories are not written (en→ja has no `_one`). An existing target file is never pruned — a stale key there is left alone, like any other target-only key.
+- A source `_zero` is always kept: i18next uses `key_zero` for `count === 0` in every language, not only those with a CLDR `zero` category.
+- Every target category is generated, including French/Spanish/Italian/Portuguese/Catalan `_many`, which only covers exact millions. i18next has no fallback from a missing `key_many` to `key_other`: it tries `key_many`, then the bare `key`, then the fallback language, so a missing `_many` would show the English string for 1,000,000.
+- Generated keys take the position of the source group, in CLDR order (`zero, one, two, few, many, other`). In YAML, the comment above the group moves to its first key; comments on other keys inside the group are dropped. Scalar style (quoting) is cloned from the source form.
+
+**Sample counts.** A model shown `__TLPH_0__ files` cannot tell which grammatical number to use, so it writes the same form for every category. For each plural form, `tl` substitutes a **sample count** for `{{count}}` (or a formatted `{{count, number}}`) — the smallest integer in the target category that the source text also fits — and swaps it back afterwards. en→ar sends `0 files`, `1 file`, `2 files`, `3 files`, `11 files`, `100 files`, and gets back the dual (`ملفان`), the plural (`3 ملفات`), the accusative singular (`11 ملفًا`), and the genitive singular (`100 ملف`).
+
+- Some forms get no sample and are translated from their plain text: categories that hold only fractions (Russian/Polish `other`), categories whose smallest number is a million (French `many` — the model rewrites `1000000` as "un million" or loops on zeros), and forms where every candidate number already appears in the text (`{{count}} files in 5 folders` never uses 5, because a dropped count would let the literal 5 become `{{count}}`).
+- The number is matched back in any Unicode digit system (`3`, `٣`, `۳`, `३`), with digit grouping (`1 000 000`), and directly next to markup (`<b>{{count}}</b>`).
+- When the category holds a single number (Arabic `zero`/`one`/`two`, English `one`), the model may drop the number or spell it out (`ملف واحد`, `ملفان`) — that is accepted, because the form is only ever shown for that number. Elsewhere a missing number is rejected.
+- After 3 attempts without the number surviving, the form is translated from the plain text with the placeholder masked, as for any other key. These forms, together with forms that have no `{{count}}` to carry a sample (e.g. `"n_one": "One item"` for Russian `one`, which also covers 21) or no collision-free sample, are listed in a warning so you can check their grammatical number, and counted in `pluralFallbacks` in the `--json` summary.
+
+**`--from` matters for samples.** With `--from auto`, `tl` cannot look up the source language's rules, so it picks samples that fit the target alone (it still avoids `1` for `_other` text). Pass `--from` so a sample like the Arabic ordinal `4` is chosen to match `4th`, not `1st`.
+
+**Sync.** Regeneration happens before the missing-only diff, so sync works per target category: existing non-empty values are kept and only the missing categories are translated. `--force` re-translates every category.
+
+**Unknown target rules.** If the runtime has no plural rules for the target language, plural groups are translated 1:1 from source and a warning asks you to review them.
 
 ---
 
@@ -94,7 +133,7 @@ The prompt also includes few-shot examples showing the model how source-with-sen
 
 | Pattern | Used by | Example |
 |---|---|---|
-| `{{name}}` | i18next, Mustache | `Hello {{name}}` |
+| `{{name}}` / `{{name, format}}` | i18next, Mustache | `Hello {{name}}`, `{{count, number}} items`, `{{val, currency(USD)}}` |
 | `{name}` / `{0}` | Vue I18n, ICU simple | `Click {action}` |
 | `%{name}` | Rails I18n | `Bonjour %{user}` |
 | `%s` / `%d` / `%f` | printf | `%s items left` |
@@ -229,4 +268,4 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 ## What's coming next
 
 - **Phase B (YAML)** — Rails / Hugo / Symfony non-ICU catalogs with full comment, anchor, and block-scalar preservation.
-- **Phase C (later)** — proper ARB and xcstrings handling, ICU body translation with a real AST parser, plural-category regeneration (en→ar 2→6 forms), source-changed detection via a translation-memory cache.
+- **Phase C (later)** — proper ARB and xcstrings handling, ICU body translation with a real AST parser, source-changed detection via a translation-memory cache.

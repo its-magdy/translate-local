@@ -14,7 +14,8 @@ export function sentinelFor(index: number): string {
 
 // Order matters: longer/more-specific patterns first so `{{name}}` matches as one token.
 const PATTERN_SOURCES = [
-  /\{\{\s*[\w.]+\s*\}\}/.source,
+  // i18next, with optional formatting: {{count, number}}, {{val, currency(USD)}}.
+  /\{\{\s*[\w.]+\s*(?:,[^{}]*)?\}\}/.source,
   /%\{[\w.]+\}/.source,
   /\$t\([^)]+\)/.source,
   /@(?:\.\w+)?:[\w.]+/.source,

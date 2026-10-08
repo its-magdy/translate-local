@@ -103,7 +103,7 @@ tl translate --file en.json --to ar --strict
 |---|---|---|
 | Vanilla JSON (flat or nested) | ✅ supported | Default for `.json`. |
 | Lingui minimal mode | ✅ supported | Treated as vanilla. |
-| i18next with plural keys (`_one`, `_other`, …) | ✅ supported | Each plural form is translated 1:1; CLDR category mismatch warning emitted. |
+| i18next with plural keys (`_one`, `_other`, …) | ✅ supported | Plural groups are regenerated for the target locale's CLDR categories (en→ar: `_zero` … `_other`; en→ja: `_other` only). See the [file translation guide](file-translate-guide.md#i18next-plurals). |
 | YAML (Rails / Hugo / Symfony non-ICU) | ✅ supported | Default for `.yaml` / `.yml`. Comments, key order, and block scalar style preserved on round-trip. |
 | Flutter ARB | ❌ refused | `@key` metadata + ICU MessageFormat. Use `--format raw-json` to override. |
 | Apple `.xcstrings` | ❌ refused | Per-locale `stringUnit` state machine. Use `--format raw-json` to override. |
@@ -127,6 +127,7 @@ tl translate --file en.json --to ar --strict
   "skipped": { "count": 2, "reasons": { "url": 1, "all-caps-short": 1 } },
   "failed": [],
   "warnings": [],
+  "pluralFallbacks": 0,
   "outPath": "/path/to/ar.json"
 }
 ```

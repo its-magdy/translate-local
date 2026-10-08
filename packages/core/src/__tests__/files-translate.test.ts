@@ -252,16 +252,280 @@ describe("translateFile", () => {
     })).rejects.toThrow(/not found/);
   });
 
-  it("emits warning for i18next plural files", async () => {
-    const src = writeSrc("en.json", '{\n  "item_one": "{{count}} item",\n  "item_other": "{{count}} items"\n}\n');
-    const out = join(dir, "ar.json");
-    const summary = await translateFile({
-      sourcePath: src, outPath: out,
-      sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+  describe("i18next plural regeneration", () => {
+    const EN_PLURALS = '{\n  "title": "Files",\n  "item_one": "{{count}} item",\n  "item_other": "{{count}} items"\n}\n';
+
+    // Echoes the source like MockAdapter, but lets a test rewrite the model output.
+    class ScriptedAdapter extends MockAdapter {
+      sources: string[] = [];
+      constructor(private rewrite: (source: string) => string = (s) => s) { super(); }
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        this.sources.push(req.source);
+        return {
+          translated: `[${req.targetLang}] ${this.rewrite(req.source)}`,
+          sourceLang: req.sourceLang,
+          targetLang: req.targetLang,
+          glossaryCoverage: 1,
+          missingTerms: [],
+          metadata: { adapter: "scripted", durationMs: 0, retries: 0 },
+        };
+      }
+    }
+
+    it("en→ar writes all six Arabic categories and no review warning", async () => {
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context,
+      });
+      expect(summary.contentFormat).toBe("i18next-plurals");
+      expect(summary.warnings).toEqual([]);
+      expect(summary.translated).toBe(7);
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(Object.keys(after)).toEqual(["title", "item_zero", "item_one", "item_two", "item_few", "item_many", "item_other"]);
+      expect(after.item_one).toBe("[ar] {{count}} item");
+      expect(after.item_few).toBe("[ar] {{count}} items");
     });
-    expect(summary.contentFormat).toBe("i18next-plurals");
-    expect(summary.warnings.some((w) => w.includes("CLDR"))).toBe(true);
+
+    it("shows the model a sample count for each category instead of the placeholder", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", EN_PLURALS);
+      await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(scripted.sources).toEqual(["Files", "0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
+    });
+
+    it("regenerates and hints plurals under a Rails root locale key (en: → ar:)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.yml", "en:\n  item_one: \"{{count}} item\"\n  item_other: \"{{count}} items\"\n");
+      const out = join(dir, "ar.yml");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "ar" });
+      expect(summary.failed).toEqual([]);
+      expect(scripted.sources).toEqual(["0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
+      const after = parseYaml(readFileSync(out, "utf8"));
+      expect(Object.keys(after)).toEqual(["ar"]);
+      expect(Object.keys(after.ar)).toEqual(["item_zero", "item_one", "item_two", "item_few", "item_many", "item_other"]);
+      expect(after.ar.item_few).toBe("[ar] {{count}} items");
+    });
+
+    it("hints a count wrapped in markup (`<b>{{count}}</b>`)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "n_one": "<b>{{count}}</b> item",\n  "n_other": "<b>{{count}}</b> items"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.warnings).toEqual([]);
+      // Markup stays raw around the sample: translategemma keeps `<b>3</b>` but drops
+      // sentinels glued to a bare number (`__TLPH_0__3__TLPH_2__` → `3`).
+      expect(scripted.sources).toContain("<b>3</b> items");
+      expect(JSON.parse(readFileSync(out, "utf8")).n_few).toBe("[ar] <b>{{count}}</b> items");
+    });
+
+    it("accepts a dropped count for a single-number category (Arabic dual)", async () => {
+      const scripted = new ScriptedAdapter((s) => (s === "2 items" ? "عنصران" : s));
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      expect(JSON.parse(readFileSync(out, "utf8")).item_two).toBe("[ar] عنصران");
+    });
+
+    it("a dropped count does not get confused with digits in other placeholder sentinels", async () => {
+      const scripted = new ScriptedAdapter((s) => s.replace(/^1 day/, "one day"));
+      const src = writeSrc("en.json", '{\n  "left_one": "{{count}} day left, {{name}}",\n  "left_other": "{{count}} days left, {{name}}"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      expect(JSON.parse(readFileSync(out, "utf8")).left_one).toBe("[ar] one day left, {{name}}");
+    });
+
+    it("falls back to the placeholder text when the model keeps rewriting a non-exact sample", async () => {
+      const scripted = new ScriptedAdapter((s) => s.replace(/^3 /, "three "));
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      expect(JSON.parse(readFileSync(out, "utf8")).item_few).toBe("[ar] {{count}} items");
+      expect(summary.warnings).toHaveLength(1);
+      expect(summary.warnings[0]).toContain("item_few");
+    });
+
+    it("a model error on the sample-count text falls back to the plain text", async () => {
+      class FailOnSample extends ScriptedAdapter {
+        async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+          if (/^\d/.test(req.source)) throw new Error("Ollama returned HTTP 500: token repeat limit reached");
+          return super.translate(req);
+        }
+      }
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "fr.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "fr",
+        adapter: new FailOnSample(), glossary, context,
+      });
+      expect(summary.failed).toEqual([]);
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(after.item_one).toBe("[fr] {{count}} item");
+      // fr `many` (exact millions) is generated but never gets a sample, so it is not a fallback.
+      expect(after.item_many).toBe("[fr] {{count}} items");
+      expect(summary.warnings[0]).toContain("item_one");
+      expect(summary.warnings[0]).not.toContain("item_many");
+    });
+
+    it("a literal number equal to the sample can't stand in for a dropped count", async () => {
+      // The model drops the leading count; "5 folders" must not become "{{count}} folders".
+      const scripted = new ScriptedAdapter((s) => s.replace(/^\d+ /, ""));
+      const src = writeSrc("en.json", '{\n  "f_one": "{{count}} file in 5 folders",\n  "f_other": "{{count}} files in 5 folders"\n}\n');
+      const out = join(dir, "ru.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ru",
+        adapter: scripted, glossary, context,
+      });
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(after.f_many).toBe("[ru] {{count}} files in 5 folders");
+      expect(summary.warnings.join("\n")).toContain("f_many");
+    });
+
+    it("a form with no collision-free sample is translated plainly and reported", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "f_one": "{{count}} file, 2 folders",\n  "f_other": "{{count}} files, 2 folders"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(scripted.sources.filter((s) => s.startsWith("2 "))).toEqual([]);
+      expect(summary.warnings.join("\n")).toContain("f_two");
+      expect(summary.pluralFallbacks).toBe(1);
+    });
+
+    it("hints an i18next-formatted count (`{{count, number}}`)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.json", '{\n  "n_one": "{{count, number}} item",\n  "n_other": "{{count, number}} items"\n}\n');
+      const out = join(dir, "ar.json");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.warnings).toEqual([]);
+      expect(scripted.sources).toContain("3 items");
+      expect(JSON.parse(readFileSync(out, "utf8")).n_few).toBe("[ar] {{count, number}} items");
+    });
+
+    it("reports generated forms that have no {{count}} to carry a sample", async () => {
+      const src = writeSrc("en.json", '{\n  "n_one": "One item",\n  "n_other": "Several items"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ru.json"),
+        sourceLang: "en", targetLang: "ru",
+        adapter, glossary, context,
+      });
+      // ru one/few/many span many numbers; `other` (fractions) has no sample by design.
+      expect(summary.warnings).toHaveLength(1);
+      expect(summary.warnings[0]).toContain("n_one, n_few, n_many");
+      expect(summary.pluralFallbacks).toBe(3);
+    });
+
+    it("warns about lone `_other` keys when the source language is auto", async () => {
+      const src = writeSrc("en.json", '{\n  "item_one": "{{count}} item",\n  "item_other": "{{count}} items",\n  "solo_other": "{{count}} 個"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "ar.json"),
+        sourceLang: "auto", targetLang: "ar",
+        adapter, glossary, context,
+      });
+      const w = summary.warnings.find((x) => x.includes("solo_other"));
+      expect(w).toBeDefined();
+      expect(w).toContain("--from");
+    });
+
+    it("en→ja drops categories Japanese does not use", async () => {
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "ja.json");
+      await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ja",
+        adapter, glossary, context,
+      });
+      expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ title: "[ja] Files", item_other: "[ja] {{count}} items" });
+    });
+
+    it("missing-only keeps existing category values and fills the rest; --force redoes them", async () => {
+      const src = writeSrc("en.json", EN_PLURALS);
+      const out = join(dir, "ar.json");
+      writeFileSync(out, '{\n  "title": "ملفات",\n  "item_one": "ملف واحد",\n  "item_other": "{{count}} ملف"\n}\n');
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context,
+      });
+      expect(summary.translated).toBe(4);
+      const after = JSON.parse(readFileSync(out, "utf8"));
+      expect(after.item_one).toBe("ملف واحد");
+      expect(after.item_other).toBe("{{count}} ملف");
+      expect(after.item_two).toBe("[ar] {{count}} items");
+
+      await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context, mode: "force",
+      });
+      expect(JSON.parse(readFileSync(out, "utf8")).item_one).toBe("[ar] {{count}} item");
+    });
+
+    it("regenerates YAML plural groups in place", async () => {
+      const src = writeSrc("en.yml", '# Cart\ncart:\n  # Items in cart\n  item_one: "{{count}} item"\n  item_other: "{{count}} items"\n  checkout: Checkout\n');
+      const out = join(dir, "ru.yml");
+      await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ru",
+        adapter, glossary, context,
+      });
+      expect(readFileSync(out, "utf8")).toBe(
+        "# Cart\ncart:\n  # Items in cart\n" +
+        '  item_one: "[ru] {{count}} item"\n' +
+        '  item_few: "[ru] {{count}} items"\n' +
+        '  item_many: "[ru] {{count}} items"\n' +
+        '  item_other: "[ru] {{count}} items"\n' +
+        "  checkout: \"[ru] Checkout\"\n",
+      );
+    });
+
+    it("keeps the review warning when the target's plural rules are unknown", async () => {
+      const src = writeSrc("en.json", EN_PLURALS);
+      const summary = await translateFile({
+        sourcePath: src, outPath: join(dir, "xx.json"),
+        sourceLang: "en", targetLang: "xx",
+        adapter, glossary, context,
+      });
+      expect(summary.warnings.some((w) => w.includes("review output manually"))).toBe(true);
+    });
   });
 
   it("warns on duplicate JSON keys (last wins) with path and line", async () => {
