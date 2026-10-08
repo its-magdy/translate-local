@@ -50,6 +50,11 @@ describe("extract", () => {
     expect(phs).toEqual(["<b>", "</b>", "<a href=\"/x\">", "</a>"]);
   });
 
+  test("i18next formatted interpolation {{name, format}}", () => {
+    const phs = extract("Total: {{val, number}} on {{ when, datetime(short) }}").map((p) => p.raw);
+    expect(phs).toEqual(["{{val, number}}", "{{ when, datetime(short) }}"]);
+  });
+
   test("does not eat {{x}} as {x}", () => {
     const phs = extract("{{outer}}").map((p) => p.raw);
     expect(phs).toEqual(["{{outer}}"]);
@@ -88,6 +93,17 @@ describe("containsICU", () => {
 
   test("date format is ICU", () => {
     expect(containsICU("{when, date, short}")).toBe(true);
+  });
+
+  test("i18next {{val, format}} is not ICU", () => {
+    expect(containsICU("Total: {{val, number}}")).toBe(false);
+    expect(containsICU("{{when, datetime}}")).toBe(false);
+  });
+
+  test("number/date/time without a style is ICU", () => {
+    expect(containsICU("{value, number}")).toBe(true);
+    expect(containsICU("Due {when, date}")).toBe(true);
+    expect(containsICU("{at , time }")).toBe(true);
   });
 
   test("simple {name} is not ICU", () => {

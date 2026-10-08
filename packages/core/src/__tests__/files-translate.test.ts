@@ -669,6 +669,163 @@ describe("translateFile", () => {
     expect(summary.translated).toBe(1);
   });
 
+  // ── ICU MessageFormat ─────────────────────────────────────────────
+
+  class DropSentinelAdapter extends MockAdapter {
+    async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+      return {
+        translated: `[${req.targetLang}] ${req.source.replace(/__TLPH_\d+__/g, "")}`,
+        sourceLang: req.sourceLang,
+        targetLang: req.targetLang,
+        glossaryCoverage: 1,
+        missingTerms: [],
+        metadata: { adapter: "drop", durationMs: 0, retries: 0 },
+      };
+    }
+  }
+
+  it("translates ICU plural branches and adds the target's CLDR categories", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ items: "{count, plural, one {# item} other {# items}}" }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.failed).toEqual([]);
+    expect(summary.translated).toBe(1);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.items).toBe(
+      "{count, plural, zero {[ar] # items} one {[ar] # item} two {[ar] # items} few {[ar] # items} many {[ar] # items} other {[ar] # items}}",
+    );
+  });
+
+  it("translates the sentence around a nested select/plural and drops unused categories", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      msg: "{name} has {gender, select, female {{n, plural, =0 {no cats} one {one cat} other {# cats}}} other {{n, number} pets}} now",
+    }));
+    const out = join(dir, "ja.json");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ja",
+      adapter, glossary, context,
+    });
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.msg).toBe(
+      "[ja] {name} has {gender, select, female {{n, plural, =0 {[ja] no cats} other {[ja] # cats}}} other {[ja] {n, number} pets}} now",
+    );
+  });
+
+  it("translates FormatJS defaultMessage values and keeps descriptions verbatim", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      "cart.count": { defaultMessage: "{n, plural, one {# item} other {# items}}", description: "Cart badge" },
+      "item.delete": { defaultMessage: "Delete {item}", description: "Button label" },
+    }, null, 2));
+    const out = join(dir, "ja.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ja",
+      adapter, glossary, context,
+    });
+    expect(summary.contentFormat).toBe("formatjs");
+    expect(summary.translated).toBe(2);
+    expect(summary.skipped.reasons.metadata).toBe(2);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after["cart.count"]).toEqual({ defaultMessage: "{n, plural, other {[ja] # items}}", description: "Cart badge" });
+    expect(after["item.delete"]).toEqual({ defaultMessage: "[ja] Delete {item}", description: "Button label" });
+  });
+
+  it("escapes apostrophes in FormatJS messages without plural/select", async () => {
+    class ElideAdapter extends MockAdapter {
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        return { ...(await super.translate(req as never)), translated: req.source.replace("Delete ", "Supprimer l'") };
+      }
+    }
+    const src = writeSrc("en.json", JSON.stringify({ del: { defaultMessage: "Delete {item}" } }));
+    const out = join(dir, "fr.json");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "fr",
+      adapter: new ElideAdapter(), glossary, context,
+    });
+    expect(JSON.parse(readFileSync(out, "utf8")).del.defaultMessage).toBe("Supprimer l''{item}");
+  });
+
+  it("i18next catalogs never take the ICU path", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      item_one: "{{count}} item at {price, number}",
+      item_other: "{{count}} items at {{price, number}}",
+    }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      continueOnError: false,
+    });
+    expect(summary.contentFormat).toBe("i18next-plurals");
+    expect(summary.translated).toBe(2);
+    const after = JSON.parse(readFileSync(out, "utf8"));
+    expect(after.item_other).toBe("[ar] {{count}} items at {{price, number}}");
+  });
+
+  it("malformed ICU falls back to source by default", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(summary.failed).toHaveLength(1);
+    expect(summary.failed[0].reason).toMatch(/Invalid ICU MessageFormat at bad/);
+    expect(JSON.parse(readFileSync(out, "utf8")).bad).toBe("{n, plural, one {# item}}");
+  });
+
+  it("malformed ICU aborts under strict mode", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}" }));
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      continueOnError: false,
+    })).rejects.toThrow(/Invalid ICU MessageFormat/);
+  });
+
+  it("ICU placeholder loss falls back to source by default and aborts under strict", async () => {
+    const msg = "{count, plural, one {{name} has # item} other {{name} has # items}}";
+    const src = writeSrc("en.json", JSON.stringify({ items: msg }));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context,
+    });
+    expect(summary.failed).toHaveLength(1);
+    expect(summary.failed[0].reason).toMatch(/Placeholder mismatch at items .*missing: \[\{name\}/);
+    expect(JSON.parse(readFileSync(out, "utf8")).items).toBe(msg);
+
+    await expect(translateFile({
+      sourcePath: src, outPath: join(dir, "fr.json"),
+      sourceLang: "en", targetLang: "fr",
+      adapter: new DropSentinelAdapter(), glossary, context,
+      continueOnError: false,
+    })).rejects.toThrow(/Placeholder mismatch/);
+  });
+
+  it("dry run counts parseable ICU as translatable without calling the adapter", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "{n, plural, one {#} other {#}}", b: "{n, plural, one {x}}" }));
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context,
+      dryRun: true,
+    });
+    expect(summary.translated).toBe(1);
+    expect(summary.failed.map((f) => f.path)).toEqual(["b"]);
+    expect(existsSync(join(dir, "ar.json"))).toBe(false);
+  });
+
   // ── YAML (Phase B) ────────────────────────────────────────────────
 
   it("translates a YAML file (Rails i18n shape)", async () => {
