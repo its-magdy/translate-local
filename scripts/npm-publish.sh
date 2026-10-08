@@ -7,7 +7,7 @@
 #   or still staged (E409 "previously staged"): treat as published. A staged
 #   version can take minutes to show up on the registry, and a retry would
 #   hit the same error forever.
-# - Any other failure (expired token, missing 2FA bypass, network): exit 1.
+# - Any other failure (trusted publisher missing or misconfigured, network): exit 1.
 set -euo pipefail
 
 dir="$1"

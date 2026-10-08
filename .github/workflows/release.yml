@@ -15,8 +15,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Check the tag and the publish tokens before building anything. Both tokens
-  # have expired between releases before, which left a release half-published.
+  # Check the tag and the Homebrew token before building anything. Publish
+  # tokens have expired between releases before, which left a release
+  # half-published. npm needs no check: it publishes through trusted publishing.
   preflight:
     name: preflight
     runs-on: ubuntu-latest
@@ -40,17 +41,6 @@ jobs:
             fi
           done
           exit $bad
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false
-
-      - name: NPM_TOKEN is valid
-        run: npm whoami || { echo "::error::NPM_TOKEN is missing, expired or revoked. Create a granular token with Bypass 2FA and update the secret."; exit 1; }
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: HOMEBREW_TAP_TOKEN is valid
         run: gh api repos/its-magdy/homebrew-tap --silent || { echo "::error::HOMEBREW_TAP_TOKEN is missing, expired or has no access to its-magdy/homebrew-tap. Update the secret."; exit 1; }
@@ -143,37 +133,27 @@ jobs:
       - name: Stage platform packages
         run: node scripts/stage-npm-packages.mjs "${GITHUB_REF_NAME#v}"
 
-      # Fails on real errors (expired token, missing 2FA bypass); skips versions
+      # npm authenticates with trusted publishing (OIDC via id-token: write), so
+      # there is no token to expire. Fails on real errors (e.g. a package without
+      # a trusted publisher for release.yml); skips versions
       # that are already published or still staged, so re-running the job is safe.
       # The platform packages are independent, so they publish in parallel
       # (~12s each when run one after another).
       - parallel:
           - name: Publish darwin-arm64
             run: scripts/npm-publish.sh packages/npm-tl-darwin-arm64
-            env:
-              NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           - name: Publish darwin-x64
             run: scripts/npm-publish.sh packages/npm-tl-darwin-x64
-            env:
-              NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           - name: Publish linux-x64
             run: scripts/npm-publish.sh packages/npm-tl-linux-x64
-            env:
-              NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           - name: Publish linux-arm64
             run: scripts/npm-publish.sh packages/npm-tl-linux-arm64
-            env:
-              NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           - name: Publish win32-x64
             run: scripts/npm-publish.sh packages/npm-tl-win32-x64
-            env:
-              NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Last, so the wrapper never points at platform packages that failed.
       - name: Publish wrapper package
         run: scripts/npm-publish.sh packages/npm-tl
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   release:
     name: release
