@@ -300,6 +300,24 @@ describe("translateFile", () => {
       expect(scripted.sources).toEqual(["Files", "0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
     });
 
+    it("regenerates and hints plurals under a Rails root locale key (en: → ar:)", async () => {
+      const scripted = new ScriptedAdapter();
+      const src = writeSrc("en.yml", "en:\n  item_one: \"{{count}} item\"\n  item_other: \"{{count}} items\"\n");
+      const out = join(dir, "ar.yml");
+      const summary = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter: scripted, glossary, context,
+      });
+      expect(summary.rootLocaleKey).toEqual({ from: "en", to: "ar" });
+      expect(summary.failed).toEqual([]);
+      expect(scripted.sources).toEqual(["0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
+      const after = parseYaml(readFileSync(out, "utf8"));
+      expect(Object.keys(after)).toEqual(["ar"]);
+      expect(Object.keys(after.ar)).toEqual(["item_zero", "item_one", "item_two", "item_few", "item_many", "item_other"]);
+      expect(after.ar.item_few).toBe("[ar] {{count}} items");
+    });
+
     it("hints a count wrapped in markup (`<b>{{count}}</b>`)", async () => {
       const scripted = new ScriptedAdapter();
       const src = writeSrc("en.json", '{\n  "n_one": "<b>{{count}}</b> item",\n  "n_other": "<b>{{count}}</b> items"\n}\n');
