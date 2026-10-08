@@ -6,14 +6,15 @@ import { tmpdir } from "os";
 import pkg from "../../package.json" with { type: "json" };
 
 const CLI = join(import.meta.dir, "../../src/index.ts");
-// tl resolves ~/.config/tl from homedir(), so every spawn gets a throwaway HOME —
+// tl resolves ~/.config/tl from homedir(), so every spawn gets a throwaway HOME
+// (USERPROFILE on Windows) —
 // otherwise the suite reads and migrates the developer's real databases.
 const TEST_HOME = mkdtempSync(join(tmpdir(), "tl-home-"));
 
 function run(args: string[], env?: Record<string, string>): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", ["run", CLI, ...args], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", HOME: TEST_HOME, ...env },
+    env: { ...process.env, NO_COLOR: "1", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
   });
   return {
     stdout: result.stdout ?? "",
