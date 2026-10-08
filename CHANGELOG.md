@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-10-09
+
+### Fixed
+- **The context database file is released when it is closed.** Indexing left `context.db` open after `close()`, so on Windows the file stayed locked (it could not be deleted or replaced) until the process exited.
+
+### Changed
+- `tl --version` is read from the package version, so it can no longer drift from the release.
+- **Releases:** npm packages are published with npm trusted publishing (OIDC) instead of a stored token, with provenance. The GitHub Release and Homebrew update now run only after npm publishing succeeds, a tag that doesn't match the package versions is rejected before anything is built, and the platform packages publish in parallel.
+- **CI** runs the tests on Linux, macOS and Windows and smoke-tests the compiled binary on every pull request. Dependabot proposes monthly dependency and GitHub Actions updates.
+- `@translate-local/shared`, `core` and `adapters` are marked private. They were never published; the CLI bundles them.
+- `adapters`, `cli` and `tui` no longer compile their tests into `dist/`.
+- Updated dependencies: `yaml` 2.9, `zod` 4.6 and `turbo` 2.11.
+
 ## [0.5.1] - 2026-10-08
 
 ### Fixed
