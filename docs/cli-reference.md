@@ -54,7 +54,9 @@ input.
 
 **Ctrl+C:** interrupting a translation (`SIGINT`, or `SIGTERM`) cancels the
 request, unloads the model (waiting at most 3 s) and exits `130` (`143` for
-`SIGTERM`). A second Ctrl+C exits immediately.
+`SIGTERM`). A second Ctrl+C exits immediately. In file mode the keys finished
+so far are written first and the rest are left for the next run (see
+[Interrupting a run](file-translate-guide.md)).
 
 **JSON output shape (string / image mode):**
 

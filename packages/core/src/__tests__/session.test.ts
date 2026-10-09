@@ -84,7 +84,9 @@ describe("TranslationSession", () => {
   });
 
   it("abort() cancels session translations and direct adapter requests", async () => {
+    expect(session.signal.aborted).toBe(false);
     session.abort();
+    expect(session.signal.aborted).toBe(true);
     await expect(session.translate("hi", "en", "ar")).rejects.toMatchObject({ tag: "CANCELLED" });
     await expect(session.adapter.translate({ source: "hi", sourceLang: "en", targetLang: "ar" })).rejects.toMatchObject({ tag: "CANCELLED" });
   });

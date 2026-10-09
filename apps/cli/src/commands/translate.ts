@@ -102,6 +102,8 @@ export function makeTranslateCommand(): Command {
             sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
             targetLang,
             adapter: session.adapter,
+            // Ctrl+C: stop between keys and write the finished ones (exitOnInterrupt sets 130/143).
+            signal: session.signal,
             glossary: session.glossaryStore,
             context: session.contextStore,
             format: opts.format,

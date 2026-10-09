@@ -97,6 +97,11 @@ export class TranslationSession {
     this.controller.abort();
   }
 
+  /** Aborted by abort(); pass it to translateFile so it stops between leaves. */
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
   /**
    * Close the stores and unload the model. Idempotent. The unload is skipped
    * when the session never sent a request (nothing for it to unload).
