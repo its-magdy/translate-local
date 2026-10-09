@@ -14,6 +14,13 @@ dir="$1"
 name=$(node -p "require('./$dir/package.json').name")
 version=$(node -p "require('./$dir/package.json').version")
 
+# npm publish ships "workspace:*" verbatim, which no installer can resolve.
+# scripts/stage-npm-packages.mjs replaces it with the release version.
+if grep -q '"workspace:' "$dir/package.json"; then
+  echo "::error::$dir/package.json still has a workspace: dependency. Run scripts/stage-npm-packages.mjs first."
+  exit 1
+fi
+
 if npm view "$name@$version" version >/dev/null 2>&1; then
   echo "$name@$version is already on the registry, skipping"
   exit 0
