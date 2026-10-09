@@ -4,11 +4,12 @@ import { SPEC, type CommandSpec, type OptionSpec, type PositionalSpec } from "./
 // Escape characters that have special meaning inside a zsh `_arguments` spec
 // like `'--flag[description]:label:action'`. Single quotes terminate the
 // surrounding string and `]` terminates the description; both must be escaped.
+// `\` is _arguments' escape character, so a literal one is doubled first.
 // `:` is safe inside the `[...]` description (it only separates fields outside
 // the brackets), but must NOT appear in a positional `name` field — see
 // emitPositional, which validates that.
-function zq(s: string): string {
-  return s.replace(/'/g, "'\\''").replace(/]/g, "\\]");
+export function zq(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "'\\''").replace(/]/g, "\\]");
 }
 
 // Tokens that land in zsh _arguments field positions (positional names and

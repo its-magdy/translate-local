@@ -45,11 +45,41 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
  */
 export function stripGlossaryTags(text: string): string {
   // Complete tags: <term ...>content</term> → content
-  let result = text.replace(/<term[^>]*>(.*?)<\/term>/gs, "$1");
+  let result = removeTermTags(text, true);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
   result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1");
   // Any remaining bare opening tags
-  result = result.replace(/<term[^>]*>/g, "");
+  result = removeTermTags(result, false);
+  return result;
+}
+
+/**
+ * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with "$1" (withClose)
+ * or /<term[^>]*>/g with "" (!withClose), in linear time. Those regexes rescan
+ * to the end of the text from every unclosed "<term", which is quadratic.
+ */
+function removeTermTags(text: string, withClose: boolean): string {
+  let result = "";
+  let cursor = 0;
+
+  for (;;) {
+    const open = text.indexOf("<term", cursor);
+    if (open === -1) break;
+    const openEnd = text.indexOf(">", open);
+    if (openEnd === -1) break;
+    let next = openEnd + 1;
+    let inner = "";
+    if (withClose) {
+      const close = text.indexOf("</term>", next);
+      if (close === -1) break;
+      inner = text.slice(next, close);
+      next = close + "</term>".length;
+    }
+    result += text.slice(cursor, open) + inner;
+    cursor = next;
+  }
+
+  result += text.slice(cursor);
   return result;
 }
 
