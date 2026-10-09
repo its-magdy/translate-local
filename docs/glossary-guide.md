@@ -145,7 +145,13 @@ So `tl "..." --from en-US --to fr-CA` uses entries stored under `en`/`fr`, `en-U
 
 When the same source term (compared case-insensitively, so `Email` and `email` compete) has entries at several levels, the most specific wins: the entry with the more specific **target** tag wins first, and the more specific source tag breaks the remaining tie. Target goes first because the output language decides which term is right: for `--from en-US --to fr-CA`, an `en`/`fr-CA` entry beats an `en-US`/`fr` entry. With `email → e-mail` under `en`/`fr` and `email → courriel` under `en`/`fr-CA`, `--to fr-CA` uses `courriel` and `--to fr-FR` uses `e-mail`.
 
-`tl glossary list --from/--to` still filters by the exact stored code.
+### Auto-detected source (`--from auto`)
+
+When the source language is `auto` (the default `defaults.sourceLang`), `tl` cannot pick a source code, so it uses entries of **every** source language for the target (target fallback and target specificity still apply). If the same source term exists under several source languages, the alphabetically first source code wins (`en` before `fr`), regardless of the order entries were added. Pass `--from` to use only one source language's entries.
+
+In file mode with `--from auto`, a locale token in the source filename (`en.json`, `messages.fr.yaml`, `fr/common.json`) is used as the source language for the glossary lookup instead.
+
+`tl glossary list --from/--to` still filters by the exact stored code (`--from auto` only lists entries stored under `auto`).
 
 ## Coverage check
 
