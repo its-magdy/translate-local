@@ -1,17 +1,14 @@
 import { Command, Option } from "commander";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { loadConfig, toAdapterConfig } from "@translate-local/core/config";
-import { GlossaryStore } from "@translate-local/core/glossary";
-import { ContextStore } from "@translate-local/core/context";
-import { runPipeline } from "@translate-local/core/pipeline";
+import { loadConfig } from "@translate-local/core/config";
+import { TranslationSession, readImageBase64 } from "@translate-local/core/session";
 import { translateFile } from "@translate-local/core/files";
-import { createAdapter } from "@translate-local/adapters/factory";
 import { TlError } from "@translate-local/shared/errors";
-import { IMAGE_EXT_RE, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isSupported } from "@translate-local/shared/utils/language";
-import { formatTranslationResult, formatError } from "../formatters/output";
+import { formatTranslationResult } from "../formatters/output";
 import { inferOutputPath, inferSourceLocale } from "../utils/locale-path";
+import { runAction } from "../utils/run";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
@@ -37,174 +34,139 @@ export function makeTranslateCommand(): Command {
     .option("--strict", "File mode: abort the run on first validation failure (default: keep going, fall back to source for failed keys)")
     .option("--translate-all", "File mode: bypass URL/email/semver/all-caps skip heuristics")
     .option("--max-size <mb>", "File mode: max source file size in MB", "20")
-    .action(async (text: string | undefined, opts: {
+    .action((text: string | undefined, opts: {
       from?: string; to?: string; image?: string; glossary: "prefer" | "strict"; json?: boolean;
       file?: string; out?: string; force?: boolean; dryRun?: boolean; prune?: boolean; allowLargePrune?: boolean;
       format: FormatOpt; strict?: boolean; translateAll?: boolean; maxSize: string;
-    }) => {
-      let exitCode = 0;
+    }) => runAction(async () => {
+      const config = loadConfig();
+      const sourceLang = opts.from ?? config.defaults.sourceLang;
+      const targetLang = opts.to ?? config.defaults.targetLang;
+      const glossaryMode = opts.glossary;
+
+      const inputModes = [text, opts.image, opts.file].filter(Boolean).length;
+      if (inputModes === 0) {
+        throw new TlError("INVALID_INPUT", "Provide text to translate, or use --image <path>, or --file <path>.", "Run `tl translate --help` for usage.");
+      }
+      if (inputModes > 1) {
+        throw new TlError("INVALID_INPUT", "Use only one of: positional text, --image, or --file.", "Pick one input mode per invocation.");
+      }
+
+      if (sourceLang !== "auto" && !isSupported(sourceLang)) {
+        throw new TlError("INVALID_LANGUAGE", `Unsupported source language: "${sourceLang}"`, "Use a BCP-47 code like en, ar, fr.");
+      }
+      if (!isSupported(targetLang)) {
+        throw new TlError("INVALID_LANGUAGE", `Unsupported target language: "${targetLang}"`, "Use a BCP-47 code like en, ar, fr.");
+      }
+
+      const imageBase64 = opts.image ? await readImageBase64(resolve(opts.image)) : undefined;
+
+      const session = new TranslationSession(config);
       try {
-        const config = loadConfig();
-        const sourceLang = opts.from ?? config.defaults.sourceLang;
-        const targetLang = opts.to ?? config.defaults.targetLang;
-        const glossaryMode = opts.glossary;
-
-        const inputModes = [text, opts.image, opts.file].filter(Boolean).length;
-        if (inputModes === 0) {
-          throw new TlError("INVALID_INPUT", "Provide text to translate, or use --image <path>, or --file <path>.", "Run `tl translate --help` for usage.");
-        }
-        if (inputModes > 1) {
-          throw new TlError("INVALID_INPUT", "Use only one of: positional text, --image, or --file.", "Pick one input mode per invocation.");
-        }
-
-        if (sourceLang !== "auto" && !isSupported(sourceLang)) {
-          throw new TlError("INVALID_LANGUAGE", `Unsupported source language: "${sourceLang}"`, "Use a BCP-47 code like en, ar, fr.");
-        }
-        if (!isSupported(targetLang)) {
-          throw new TlError("INVALID_LANGUAGE", `Unsupported target language: "${targetLang}"`, "Use a BCP-47 code like en, ar, fr.");
-        }
-
-        if (process.env.TL_ADAPTER && process.env.TL_ADAPTER !== "mock" && process.env.TL_ADAPTER !== "ollama") {
-          console.warn(`Warning: unknown TL_ADAPTER "${process.env.TL_ADAPTER}", falling back to "ollama"`);
-        }
-        const adapterBackend = process.env.TL_ADAPTER === "mock" ? "mock" : "ollama";
-        const adapter = createAdapter(toAdapterConfig(config, adapterBackend));
-        const glossaryStore = new GlossaryStore(config.glossary.dbPath);
-        const contextStore = new ContextStore(config.context.dbPath);
-
-        try {
-          if (opts.file) {
-            const sourcePath = resolve(opts.file);
-            if (!existsSync(sourcePath)) {
-              throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
-            }
-
-            let outPath: string;
-            if (opts.out) {
-              outPath = resolve(opts.out);
-            } else {
-              const inferred = inferOutputPath(sourcePath, sourceLang, targetLang);
-              if (!inferred) {
-                throw new TlError(
-                  "INVALID_INPUT",
-                  `Cannot infer output path from "${opts.file}"`,
-                  "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
-                );
-              }
-              outPath = inferred;
-            }
-
-            const maxBytes = parseFloat(opts.maxSize) * 1024 * 1024;
-            if (Number.isNaN(maxBytes) || maxBytes <= 0) {
-              throw new TlError("INVALID_INPUT", `Invalid --max-size: "${opts.maxSize}"`, "Use a positive number of MB, e.g. --max-size 10");
-            }
-
-            // `\r` progress only makes sense on a terminal; in CI/piped logs it
-            // would concatenate into one line, so stay silent there.
-            const showProgress = !opts.json && !opts.dryRun && !!process.stderr.isTTY;
-            let lastReportedDone = -1;
-            const result = await translateFile({
-              sourcePath,
-              outPath,
-              sourceLang,
-              // Lets core recognise a Rails `en:` root when --from is auto.
-              sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
-              targetLang,
-              adapter,
-              glossary: glossaryStore,
-              context: contextStore,
-              format: opts.format,
-              mode: opts.force ? "force" : "missing-only",
-              glossaryMode,
-              continueOnError: !opts.strict,
-              translateAll: opts.translateAll ?? false,
-              maxFileBytes: maxBytes,
-              dryRun: opts.dryRun ?? false,
-              maxSnippets: config.context.maxSnippets,
-              minRelevance: config.context.minRelevance,
-              prune: opts.prune ?? false,
-              allowLargePrune: opts.allowLargePrune ?? false,
-              onProgress: showProgress ? (e) => {
-                if (e.done !== lastReportedDone) {
-                  lastReportedDone = e.done;
-                  process.stderr.write(`\rTranslated ${e.done}/${e.total}`);
-                }
-              } : undefined,
-            });
-            if (showProgress) process.stderr.write("\n");
-
-            if (opts.json) {
-              console.log(JSON.stringify(result, null, 2));
-            } else if (opts.dryRun) {
-              console.log(`[dry-run] Source: ${sourcePath}`);
-              console.log(`[dry-run] Target: ${outPath} (NOT written)`);
-              console.log(`[dry-run] Format: ${result.contentFormat}`);
-              if (result.rootLocaleKey) {
-                console.log(`[dry-run] Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
-              }
-              console.log(`[dry-run] Would translate: ${result.translated}`);
-              if (result.skipped.count > 0) {
-                console.log(`[dry-run] Would skip: ${result.skipped.count}`);
-              }
-              if (result.changed.length > 0) {
-                console.log(`[dry-run] Source changed: ${result.changed.length}`);
-                for (const p of result.changed) console.log(`  ${p}`);
-              }
-              if (opts.prune) {
-                console.log(`[dry-run] Would prune: ${result.pruned.length}`);
-                for (const p of result.pruned) console.log(`  ${p}`);
-              }
-              for (const w of result.warnings) console.error(`Warning: ${w}`);
-            } else {
-              console.log(`Wrote ${result.outPath}`);
-              console.log(`Format: ${result.contentFormat}`);
-              if (result.rootLocaleKey) {
-                console.log(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
-              }
-              console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
-              if (result.changed.length > 0) console.log(`Source changed: ${result.changed.length}`);
-              if (opts.prune) console.log(`Pruned: ${result.pruned.length}`);
-              if (result.skipped.count > 0) {
-                const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
-                console.log(`Skipped: ${result.skipped.count} (${reasons})`);
-              }
-              if (result.failed.length > 0) {
-                console.log(`Failed: ${result.failed.length} (source value used as fallback — search the output for un-translated source text)`);
-                for (const f of result.failed) console.error(`  ${f.path}: ${f.reason}`);
-              }
-              for (const w of result.warnings) console.error(`Warning: ${w}`);
-            }
-            // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it.
-            // Set exitCode here and let `finally` run dispose() before we actually exit.
-            if (!opts.dryRun && result.failed.length > 0) exitCode = 2;
-          } else {
-
-          let imageBase64: string | undefined;
-          if (opts.image) {
-            opts.image = resolve(opts.image);
-            if (!IMAGE_EXT_RE.test(opts.image)) {
-              throw new TlError("IMAGE_INVALID_TYPE", `Unsupported image type: ${opts.image}`, "Use a .png, .jpg, .jpeg, .webp, .gif, or .bmp file.");
-            }
-            const file = Bun.file(opts.image);
-            if (!(await file.exists())) {
-              throw new TlError("IMAGE_NOT_FOUND", `Image not found: ${opts.image}`, "Check the file path and try again.");
-            }
-            if (file.size > IMAGE_MAX_BYTES) {
-              throw new TlError("IMAGE_TOO_LARGE", `Image exceeds 10 MB: ${opts.image}`, "Use a smaller image file.");
-            }
-            try {
-              const buf = await file.arrayBuffer();
-              imageBase64 = Buffer.from(buf).toString("base64");
-            } catch (err) {
-              throw new TlError("IMAGE_READ_FAILED", `Failed to read image: ${opts.image}`, "Ensure the file is readable.", err);
-            }
+        if (opts.file) {
+          const sourcePath = resolve(opts.file);
+          if (!existsSync(sourcePath)) {
+            throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
           }
 
-          const queryText = text ?? "";
-          const contextSnippets = queryText
-            ? contextStore.retrieve(queryText, config.context.maxSnippets, config.context.minRelevance).map((s) => s.content)
-            : [];
+          let outPath: string;
+          if (opts.out) {
+            outPath = resolve(opts.out);
+          } else {
+            const inferred = inferOutputPath(sourcePath, sourceLang, targetLang);
+            if (!inferred) {
+              throw new TlError(
+                "INVALID_INPUT",
+                `Cannot infer output path from "${opts.file}"`,
+                "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
+              );
+            }
+            outPath = inferred;
+          }
 
+          const maxBytes = parseFloat(opts.maxSize) * 1024 * 1024;
+          if (Number.isNaN(maxBytes) || maxBytes <= 0) {
+            throw new TlError("INVALID_INPUT", `Invalid --max-size: "${opts.maxSize}"`, "Use a positive number of MB, e.g. --max-size 10");
+          }
+
+          // `\r` progress only makes sense on a terminal; in CI/piped logs it
+          // would concatenate into one line, so stay silent there.
+          const showProgress = !opts.json && !opts.dryRun && !!process.stderr.isTTY;
+          let lastReportedDone = -1;
+          const result = await translateFile({
+            sourcePath,
+            outPath,
+            sourceLang,
+            // Lets core recognise a Rails `en:` root when --from is auto.
+            sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
+            targetLang,
+            adapter: session.adapter,
+            glossary: session.glossaryStore,
+            context: session.contextStore,
+            format: opts.format,
+            mode: opts.force ? "force" : "missing-only",
+            glossaryMode,
+            continueOnError: !opts.strict,
+            translateAll: opts.translateAll ?? false,
+            maxFileBytes: maxBytes,
+            dryRun: opts.dryRun ?? false,
+            maxSnippets: config.context.maxSnippets,
+            minRelevance: config.context.minRelevance,
+            prune: opts.prune ?? false,
+            allowLargePrune: opts.allowLargePrune ?? false,
+            onProgress: showProgress ? (e) => {
+              if (e.done !== lastReportedDone) {
+                lastReportedDone = e.done;
+                process.stderr.write(`\rTranslated ${e.done}/${e.total}`);
+              }
+            } : undefined,
+          });
+          if (showProgress) process.stderr.write("\n");
+
+          if (opts.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else if (opts.dryRun) {
+            console.log(`[dry-run] Source: ${sourcePath}`);
+            console.log(`[dry-run] Target: ${outPath} (NOT written)`);
+            console.log(`[dry-run] Format: ${result.contentFormat}`);
+            if (result.rootLocaleKey) {
+              console.log(`[dry-run] Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+            }
+            console.log(`[dry-run] Would translate: ${result.translated}`);
+            if (result.skipped.count > 0) {
+              console.log(`[dry-run] Would skip: ${result.skipped.count}`);
+            }
+            if (result.changed.length > 0) {
+              console.log(`[dry-run] Source changed: ${result.changed.length}`);
+              for (const p of result.changed) console.log(`  ${p}`);
+            }
+            if (opts.prune) {
+              console.log(`[dry-run] Would prune: ${result.pruned.length}`);
+              for (const p of result.pruned) console.log(`  ${p}`);
+            }
+            for (const w of result.warnings) console.error(`Warning: ${w}`);
+          } else {
+            console.log(`Wrote ${result.outPath}`);
+            console.log(`Format: ${result.contentFormat}`);
+            if (result.rootLocaleKey) {
+              console.log(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+            }
+            console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
+            if (result.changed.length > 0) console.log(`Source changed: ${result.changed.length}`);
+            if (opts.prune) console.log(`Pruned: ${result.pruned.length}`);
+            if (result.skipped.count > 0) {
+              const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
+              console.log(`Skipped: ${result.skipped.count} (${reasons})`);
+            }
+            if (result.failed.length > 0) {
+              console.log(`Failed: ${result.failed.length} (source value used as fallback — search the output for un-translated source text)`);
+              for (const f of result.failed) console.error(`  ${f.path}: ${f.reason}`);
+            }
+            for (const w of result.warnings) console.error(`Warning: ${w}`);
+          }
+          // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it.
+          if (!opts.dryRun && result.failed.length > 0) process.exitCode = 2;
+        } else {
           const isJson = opts.json ?? false;
           // Stream only to an interactive terminal. Piped stdout must carry
           // exactly the final translation once: streamed chunks are raw
@@ -217,10 +179,8 @@ export function makeTranslateCommand(): Command {
             : process.stdout.isTTY === true;
           const streamLive = !isJson && isTty;
           let streamedText = "";
-          const result = await runPipeline(queryText, sourceLang, targetLang, adapter, glossaryStore, {
+          const result = await session.translate(text ?? "", sourceLang, targetLang, {
             glossaryMode,
-            maxRetries: config.glossary.maxRetries,
-            contextSnippets,
             imageBase64,
             onChunk: streamLive ? (chunk) => { streamedText += chunk; process.stdout.write(chunk); } : undefined,
           });
@@ -241,24 +201,13 @@ export function makeTranslateCommand(): Command {
             const meta = formatTranslationResult(result, false, process.stderr, { includeTranslation: false });
             process.stderr.write(`${meta}\n`);
           }
-          }
-        } finally {
-          glossaryStore.close();
-          contextStore.close();
-          // Dry run never loads the model — skip the unload round-trip to Ollama.
-          if (!opts.dryRun) await adapter.dispose();
         }
-      } catch (err) {
-        if (opts.json) {
-          const e = err instanceof TlError ? err : null;
-          console.error(JSON.stringify({ error: e?.tag ?? "TRANSLATION_FAILED", message: e?.message ?? String(err), hint: e?.hint ?? null }));
-        } else {
-          console.error(formatError(err));
-        }
-        exitCode = 1;
+      } finally {
+        // Closes the stores; unloads the model only if a request was sent
+        // (a dry run never loads it).
+        await session.dispose();
       }
-      if (exitCode !== 0) process.exit(exitCode);
-    });
+    }, { json: opts.json }));
 
   return cmd;
 }

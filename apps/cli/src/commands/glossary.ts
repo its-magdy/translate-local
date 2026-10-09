@@ -90,7 +90,7 @@ export function makeGlossaryCommand(): Command {
       let entries = await withGlossary((store) => store.list(opts.from, opts.to));
       if (opts.domain) entries = entries.filter((e) => e.domain === opts.domain);
       console.log(formatGlossaryList(entries, opts.json ?? false));
-    }));
+    }, { json: opts.json }));
 
   // remove
   cmd
@@ -152,7 +152,7 @@ export function makeGlossaryCommand(): Command {
           console.log([e.sourceTerm, e.targetTerm, e.sourceLang, e.targetLang, e.domain ?? "", e.note ?? ""].map(csvField).join(","));
         }
       }
-    }));
+    }, { json: opts.json }));
 
   return cmd;
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pkg from "../../package.json" with { type: "json" };
@@ -196,6 +196,32 @@ describe("tl CLI", () => {
       const r = run(["context", "add", "/nonexistent/path/xyz"]);
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain("CONTEXT_DB_ERROR");
+    });
+  });
+
+  describe("--json errors", () => {
+    // A broken config makes every command fail before it does any work.
+    const brokenHome = () => {
+      mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
+      writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), "{ not json");
+      return ownHome();
+    };
+
+    for (const args of [["glossary", "list", "--json"], ["glossary", "export", "--json"], ["context", "list", "--json"], ["translate", "hi", "--json"]]) {
+      it(`${args.join(" ")} reports errors as JSON on stderr`, () => {
+        const r = run(args, brokenHome());
+        expect(r.exitCode).toBe(1);
+        const parsed = JSON.parse(r.stderr);
+        expect(parsed.error).toBe("CONFIG_INVALID");
+        expect(parsed.message).toContain("not valid JSONC");
+        expect(typeof parsed.hint).toBe("string");
+      });
+    }
+
+    it("without --json, errors stay plain text", () => {
+      const r = run(["glossary", "list"], brokenHome());
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("Error [CONFIG_INVALID]");
     });
   });
 

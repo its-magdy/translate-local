@@ -1,13 +1,17 @@
 import { loadConfig, type CoreConfig } from "@translate-local/core/config";
-import { formatError } from "../formatters/output";
+import { formatError, formatErrorJson } from "../formatters/output";
 
-/** Run a command action; format any error and exit 1. */
-export async function runAction(fn: () => void | Promise<void>): Promise<void> {
+/**
+ * Run a command action; print any error (as JSON with `json`) and set exit
+ * code 1. Uses process.exitCode rather than process.exit() so piped output
+ * is flushed.
+ */
+export async function runAction(fn: () => void | Promise<void>, { json = false } = {}): Promise<void> {
   try {
     await fn();
   } catch (err) {
-    console.error(formatError(err));
-    process.exit(1);
+    console.error(json ? formatErrorJson(err) : formatError(err));
+    process.exitCode = 1;
   }
 }
 

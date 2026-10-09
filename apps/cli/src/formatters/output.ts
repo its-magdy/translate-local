@@ -65,3 +65,12 @@ export function formatError(err: unknown): string {
   }
   return color(`Error: ${String(err)}`, RED);
 }
+
+/** The --json error shape: `{ error: <tag>, message, hint }` (hint null when absent). */
+export function formatErrorJson(err: unknown): string {
+  if (err && typeof err === "object" && "tag" in err) {
+    const e = err as { tag: string; message: string; hint?: string };
+    return JSON.stringify({ error: e.tag, message: e.message, hint: e.hint ?? null });
+  }
+  return JSON.stringify({ error: "UNKNOWN_ERROR", message: String(err), hint: null });
+}
