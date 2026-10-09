@@ -8,7 +8,7 @@ import { TlError } from "@translate-local/shared/errors";
 import { isSupported } from "@translate-local/shared/utils/language";
 import { formatTranslationResult } from "../formatters/output";
 import { inferOutputPath, inferSourceLocale } from "../utils/locale-path";
-import { runAction } from "../utils/run";
+import { exitOnInterrupt, runAction } from "../utils/run";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
@@ -62,6 +62,7 @@ export function makeTranslateCommand(): Command {
       const imageBase64 = opts.image ? await readImageBase64(resolve(opts.image)) : undefined;
 
       const session = new TranslationSession(config);
+      const stopInterruptHandling = exitOnInterrupt(session);
       try {
         if (opts.file) {
           const sourcePath = resolve(opts.file);
@@ -209,6 +210,7 @@ export function makeTranslateCommand(): Command {
         // Closes the stores; unloads the model only if a request was sent
         // (a dry run never loads it).
         await session.dispose();
+        stopInterruptHandling();
       }
     }, { json: opts.json }));
 
