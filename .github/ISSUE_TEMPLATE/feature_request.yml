@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please search [existing issues](https://github.com/its-magdy/translate-local/issues) first. Don't paste secrets or private content.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem or limitation are you running into? Describe your use case.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? An example command or config helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you have tried.

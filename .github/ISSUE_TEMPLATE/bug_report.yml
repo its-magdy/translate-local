@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a bug in tl
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please search [existing issues](https://github.com/its-magdy/translate-local/issues) first.
+
+        **Do not paste secrets or private content.** Remove tokens, passwords, and anything confidential from logs and sample files. For a security vulnerability, do not open an issue; use [private vulnerability reporting](https://github.com/its-magdy/translate-local/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong? Include any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact command or TUI steps, and a minimal input if possible.
+      placeholder: |
+        1. Run `tl ...`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: tl version
+      description: Output of `tl --version`.
+      placeholder: "0.5.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Homebrew
+        - npm
+        - bun
+        - install.sh
+        - Binary download
+        - From source
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: macOS 15 arm64, Ubuntu 24.04 x64, Windows 11 x64
+    validations:
+      required: true
+  - type: input
+    id: ollama
+    attributes:
+      label: Ollama version and model
+      description: Output of `ollama --version` and the model in use. Skip if the bug is not about translation output or the model connection.
+      placeholder: "ollama 0.x.y, translategemma:latest"
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Where did it happen?
+      options:
+        - CLI (text or image translation)
+        - TUI
+        - File mode (`--file`)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and output
+      description: Paste the full command output. Remove anything private first.
+      render: shell
