@@ -13,13 +13,17 @@ interface OllamaGenerateRequest {
 }
 
 interface OllamaGenerateResponse {
-  response: string;
+  response?: string;
+  error?: string;
 }
 
 interface OllamaStreamChunk {
-  response: string;
-  done: boolean;
+  response?: string;
+  done?: boolean;
+  error?: string;
 }
+
+const OLLAMA_ERROR_HINT = "Check the Ollama server logs and that the model is available: ollama list";
 
 export class TranslateGemmaLocalAdapter implements Adapter {
   readonly name = "translate-gemma-local";
@@ -31,6 +35,41 @@ export class TranslateGemmaLocalAdapter implements Adapter {
   ) {}
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
+    // Idle timeout: bounds how long we wait for Ollama to send *something*
+    // (headers, then each body chunk), not the total generation time, so a
+    // long translation that keeps streaming tokens is never cut off.
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const resetTimer = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, this.timeoutMs);
+    };
+    resetTimer();
+    try {
+      return await this.generate(request, controller.signal, resetTimer, () => timedOut);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private timeoutError(tag: "ADAPTER_UNAVAILABLE" | "TRANSLATION_FAILED"): TlError {
+    return new TlError(
+      tag,
+      `Ollama did not respond within ${this.timeoutMs}ms`,
+      "Check that Ollama is running and not overloaded: ollama serve"
+    );
+  }
+
+  private async generate(
+    request: TranslationRequest,
+    signal: AbortSignal,
+    resetTimer: () => void,
+    timedOut: () => boolean
+  ): Promise<TranslationResult> {
     const start = Date.now();
     const { prompt, system } = buildStructuredPrompt(request);
 
@@ -46,15 +85,11 @@ export class TranslateGemmaLocalAdapter implements Adapter {
           ...(system ? { system } : {}),
           ...(request.imageBase64 ? { images: [request.imageBase64] } : {}),
         } satisfies OllamaGenerateRequest),
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal,
       });
     } catch (err) {
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        throw new TlError(
-          "ADAPTER_UNAVAILABLE",
-          `Ollama did not respond within ${this.timeoutMs}ms`,
-          "Check that Ollama is running and not overloaded: ollama serve"
-        );
+      if (timedOut() || (err instanceof DOMException && err.name === "TimeoutError")) {
+        throw this.timeoutError("ADAPTER_UNAVAILABLE");
       }
       throw new TlError(
         "ADAPTER_UNAVAILABLE",
@@ -63,6 +98,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         err
       );
     }
+    resetTimer();
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
@@ -86,6 +122,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       const reader = response.body.getReader();
       let lineBuffer = "";
       let accumulated = "";
+      let completed = false;
 
       const handleLine = (line: string): void => {
         if (!line.trim()) return;
@@ -95,6 +132,10 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         } catch {
           throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
         }
+        // Ollama reports mid-stream failures as an {"error": "..."} line on a 200 response
+        if (chunk.error !== undefined) {
+          throw new TlError("TRANSLATION_FAILED", `Ollama error: ${chunk.error}`, OLLAMA_ERROR_HINT);
+        }
         if (chunk.response) {
           onChunk(chunk.response);
           accumulated += chunk.response;
@@ -102,12 +143,14 @@ export class TranslateGemmaLocalAdapter implements Adapter {
             throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
           }
         }
+        if (chunk.done) completed = true;
       };
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          resetTimer();
           lineBuffer += decoder.decode(value, { stream: true });
           const lines = lineBuffer.split("\n");
           lineBuffer = lines.pop() ?? "";
@@ -115,6 +158,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         }
       } catch (err) {
         if (err instanceof TlError) throw err;
+        if (timedOut()) throw this.timeoutError("TRANSLATION_FAILED");
         throw new TlError(
           "TRANSLATION_FAILED",
           `Stream interrupted: ${err instanceof Error ? err.message : String(err)}`,
@@ -125,9 +169,33 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         reader.releaseLock();
       }
       handleLine(lineBuffer); // flush remaining buffer
+      if (!completed) {
+        throw new TlError(
+          "TRANSLATION_FAILED",
+          "Ollama stream ended before completion",
+          OLLAMA_ERROR_HINT
+        );
+      }
       translated = accumulated.trim();
     } else {
-      const data = (await response.json()) as OllamaGenerateResponse;
+      // Non-stream mode only gets a body once generation finishes, so the idle
+      // timer cannot be reset per token here: it bounds the wait for the body.
+      let data: OllamaGenerateResponse;
+      try {
+        data = (await response.json()) as OllamaGenerateResponse;
+      } catch (err) {
+        if (timedOut()) throw this.timeoutError("TRANSLATION_FAILED");
+        throw new TlError(
+          "TRANSLATION_FAILED",
+          `Malformed response from Ollama: ${err instanceof Error ? err.message : String(err)}`,
+          "Check Ollama version or restart Ollama",
+          err
+        );
+      }
+      if (typeof data?.response !== "string") {
+        const detail = data?.error !== undefined ? `Ollama error: ${data.error}` : "Ollama response has no text";
+        throw new TlError("TRANSLATION_FAILED", detail, OLLAMA_ERROR_HINT);
+      }
       translated = data.response.trim();
     }
 
