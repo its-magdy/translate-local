@@ -129,4 +129,33 @@ describe("runPipeline", () => {
     }
     expect(err?.tag).toBe("GLOSSARY_STRICT_MISS");
   });
+
+  it("strict retry: keeps the source text unchanged and passes target terms as a reminder", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    const requests: any[] = [];
+    // Misses the term on the first attempt, then defers to MockAdapter.
+    const mock = new MockAdapter();
+    const flakyAdapter = {
+      name: "flaky",
+      async translate(req: any) {
+        requests.push(req);
+        if (requests.length === 1) {
+          return { ...(await mock.translate(req)), translated: "[ar] untranslated" };
+        }
+        return mock.translate(req);
+      },
+      async dispose() {},
+    };
+
+    const result = await runPipeline("The API is ready", "en", "ar", flakyAdapter as any, store, { glossaryMode: "strict", maxRetries: 2 });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].glossaryReminder).toBeUndefined();
+    expect(requests[1].source).toBe(requests[0].source);
+    expect(requests[1].source).not.toContain("Note");
+    expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+    expect(result.metadata.retries).toBe(1);
+    expect(result.missingTerms).toHaveLength(0);
+    expect(result.translated).toContain("واجهة برمجة");
+  });
 });

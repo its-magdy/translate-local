@@ -7,6 +7,8 @@ export interface TranslationRequest {
   imageBase64?: string;   // base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];
   contextSnippets?: string[];
+  /** Strict-mode retries: glossary terms the previous attempt left out, rendered as instructions (never appended to `source`). */
+  glossaryReminder?: { source: string; target: string }[];
   onChunk?: (chunk: string) => void;
   options?: {
     glossaryMode?: "strict" | "prefer";

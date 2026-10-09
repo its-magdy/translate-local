@@ -94,6 +94,44 @@ describe("buildStructuredPrompt", () => {
     const { prompt } = buildStructuredPrompt(req);
     expect(prompt).not.toContain('<term translation=');
   });
+
+  test("renders the full prompt for a known source language", () => {
+    const { prompt } = buildStructuredPrompt(baseRequest);
+    expect(prompt).toBe(
+      "You are a professional English (en) to Arabic (ar) translator. Your goal is to accurately convey the meaning and nuances of the original English text while adhering to Arabic grammar, vocabulary, and cultural sensitivities.\n" +
+        "Produce only the Arabic translation, without any additional explanations or commentary.\n" +
+        "Please translate the following English text into Arabic:\n\n\n" +
+        "The API is ready.",
+    );
+  });
+
+  test("auto source: uses source-agnostic phrasing instead of the literal \"auto\"", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, sourceLang: "auto" });
+    expect(prompt).toBe(
+      "You are a professional translator into Arabic (ar). Your goal is to accurately convey the meaning and nuances of the original text while adhering to Arabic grammar, vocabulary, and cultural sensitivities.\n" +
+        "Produce only the Arabic translation, without any additional explanations or commentary.\n" +
+        "Please translate the following text into Arabic:\n\n\n" +
+        "The API is ready.",
+    );
+  });
+
+  test("auto source in image mode: does not mention \"auto\"", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, sourceLang: "auto", imageBase64: "abc123" });
+    expect(prompt).toBe("Extract all text from the image and translate it into Arabic (ar). Output only the translation.");
+  });
+
+  test("glossary reminder: rendered as target pairs before the translate instruction, source text untouched", () => {
+    const req: TranslationRequest = {
+      ...baseRequest,
+      source: '<term translation="واجهة برمجة">API</term> is ready.',
+      glossaryHits: [makeHit("API", "واجهة برمجة")],
+      glossaryReminder: [{ source: "API", target: "واجهة برمجة" }],
+    };
+    const { prompt } = buildStructuredPrompt(req);
+    const [instructions, text] = prompt.split("Please translate the following");
+    expect(instructions).toContain('Your translation MUST contain these exact terms: "API" → "واجهة برمجة".');
+    expect(text).toBe(' English text into Arabic:\n\n\n<term translation="واجهة برمجة">API</term> is ready.');
+  });
 });
 
 describe("buildNaturalPrompt", () => {
@@ -111,5 +149,18 @@ describe("buildNaturalPrompt", () => {
   test("includes source text", () => {
     const prompt = buildNaturalPrompt(baseRequest);
     expect(prompt).toContain("The API is ready.");
+  });
+
+  test("auto source: does not mention \"auto\"", () => {
+    const prompt = buildNaturalPrompt({ ...baseRequest, sourceLang: "auto" });
+    expect(prompt).not.toContain("auto");
+    expect(prompt).toContain("Translate the following text to ar.");
+  });
+
+  test("glossary reminder: listed before the text to translate", () => {
+    const prompt = buildNaturalPrompt({ ...baseRequest, glossaryReminder: [{ source: "API", target: "واجهة برمجة" }] });
+    const [instructions, text] = prompt.split("Text to translate:");
+    expect(instructions).toContain('The translation must contain these exact terms:\n- "API" → "واجهة برمجة"');
+    expect(text).toBe("\nThe API is ready.");
   });
 });

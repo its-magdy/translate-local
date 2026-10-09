@@ -11,6 +11,16 @@ const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTIN
 const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
 const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
 
+// "auto" is our CLI default, not a language: TranslateGemma's template has no
+// auto mode, so the prompt leaves the source language out instead of naming "auto".
+function isAutoSource(code: string): boolean {
+  return code.toLowerCase() === "auto";
+}
+
+function formatReminder(reminder: { source: string; target: string }): string {
+  return `"${reminder.source}" → "${reminder.target}"`;
+}
+
 function langLabel(code: string): string {
   const name = LANG_NAMES[code.toLowerCase()];
   return name ? `${name} (${code})` : code;
@@ -23,14 +33,22 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   const srcName = LANG_NAMES[request.sourceLang.toLowerCase()] ?? request.sourceLang;
   const tgtName = LANG_NAMES[request.targetLang.toLowerCase()] ?? request.targetLang;
 
+  const isAuto = isAutoSource(request.sourceLang);
+
   const isImageMode = !!request.imageBase64;
   const lines: string[] = [];
 
   if (isImageMode) {
-    lines.push(`Extract all text from the image and translate it from ${src} to ${tgt}. Output only the translation.`);
+    lines.push(
+      isAuto
+        ? `Extract all text from the image and translate it into ${tgt}. Output only the translation.`
+        : `Extract all text from the image and translate it from ${src} to ${tgt}. Output only the translation.`,
+    );
   } else {
     lines.push(
-      `You are a professional ${src} to ${tgt} translator. Your goal is to accurately convey the meaning and nuances of the original ${srcName} text while adhering to ${tgtName} grammar, vocabulary, and cultural sensitivities.`,
+      isAuto
+        ? `You are a professional translator into ${tgt}. Your goal is to accurately convey the meaning and nuances of the original text while adhering to ${tgtName} grammar, vocabulary, and cultural sensitivities.`
+        : `You are a professional ${src} to ${tgt} translator. Your goal is to accurately convey the meaning and nuances of the original ${srcName} text while adhering to ${tgtName} grammar, vocabulary, and cultural sensitivities.`,
       `Produce only the ${tgtName} translation, without any additional explanations or commentary.`,
     );
   }
@@ -41,6 +59,10 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
     } else {
       lines.push(`When you encounter <term translation="X">word</term> in the text, replace that word with exactly X — use the exact form provided, without adding articles, inflections, or diacritics. Never output the XML tags themselves.`);
     }
+  }
+
+  if (request.glossaryReminder && request.glossaryReminder.length > 0) {
+    lines.push(`Your translation MUST contain these exact terms: ${request.glossaryReminder.map(formatReminder).join(", ")}.`);
   }
 
   // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
@@ -71,7 +93,7 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   }
 
   if (!isImageMode) {
-    lines.push(`Please translate the following ${srcName} text into ${tgtName}:`);
+    lines.push(isAuto ? `Please translate the following text into ${tgtName}:` : `Please translate the following ${srcName} text into ${tgtName}:`);
     // Two blank lines are required by the translategemma prompt template.
     lines.push("");
     lines.push("");
@@ -85,7 +107,9 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
   const lines: string[] = [];
 
   lines.push(
-    `You are a professional translator. Translate the following text from ${request.sourceLang} to ${request.targetLang}.`
+    isAutoSource(request.sourceLang)
+      ? `You are a professional translator. Translate the following text to ${request.targetLang}.`
+      : `You are a professional translator. Translate the following text from ${request.sourceLang} to ${request.targetLang}.`
   );
   lines.push("Output only the translation, nothing else. Preserve the line breaks and paragraph structure of the source text.");
 
@@ -93,6 +117,13 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
     lines.push("\nUse these specific translations for the following terms:");
     for (const hit of request.glossaryHits) {
       lines.push(`- "${hit.entry.sourceTerm}" → "${hit.entry.targetTerm}"`);
+    }
+  }
+
+  if (request.glossaryReminder && request.glossaryReminder.length > 0) {
+    lines.push("\nThe translation must contain these exact terms:");
+    for (const reminder of request.glossaryReminder) {
+      lines.push(`- ${formatReminder(reminder)}`);
     }
   }
 
