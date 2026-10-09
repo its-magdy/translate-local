@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.4] - 2026-10-09
+
+### Fixed
+- **The TUI no longer leaks memory while streaming, and no longer crashes in long sessions.** Each streamed chunk replaced the output text with a new element and only detached the old one, so its native memory was never freed. After about 16,000 updates (roughly 150 long translations) the TUI could no longer create elements and crashed. The output is now updated in place, and removed elements are destroyed.
+
+### Changed
+- **Faster startup:** release binaries are compiled with Bun bytecode. `tl --version` starts in about 31 ms instead of 55 ms, and the TUI draws its first frame about a third sooner. Binaries are about 6 MB larger.
+- **Readable crash traces:** release binaries embed a source map, so an unexpected error's stack trace points at the original TypeScript file and line.
+- **Project docs:** added a security policy (report vulnerabilities privately through GitHub) and a code of conduct (Contributor Covenant 2.1). Bug reports and feature requests now use issue forms, and the contributing guide and PR template are up to date.
+- **CI:** the CLI tests have a 30 s timeout, because cold-starting Bun on Windows runners can take more than the 5 s default. CI now also checks that the compiled binary draws the TUI on Linux, macOS and Windows.
+
 ## [0.5.3] - 2026-10-09
 
 ### Fixed
