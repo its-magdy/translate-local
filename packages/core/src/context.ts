@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
+import { SQLITE_BUSY_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { ensurePrivateDir } from "./fsutil";
 import { STOPWORDS } from "./stopwords";
 
@@ -23,8 +24,6 @@ export const CONTEXT_INDEX_VERSION = 4;
 // unsearchable. See docs/context-guide.md for size/speed numbers.
 const BASE_TERMS_PER_DOC = 300;
 const MAX_TERMS_PER_DOC = 1000;
-// Long enough for a migration of a large corpus in another process.
-const BUSY_TIMEOUT_MS = 30_000;
 
 // Scripts written without spaces between words. Indexed as overlapping
 // character bigrams (the Lucene CJKAnalyzer approach): dictionary
@@ -137,7 +136,7 @@ export class ContextStore {
       this.db = new Database(dbPath);
       // Another process may be migrating or indexing; wait instead of
       // failing with "database is locked".
-      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+      this.db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS context_sources (
           id TEXT PRIMARY KEY,

@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import type { GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { langFallbackChain, normalizeLang } from "@translate-local/shared/utils/language";
+import { SQLITE_BUSY_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { ensurePrivateDir } from "./fsutil";
 
 function escapeRegex(s: string): string {
@@ -153,6 +154,7 @@ export class GlossaryStore {
     try {
       ensurePrivateDir(dbPath);
       this.db = new Database(dbPath);
+      this.db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS glossary (
           id TEXT PRIMARY KEY,
