@@ -12,11 +12,6 @@ interface OllamaGenerateRequest {
   keep_alive?: number;
 }
 
-interface OllamaGenerateResponse {
-  response?: string;
-  error?: string;
-}
-
 interface OllamaStreamChunk {
   response?: string;
   done?: boolean;
@@ -81,7 +76,10 @@ export class TranslateGemmaLocalAdapter implements Adapter {
         body: JSON.stringify({
           model: this.model,
           prompt,
-          stream: !!request.onChunk,
+          // Always stream, even without onChunk: the idle timeout can only
+          // reset on received bytes, and a non-streamed body arrives all at once
+          // after generation finishes.
+          stream: true,
           ...(system ? { system } : {}),
           ...(request.imageBase64 ? { images: [request.imageBase64] } : {}),
         } satisfies OllamaGenerateRequest),
@@ -109,95 +107,71 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       );
     }
 
-    let translated: string;
-
-    if (request.onChunk) {
-      // Streaming: read NDJSON line by line
-      if (!response.body) {
-        throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
-      }
-      const MAX_ACCUMULATED_CHARS = 10 * 1024 * 1024; // 10M character safety limit
-      const onChunk = request.onChunk;
-      const decoder = new TextDecoder();
-      const reader = response.body.getReader();
-      let lineBuffer = "";
-      let accumulated = "";
-      let completed = false;
-
-      const handleLine = (line: string): void => {
-        if (!line.trim()) return;
-        let chunk: OllamaStreamChunk;
-        try {
-          chunk = JSON.parse(line) as OllamaStreamChunk;
-        } catch {
-          throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
-        }
-        // Ollama reports mid-stream failures as an {"error": "..."} line on a 200 response
-        if (chunk.error !== undefined) {
-          throw new TlError("TRANSLATION_FAILED", `Ollama error: ${chunk.error}`, OLLAMA_ERROR_HINT);
-        }
-        if (chunk.response) {
-          onChunk(chunk.response);
-          accumulated += chunk.response;
-          if (accumulated.length > MAX_ACCUMULATED_CHARS) {
-            throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
-          }
-        }
-        if (chunk.done) completed = true;
-      };
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          resetTimer();
-          lineBuffer += decoder.decode(value, { stream: true });
-          const lines = lineBuffer.split("\n");
-          lineBuffer = lines.pop() ?? "";
-          for (const line of lines) handleLine(line);
-        }
-      } catch (err) {
-        if (err instanceof TlError) throw err;
-        if (timedOut()) throw this.timeoutError("TRANSLATION_FAILED");
-        throw new TlError(
-          "TRANSLATION_FAILED",
-          `Stream interrupted: ${err instanceof Error ? err.message : String(err)}`,
-          "Check network connectivity and Ollama status",
-          err
-        );
-      } finally {
-        reader.releaseLock();
-      }
-      handleLine(lineBuffer); // flush remaining buffer
-      if (!completed) {
-        throw new TlError(
-          "TRANSLATION_FAILED",
-          "Ollama stream ended before completion",
-          OLLAMA_ERROR_HINT
-        );
-      }
-      translated = accumulated.trim();
-    } else {
-      // Non-stream mode only gets a body once generation finishes, so the idle
-      // timer cannot be reset per token here: it bounds the wait for the body.
-      let data: OllamaGenerateResponse;
-      try {
-        data = (await response.json()) as OllamaGenerateResponse;
-      } catch (err) {
-        if (timedOut()) throw this.timeoutError("TRANSLATION_FAILED");
-        throw new TlError(
-          "TRANSLATION_FAILED",
-          `Malformed response from Ollama: ${err instanceof Error ? err.message : String(err)}`,
-          "Check Ollama version or restart Ollama",
-          err
-        );
-      }
-      if (typeof data?.response !== "string") {
-        const detail = data?.error !== undefined ? `Ollama error: ${data.error}` : "Ollama response has no text";
-        throw new TlError("TRANSLATION_FAILED", detail, OLLAMA_ERROR_HINT);
-      }
-      translated = data.response.trim();
+    if (!response.body) {
+      throw new TlError("TRANSLATION_FAILED", "No response body for streaming", "Check Ollama version");
     }
+    // Read NDJSON line by line
+    const MAX_ACCUMULATED_CHARS = 10 * 1024 * 1024; // 10M character safety limit
+    const onChunk = request.onChunk;
+    const decoder = new TextDecoder();
+    const reader = response.body.getReader();
+    let lineBuffer = "";
+    let accumulated = "";
+    let completed = false;
+
+    const handleLine = (line: string): void => {
+      if (!line.trim()) return;
+      let chunk: OllamaStreamChunk;
+      try {
+        chunk = JSON.parse(line) as OllamaStreamChunk;
+      } catch {
+        throw new TlError("TRANSLATION_FAILED", `Malformed streaming response from Ollama: ${line}`, "Check Ollama version or restart Ollama");
+      }
+      // Ollama reports mid-stream failures as an {"error": "..."} line on a 200 response
+      if (chunk.error !== undefined) {
+        throw new TlError("TRANSLATION_FAILED", `Ollama error: ${chunk.error}`, OLLAMA_ERROR_HINT);
+      }
+      if (chunk.response) {
+        onChunk?.(chunk.response);
+        accumulated += chunk.response;
+        if (accumulated.length > MAX_ACCUMULATED_CHARS) {
+          throw new TlError("TRANSLATION_FAILED", "Streaming response exceeded 10M character limit", "The model produced an unexpectedly large response");
+        }
+      }
+      if (chunk.done) completed = true;
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        resetTimer();
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+        for (const line of lines) handleLine(line);
+      }
+    } catch (err) {
+      if (err instanceof TlError) throw err;
+      if (timedOut()) throw this.timeoutError("TRANSLATION_FAILED");
+      throw new TlError(
+        "TRANSLATION_FAILED",
+        `Stream interrupted: ${err instanceof Error ? err.message : String(err)}`,
+        "Check network connectivity and Ollama status",
+        err
+      );
+    } finally {
+      reader.releaseLock();
+    }
+    handleLine(lineBuffer); // flush remaining buffer
+    if (!completed) {
+      throw new TlError(
+        "TRANSLATION_FAILED",
+        "Ollama stream ended before completion",
+        OLLAMA_ERROR_HINT
+      );
+    }
+    const translated = accumulated.trim();
 
     return {
       translated,

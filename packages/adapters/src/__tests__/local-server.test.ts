@@ -125,17 +125,42 @@ describe("TranslateGemmaLocalAdapter against a fake Ollama", () => {
     expect(err.message).toContain("did not respond within 100ms");
   });
 
-  test("non-stream: a 200 body without a string response throws TlError", async () => {
+  test("without onChunk: Ollama is still asked to stream and the result is returned", async () => {
+    let requested: { stream?: boolean } | undefined;
+    server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        requested = (await req.json()) as { stream?: boolean };
+        return new Response(line({ response: "  مرح", done: false }) + line({ response: "با \n", done: false }) + line({ done: true }));
+      },
+    });
+    const result = await new TranslateGemmaLocalAdapter("m", `http://localhost:${server.port}`).translate(makeRequest());
+    expect(requested?.stream).toBe(true);
+    expect(result.translated).toBe("مرحبا");
+  });
+
+  test("without onChunk: tokens keep the idle timer alive past the timeout", async () => {
+    const endpoint = serveParts([
+      { text: line({ response: "a", done: false }) },
+      { delayMs: 120, text: line({ response: "b", done: false }) },
+      { delayMs: 120, text: line({ response: "", done: true }) },
+    ]);
+    const result = await new TranslateGemmaLocalAdapter("m", endpoint, 200).translate(makeRequest());
+    expect(result.translated).toBe("ab");
+  });
+
+  test("without onChunk: an error body throws TRANSLATION_FAILED", async () => {
     const endpoint = serveJson({ error: "model 'm' not found" });
     const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint), makeRequest());
     expect(err.tag).toBe("TRANSLATION_FAILED");
     expect(err.message).toContain("model 'm' not found");
   });
 
-  test("non-stream: success returns the trimmed response", async () => {
-    const endpoint = serveJson({ response: "  مرحبا \n", done: true });
-    const result = await new TranslateGemmaLocalAdapter("m", endpoint).translate(makeRequest());
-    expect(result.translated).toBe("مرحبا");
+  test("without onChunk: a stalled stream times out", async () => {
+    const endpoint = serveParts([{ text: line({ response: "a", done: false }) }], false);
+    const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint, 150), makeRequest());
+    expect(err.tag).toBe("TRANSLATION_FAILED");
+    expect(err.message).toContain("did not respond within 150ms");
   });
 });
 
@@ -160,15 +185,13 @@ describe("TranslateGemmaLocalAdapter timer cleanup", () => {
     return { out, ms: Date.now() - start };
   }
 
-  test("process exits promptly after streaming success, stream error and non-stream success", async () => {
+  test("process exits promptly after success with onChunk, stream error, and success without onChunk", async () => {
     let n = 0;
     server = Bun.serve({
       port: 0,
       async fetch(req) {
-        const body = (await req.json()) as { stream: boolean };
-        if (!body.stream) return Response.json({ response: "x", done: true });
         n++;
-        return new Response(n === 1 ? line({ response: "x", done: false }) + line({ done: true }) : line({ error: "boom" }));
+        return new Response(n === 2 ? line({ error: "boom" }) : line({ response: "x", done: false }) + line({ done: true }));
       },
     });
     const endpoint = `http://localhost:${server.port}`;

@@ -50,7 +50,7 @@ describe("TranslateGemmaLocalAdapter timeout", () => {
 
     globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
       capturedSignal = init?.signal as AbortSignal | undefined;
-      return new Response(JSON.stringify({ response: "مرحبا" }), { status: 200 });
+      return new Response(JSON.stringify({ response: "مرحبا", done: true }) + "\n", { status: 200 });
     }) as unknown as typeof fetch;
 
     const adapter = new TranslateGemmaLocalAdapter("test-model", ENDPOINT, 5000);
