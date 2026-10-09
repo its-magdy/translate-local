@@ -905,6 +905,55 @@ describe("translateFile", () => {
     })).rejects.toThrow(/ICU MessageFormat in an i18next catalog at pick/);
   });
 
+  it("failed entries carry a JSON Pointer and the tag --strict would throw", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      "a.b": "Hello {{name}}",
+      nest: { x: "{n, plural, one {# item}}" },
+    }));
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context,
+    });
+    expect(summary.failed.map(({ path, pointer, tag }) => ({ path, pointer, tag }))).toEqual([
+      { path: "a.b", pointer: "/a.b", tag: "PLACEHOLDER_MISMATCH" },
+      { path: "nest.x", pointer: "/nest/x", tag: "FILE_INVALID_FORMAT" },
+    ]);
+
+    const dry = await translateFile({
+      sourcePath: src, outPath: join(dir, "fr.json"),
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context, dryRun: true,
+    });
+    expect(dry.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([{ pointer: "/nest/x", tag: "FILE_INVALID_FORMAT" }]);
+  });
+
+  it("a pipeline failure is tagged with the pipeline error's tag", async () => {
+    class ThrowingAdapter extends MockAdapter {
+      async translate(): Promise<never> {
+        throw new Error("boom");
+      }
+    }
+    const src = writeSrc("en.json", JSON.stringify({ a: "Hello", b: "{n, number} items" }));
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new ThrowingAdapter(), glossary, context,
+    });
+    expect(summary.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([
+      { pointer: "/a", tag: "TRANSLATION_FAILED" },
+      { pointer: "/b", tag: "TRANSLATION_FAILED" },
+    ]);
+
+    glossary.add({ sourceTerm: "Hello", targetTerm: "XYZ", sourceLang: "en", targetLang: "ar" });
+    const strictMiss = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar2.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context, glossaryMode: "strict", mode: "force",
+    });
+    expect(strictMiss.failed.find((f) => f.pointer === "/a")?.tag).toBe("GLOSSARY_STRICT_MISS");
+  });
+
   it("malformed ICU falls back to source by default", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
     const out = join(dir, "ar.json");
@@ -1713,5 +1762,103 @@ describe("translateFile", () => {
     expect(text).toContain("body: |\n  TB\n");
     expect(text).toContain('keep: "TK"');
     expect(text).toContain("greeting: TG");
+  });
+
+  // ── Abort (signal) ────────────────────────────────────────────────
+
+  // Aborts once the leaf at `afterIndex` has started, so it and every earlier leaf complete.
+  function abortAfter(afterIndex: number) {
+    const ctl = new AbortController();
+    return {
+      signal: ctl.signal,
+      onProgress: ({ done }: { done: number }) => { if (done === afterIndex) ctl.abort(); },
+    };
+  }
+
+  it("an aborted run writes the leaves completed so far and the next run picks up the rest", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One", nest: { b: "Two", c: "Three" }, list: ["x y", "z w"] }, null, 2));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(0),
+    });
+    expect(summary.aborted).toBe(true);
+    expect(summary.translated).toBe(1);
+    expect(summary.warnings.some((w) => /Interrupted: 4 of 5 key\(s\) not translated/.test(w))).toBe(true);
+    // Unreached keys stay absent (apps fall back to the default locale; "" would render blank),
+    // and so do the containers left empty.
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One" });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
+
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.aborted).toBe(false);
+    expect(rerun.translated).toBe(4);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", nest: { b: "[ar] Two", c: "[ar] Three" }, list: ["[ar] x y", "[ar] z w"] });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a", "/list/0", "/list/1", "/nest/b", "/nest/c"]);
+  });
+
+  it("an aborted YAML run never writes source text for keys it did not reach", async () => {
+    const src = writeSrc("en.yml", "a: One\nb: Two\nc: Three\nnest:\n  d: Four\nlist:\n  - x y\n  - z w\nempty: Five\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "a: EXISTING\nempty: \"\"\n");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(0),
+    });
+    expect(summary.aborted).toBe(true);
+    // The write template is the source document: unreached keys are removed from it
+    // (with the containers left empty), never written with their source text.
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", empty: "" });
+
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.translated).toBe(5);
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({
+      a: "EXISTING", b: "[ar] Two", c: "[ar] Three", nest: { d: "[ar] Four" }, list: ["[ar] x y", "[ar] z w"], empty: "[ar] Five",
+    });
+  });
+
+  it("an aborted run keeps the previous lock hash of a changed key it did not reach", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One", b: "Two" }));
+    const out = join(dir, "ar.json");
+    const base = { sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context };
+    await translateFile(base);
+    const before = readLockFile(out);
+
+    writeFileSync(src, JSON.stringify({ a: "One!", b: "Two!" }));
+    const aborted = await translateFile({ ...base, ...abortAfter(0) });
+    expect(aborted.aborted).toBe(true);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One!", b: "[ar] Two" });
+    expect(readLockFile(out)["/b"]).toBe(before["/b"]);
+
+    const rerun = await translateFile(base);
+    expect(rerun.changed).toEqual(["/b"]);
+    expect(JSON.parse(readFileSync(out, "utf8")).b).toBe("[ar] Two!");
+  });
+
+  it("an already-aborted signal still writes nothing in a dry run", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One" }));
+    const out = join(dir, "ar.json");
+    const ctl = new AbortController();
+    ctl.abort();
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context, dryRun: true, signal: ctl.signal,
+    });
+    expect(summary.aborted).toBe(true);
+    expect(summary.translated).toBe(0);
+    expect(existsSync(out)).toBe(false);
   });
 });

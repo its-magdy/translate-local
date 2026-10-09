@@ -218,6 +218,8 @@ The prompt also includes few-shot examples showing the model how source-with-sen
 
 **Failure mode (default):** a placeholder mismatch is recorded in the run summary and the source value is written to the target as a fallback (so the output file remains complete and you can grep for un-translated source text). The exit code is non-zero (`2`) if any keys failed, so CI catches it. Pass `--strict` to switch to abort-on-first-failure (the original target file is then left untouched).
 
+Each entry in the `--json` summary's `failed` array has `path` (dotted, e.g. `nav.home`; ambiguous when a key itself contains a dot), `pointer` (the JSON Pointer, `/nav/home`, as in `changed` and `pruned`), `tag` (the error `--strict` would have thrown: `PLACEHOLDER_MISMATCH`, `FILE_INVALID_FORMAT`, or for a failed model call its own tag such as `GLOSSARY_STRICT_MISS`, `ADAPTER_UNAVAILABLE` or `TRANSLATION_FAILED`) and a human-readable `reason`.
+
 ---
 
 ## ICU MessageFormat
@@ -285,6 +287,8 @@ Override all of these with `--translate-all`.
 This is atomic on POSIX filesystems. If `tl` is killed mid-run, the original target file is untouched. The [lock file](#lock-files-changed-source-detection) is written the same way, right after the target. After the run, the tmp file is gone (or, on rename failure, cleaned up best-effort).
 
 `tl` then re-parses the output to confirm it round-trips cleanly. A re-parse failure aborts before the rename — you get an error, not a corrupted file.
+
+**Interrupting a run (library API).** `translateFile()` accepts an `AbortSignal` (`signal`), checked before each key. Once it fires, no further key is translated, but the target and lock are still written (atomically, as above) with the keys finished so far, and the summary has `aborted: true` plus an `Interrupted: …` warning. Keys the run didn't reach are left as they were: a key the target already had keeps its value, and one it didn't have stays absent (as does any map or list left empty), so the app falls back to its default locale instead of rendering a blank `""`, and the next missing-only run translates exactly those keys. In YAML the write template is the source document, so unreached keys are removed from it rather than written with their source text. Their lock entries keep the previous hash, so a changed key that wasn't reached is still re-queued. A dry run writes nothing either way. The model call in flight when the signal fires runs to completion. Under `--strict` a failure still throws and writes nothing: strict runs stay all-or-nothing. The CLI does not pass a signal yet, so Ctrl-C still ends the process without writing.
 
 ---
 
