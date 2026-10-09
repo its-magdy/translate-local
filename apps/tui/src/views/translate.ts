@@ -10,7 +10,7 @@ import { TlError } from "@translate-local/shared/errors";
 import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
-import { makeLangPicker, removeById } from "./widgets";
+import { makeLangPicker, destroyById } from "./widgets";
 import { C } from "../theme";
 
 export interface View {
@@ -143,8 +143,8 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
   statusContainer.add(shortcuts);
 
   function updateStatus(dotColor: string, text: string) {
-    removeById(statusContainer, "status-dot");
-    removeById(statusContainer, "status-text");
+    destroyById(statusContainer, "status-dot");
+    destroyById(statusContainer, "status-text");
     statusContainer.add(new TextRenderable(renderer, { id: "status-dot", content: `● `, fg: dotColor }));
     statusContainer.add(new TextRenderable(renderer, { id: "status-text", content: text + "  ", fg: C.textSecondary }));
   }
@@ -194,14 +194,19 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     }).join("\n");
   }
 
+  // Called per streamed chunk: reuse the text renderable instead of
+  // replacing it, and destroy it only when the output is cleared.
   function updateOutput(text: string) {
-    removeById(outputScroll.content, "output-text");
-    if (text) {
-      const isRtl = isRtlLang(toPicker.getValue());
-      const wrapped = wrapText(text, paneWidth());
-      const content = isRtl ? rtlAlign(wrapped) : wrapped;
-      outputScroll.content.add(new TextRenderable(renderer, { id: "output-text", content }));
+    if (!text) {
+      destroyById(outputScroll.content, "output-text");
+      return;
     }
+    const isRtl = isRtlLang(toPicker.getValue());
+    const wrapped = wrapText(text, paneWidth());
+    const content = isRtl ? rtlAlign(wrapped) : wrapped;
+    const existing = outputScroll.content.getRenderable("output-text");
+    if (existing instanceof TextRenderable) existing.content = content;
+    else outputScroll.content.add(new TextRenderable(renderer, { id: "output-text", content }));
   }
 
   updateStatus(C.textMuted, "Ready");
