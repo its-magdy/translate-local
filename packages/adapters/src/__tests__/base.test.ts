@@ -105,6 +105,21 @@ describe("buildStructuredPrompt", () => {
     );
   });
 
+  test("auto source: uses source-agnostic phrasing instead of the literal \"auto\"", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, sourceLang: "auto" });
+    expect(prompt).toBe(
+      "You are a professional translator into Arabic (ar). Your goal is to accurately convey the meaning and nuances of the original text while adhering to Arabic grammar, vocabulary, and cultural sensitivities.\n" +
+        "Produce only the Arabic translation, without any additional explanations or commentary.\n" +
+        "Please translate the following text into Arabic:\n\n\n" +
+        "The API is ready.",
+    );
+  });
+
+  test("auto source in image mode: does not mention \"auto\"", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, sourceLang: "auto", imageBase64: "abc123" });
+    expect(prompt).toBe("Extract all text from the image and translate it into Arabic (ar). Output only the translation.");
+  });
+
   test("glossary reminder: rendered as target pairs before the translate instruction, source text untouched", () => {
     const req: TranslationRequest = {
       ...baseRequest,
@@ -134,6 +149,12 @@ describe("buildNaturalPrompt", () => {
   test("includes source text", () => {
     const prompt = buildNaturalPrompt(baseRequest);
     expect(prompt).toContain("The API is ready.");
+  });
+
+  test("auto source: does not mention \"auto\"", () => {
+    const prompt = buildNaturalPrompt({ ...baseRequest, sourceLang: "auto" });
+    expect(prompt).not.toContain("auto");
+    expect(prompt).toContain("Translate the following text to ar.");
   });
 
   test("glossary reminder: listed before the text to translate", () => {

@@ -116,7 +116,7 @@ t/
 - **MockAdapter**: Available via `createMockAdapter()` from `@translate-local/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama.
 - **CLI command boilerplate**: wrap command actions in `runAction()` and open stores with `withStore()` from `apps/cli/src/utils/run.ts` — don't hand-roll try/catch/formatError/exit per command. Bulk glossary inserts go through `GlossaryStore.addMany()` (one transaction, not one commit per row).
 - **RTL helpers**: `isRtlLang()` / `hasRtlChars()` / `RTL_LANGS` live in `@translate-local/shared/utils/language` — don't redefine RTL sets or char-class regexes in the apps.
-- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models.
+- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models. Everything after the translate line is translated, so instructions never go into `source`: strict-mode retries pass the missing terms as `glossaryReminder` (source → target pairs) and the builders render them before the text. A `sourceLang` of `auto` is never named in the prompt — the builders switch to source-agnostic phrasing.
 
 ## Testing
 
