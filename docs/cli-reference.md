@@ -481,5 +481,5 @@ the error is a single JSON line on stderr instead:
 {"error":"CONFIG_INVALID","message":"Config file is not valid JSONC: ...","hint":"Fix the syntax in ~/.config/tl/config.jsonc"}
 ```
 
-`error` is the error tag (`UNKNOWN_ERROR` for an unexpected non-`tl` error)
+`error` is the error tag (`TRANSLATION_FAILED` for an unexpected non-`tl` error)
 and `hint` is `null` when there is none.

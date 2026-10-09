@@ -74,5 +74,5 @@ export function formatErrorJson(err: unknown): string {
     const e = err as { tag: string; message: string; hint?: string };
     return JSON.stringify({ error: e.tag, message: e.message, hint: e.hint ?? null });
   }
-  return JSON.stringify({ error: "UNKNOWN_ERROR", message: String(err), hint: null });
+  return JSON.stringify({ error: "TRANSLATION_FAILED", message: String(err), hint: null });
 }
