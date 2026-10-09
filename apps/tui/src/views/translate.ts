@@ -315,7 +315,11 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           if (abort.signal.aborted) return;
           streamBuffer = "";
           updateOutput(result.translated);
-          updateStatus(C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
+          // With no glossary hit the pipeline reports 100%, so only show
+          // coverage when a term matched (images skip the glossary).
+          const glossaryMatched = !imageBase64 && session.glossaryStore.findMatches(textToTranslate, sourceLang, targetLang).length > 0;
+          const coverage = glossaryMatched ? `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ` : "";
+          updateStatus(C.accent, `${coverage}${result.metadata.durationMs}ms`);
         })
         .catch((err: unknown) => {
           if (abort.signal.aborted) return;

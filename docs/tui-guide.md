@@ -27,7 +27,7 @@ The TUI has two tabs, switchable with **Tab** / **Shift+Tab**:
 
 Language selectors at the top control the source and target languages. Source defaults to auto-detect; target defaults to the language in your config (fallback: French).
 
-The status bar at the bottom shows translation progress, glossary coverage, and duration after each translation, or the error and its hint when one fails.
+The status bar at the bottom shows translation progress, then the duration (plus glossary coverage when a glossary term matched) after each translation, or the error and its hint when one fails.
 
 Pressing **Ctrl+T** again while a translation is running cancels it (the model stops generating) and starts a new one.
 
