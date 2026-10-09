@@ -59,7 +59,7 @@ jobs:
             run: |
               bin="$RUNNER_TEMP/tl"
               if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
-              bun build --compile --minify --bytecode --format=esm apps/cli/src/index.ts --outfile "$bin"
+              bun build --compile --minify --sourcemap --bytecode --format=esm apps/cli/src/index.ts --outfile "$bin"
 
               export HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home"
               mkdir -p "$HOME"
