@@ -84,7 +84,7 @@ cd apps/cli && bun link
 To build a release-style binary locally:
 
 ```bash
-cd apps/cli && bun run build:bin
+cd apps/cli && bun run build
 ./dist/tl --version
 ```
 

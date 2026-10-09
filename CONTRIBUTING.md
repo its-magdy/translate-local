@@ -43,7 +43,7 @@ TEST_ADAPTER=1 bun run test
 bun test --cwd packages/core
 bun test packages/core/src/__tests__/pipeline.test.ts
 
-# Type-check sources and tests (the build excludes __tests__)
+# Type-check sources and tests
 bun run typecheck
 ```
 
@@ -51,7 +51,7 @@ bun run typecheck
 
 Before committing any change, run all of these in order:
 
-1. **Build** — `bun run build` must succeed with no errors
+1. **Build** — `bun run build` (compiles the CLI binary to `apps/cli/dist/tl`) must succeed with no errors
 2. **Type-check** — `bun run typecheck` must succeed with no errors
 3. **Tests** — `bun run test` must pass (0 failures)
 4. **Smoke test** — run relevant `tl` commands and confirm expected output
@@ -79,7 +79,7 @@ The subshell keeps the changed `HOME` from leaking into your session. The CLI te
 
 CI runs on every pull request and on pushes to `main`:
 
-- **build and typecheck** — `bun run build` and `bun run typecheck` on Linux
+- **typecheck** — `bun run typecheck` on Linux
 - **test** — `bun run test` on Linux, macOS and Windows, plus a smoke test of the compiled host binary
 - **ci-ok** — the one required check; it passes only when the jobs above passed
 

@@ -58,7 +58,7 @@ export function lockPathFor(outPath: string): string {
 // First 16 hex chars (64 bits) of sha256: plenty to detect a change to one
 // string, and a quarter of the size of the full digest. node:crypto rather than
 // Bun.hash: the lock is committed, so the digest must be identical across
-// runtimes (core also ships a Node build) and versions.
+// runtimes and Bun versions.
 export function hashSource(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 16);
 }
