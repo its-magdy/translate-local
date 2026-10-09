@@ -23,6 +23,7 @@ export interface TranslationRequest {
   imageBase64?: string;     // Base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
+  onChunk?: (chunk: string) => void; // Streaming callback, one call per token
   options?: {
     glossaryMode?: "strict" | "prefer";
   };
@@ -45,6 +46,10 @@ export interface TranslationResult {
   };
 }
 ```
+
+### Streaming (`onChunk`)
+
+When `request.onChunk` is set, the pipeline wants tokens as they arrive. Streaming adapters request a streamed response from the backend, call `onChunk` for each token, and still accumulate the full text for `translated`. Adapters that don't support streaming can ignore the field. The pipeline passes `onChunk` on the first attempt only, so retries never concatenate tokens across attempts.
 
 ### `dispose()`
 
@@ -80,13 +85,20 @@ export function createAdapter(config: AdapterConfig): Adapter {
   switch (backend) {
     case "ollama":
       return new TranslateGemmaLocalAdapter(model, config.ollamaUrl ?? DEFAULT_OLLAMA_URL);
-    default:
-      throw new TlError("CONFIG_INVALID", `Unknown backend: ${backend}`, "Valid backends are: ollama");
+
+    case "mock":
+      return new MockAdapter();
+
+    default: {
+      // Exhaustiveness check
+      const _never: never = backend;
+      throw new TlError("CONFIG_INVALID", `Unknown adapter backend: ${_never}`, "Valid backends are: ollama, mock");
+    }
   }
 }
 ```
 
-To add a new backend type, add a case to this switch.
+`mock` returns the deterministic `MockAdapter` (also available as `createMockAdapter()`); use it in tests so they don't need Ollama. To add a new backend type, add a case to this switch. The `never` check makes the build fail until every `AdapterBackend` member is handled.
 
 ---
 
@@ -137,7 +149,7 @@ export class MyServiceAdapter implements Adapter {
 In `packages/shared/src/types.ts`, extend `AdapterBackend`:
 
 ```typescript
-export type AdapterBackend = "ollama" | "my-service";
+export type AdapterBackend = "ollama" | "mock" | "my-service";
 ```
 
 And add any config fields to `AdapterConfig`:
@@ -160,6 +172,7 @@ import { MyServiceAdapter } from "./my-service";
 export function createAdapter(config: AdapterConfig): Adapter {
   switch (config.backend) {
     case "ollama": ...
+    case "mock": ...
     case "my-service":
       if (!config.myServiceApiKey) {
         throw new TlError("ADAPTER_UNAVAILABLE", "myServiceApiKey is required", "Set MY_SERVICE_API_KEY");
@@ -169,7 +182,16 @@ export function createAdapter(config: AdapterConfig): Adapter {
 }
 ```
 
-### 4. Write a test
+### 4. Make the backend selectable
+
+Registering the backend in the factory does not make it reachable from the CLI. Frontends build the adapter config with `toAdapterConfig(coreConfig, backend?)` from `@translate-local/core/config` (`packages/core/src/config.ts`), which maps the loaded config to an `AdapterConfig` and defaults `backend` to `"ollama"`. Today the only runtime switch is in `apps/cli/src/commands/translate.ts`: the `TL_ADAPTER` environment variable picks `mock`, and any other value (with a warning for unknown ones) falls back to `ollama`. The TUI always uses the default.
+
+To expose your backend:
+
+- Pass it through `toAdapterConfig(config, "my-service")`, and have that function copy your new config fields (for example the API key) into the returned `AdapterConfig`.
+- Extend the `TL_ADAPTER` check in `apps/cli/src/commands/translate.ts` so `TL_ADAPTER=my-service` selects it and is no longer reported as unknown.
+
+### 5. Write a test
 
 ```typescript
 // packages/adapters/src/my-service/index.test.ts

@@ -37,8 +37,8 @@ function lookupEnv(key: string): string {
 // or inject structure.
 // Substitution always yields a string: the env value's *shape* says nothing about
 // the field's type, so `"model": "${TL_MODEL}"` with TL_MODEL=2 must stay "2".
-// Number/boolean fields opt into coercion in configSchema instead (envNumber /
-// envBoolean), where the target type is actually known.
+// Number fields opt into coercion in configSchema instead (envNumber), where
+// the target type is actually known.
 function resolveEnvVars(value: unknown): unknown {
   if (typeof value === "string") {
     return value.replace(/\$\{([^}]+)\}/g, (_, key) => lookupEnv(key));
@@ -93,15 +93,11 @@ function stripJsoncComments(src: string): string {
 // field, not only ones that came from `${VAR}` — a literal "3" in config.jsonc
 // on a number field converts too. That widening is intentional: the field's
 // declared type is the single source of truth for what the value should be.
-// Booleans are matched literally — z.coerce.boolean() is truthiness-based, so
-// it would read "false" as true.
 const envNumber = (inner: z.ZodNumber) =>
   z.preprocess(
     (v) => (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : v),
     inner,
   );
-const envBoolean = () =>
-  z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean());
 
 // .prefault({}) parses the empty object through the inner schema, so each
 // per-field .default() is the single source of truth for that default.
@@ -110,10 +106,8 @@ export const configSchema = z.object({
     type: z.literal("translate-gemma").default("translate-gemma"),
     backend: z.literal("local").default("local"),
     local: z.object({
-      command: z.string().default("ollama"),
       model: z.string().default(DEFAULT_MODEL),
       endpoint: z.string().default(DEFAULT_OLLAMA_URL),
-      keepAlive: envBoolean().default(false),
     }).prefault({}),
   }).prefault({}),
   glossary: z.object({
@@ -172,7 +166,7 @@ export function loadConfig(configPath?: string): CoreConfig {
     // Unquoted ${VAR} substitution (pre-0.4.1) fails JSON.parse here; point at
     // the migration instead of leaving a bare syntax error.
     const hint = /\$\{[^}]*\}/.test(raw)
-      ? `Fix the syntax in ${p}. \${VAR} must be inside a quoted string ("\${VAR}") — a value that is exactly one \${VAR} still loads numbers and booleans with the right type.`
+      ? `Fix the syntax in ${p}. \${VAR} must be inside a quoted string ("\${VAR}") — a value that is exactly one \${VAR} still loads numbers with the right type.`
       : `Fix the syntax in ${p}`;
     throw new TlError(
       "CONFIG_INVALID",
