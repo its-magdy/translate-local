@@ -11,6 +11,10 @@ const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTIN
 const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
 const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
 
+function formatReminder(reminder: { source: string; target: string }): string {
+  return `"${reminder.source}" → "${reminder.target}"`;
+}
+
 function langLabel(code: string): string {
   const name = LANG_NAMES[code.toLowerCase()];
   return name ? `${name} (${code})` : code;
@@ -41,6 +45,10 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
     } else {
       lines.push(`When you encounter <term translation="X">word</term> in the text, replace that word with exactly X — use the exact form provided, without adding articles, inflections, or diacritics. Never output the XML tags themselves.`);
     }
+  }
+
+  if (request.glossaryReminder && request.glossaryReminder.length > 0) {
+    lines.push(`Your translation MUST contain these exact terms: ${request.glossaryReminder.map(formatReminder).join(", ")}.`);
   }
 
   // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
@@ -93,6 +101,13 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
     lines.push("\nUse these specific translations for the following terms:");
     for (const hit of request.glossaryHits) {
       lines.push(`- "${hit.entry.sourceTerm}" → "${hit.entry.targetTerm}"`);
+    }
+  }
+
+  if (request.glossaryReminder && request.glossaryReminder.length > 0) {
+    lines.push("\nThe translation must contain these exact terms:");
+    for (const reminder of request.glossaryReminder) {
+      lines.push(`- ${formatReminder(reminder)}`);
     }
   }
 

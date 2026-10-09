@@ -39,17 +39,17 @@ export async function runPipeline(
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
   let retries = 0;
-  let missingHint: string | undefined;
+  let glossaryReminder: TranslationRequest["glossaryReminder"];
 
   while (true) {
-    const source = isImageMode ? "" : (missingHint ? `${taggedSource}\n\n[Note: ${missingHint}]` : taggedSource);
     const request: TranslationRequest = {
-      source,
+      source: isImageMode ? "" : taggedSource,
       sourceLang,
       targetLang,
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
+      glossaryReminder,
       // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
       onChunk: retries === 0 ? onChunk : undefined,
       options: { glossaryMode },
@@ -70,7 +70,11 @@ export async function runPipeline(
     if (missingTerms.length === 0) return result;
 
     if (glossaryMode === "strict" && retries < maxRetries) {
-      missingHint = `Ensure these terms appear in the translation: ${missingTerms.join(", ")}`;
+      // missingTerms are source terms; the model needs their target translations.
+      glossaryReminder = missingTerms.map((term) => ({
+        source: term,
+        target: hits.find((h) => h.entry.sourceTerm === term)!.entry.targetTerm,
+      }));
       retries++;
       continue;
     }
