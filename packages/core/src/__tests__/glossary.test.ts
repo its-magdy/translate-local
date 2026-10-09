@@ -246,6 +246,27 @@ describe("GlossaryStore", () => {
     expect(entries[0].targetTerm).toBe("واجهة برمجة");
   });
 
+  it("waits for a write lock held by another process instead of failing", async () => {
+    // add() is synchronous, so the lock holder must be a separate process.
+    const script = `
+      import { Database } from "bun:sqlite";
+      const db = new Database(process.argv[1]);
+      db.exec("BEGIN IMMEDIATE");
+      console.log("locked");
+      setTimeout(() => { db.exec("COMMIT"); db.close(); }, 300);
+    `;
+    const proc = Bun.spawn([process.execPath, "-e", script, dbPath], { stdout: "pipe" });
+    try {
+      const reader = proc.stdout.getReader();
+      await reader.read(); // child holds the lock
+      reader.releaseLock();
+      store.add({ sourceTerm: "cache", targetTerm: "ذاكرة", sourceLang: "en", targetLang: "ar" });
+    } finally {
+      await proc.exited;
+    }
+    expect(store.list("en", "ar")).toHaveLength(1);
+  });
+
   it("rejects empty or whitespace-only terms", () => {
     expect(() => store.add({ sourceTerm: "", targetTerm: "x", sourceLang: "en", targetLang: "ar" })).toThrow(/non-empty/);
     expect(() => store.add({ sourceTerm: "x", targetTerm: "  ", sourceLang: "en", targetLang: "ar" })).toThrow(/non-empty/);

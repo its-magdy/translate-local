@@ -34,6 +34,9 @@ export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 export const DEFAULT_CONFIG_PATH = "~/.config/tl/config.jsonc";
 export const DEFAULT_GLOSSARY_DB_PATH = "~/.config/tl/glossary.db";
 export const DEFAULT_CONTEXT_DB_PATH = "~/.config/tl/context.db";
+// How long SQLite waits on a lock held by another process (CLI + TUI open together).
+// Long enough for a context-index migration of a large corpus.
+export const SQLITE_BUSY_TIMEOUT_MS = 30_000;
 export const DEFAULT_GLOSSARY_MODE = "prefer" as const;
 export const DEFAULT_MAX_SNIPPETS = 3;
 // Minimum cosine similarity (0–1) for a context snippet to be used. Picked from
