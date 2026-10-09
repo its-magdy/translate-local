@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   typecheck:
-    name: build and typecheck
+    name: typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,7 +23,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: bun run build
       - run: bun run typecheck
 
   test:
@@ -41,12 +40,9 @@ jobs:
       - uses: ./.github/actions/setup
 
       - parallel:
-          # Tests import workspace packages from src/ (the "bun" export
-          # condition), so they don't need the tsc build; that runs in the
-          # typecheck job. --only skips turbo's test -> build dependency.
           - name: Test
             timeout-minutes: 5
-            run: bun run test --only --log-order=stream
+            run: bun run test --log-order=stream
 
           # Release binaries are only built on tags, so compile the host
           # binary here, with release.yml's flags, and check that it starts,

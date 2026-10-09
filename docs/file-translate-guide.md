@@ -105,7 +105,7 @@ Design notes:
   - Files stay small, about one short line per key.
   - Per target rather than per source because each run syncs one target, and different targets of the same source are synced at different times. A source-level hash would mark a change as "seen" after the first target was updated.
 - **Keys are JSON Pointers** (RFC 6901: `/nav/home`, `/items/0`, `/a~1b` for key `a/b`), so a key containing dots (`"nav.home"`) can't collide with a nested path. Array index `0` and an object key `"0"` share the pointer `/0`. This only matters if a value switches between array and object while keeping the same text, which is harmless (the key is just not re-queued).
-- **Hash:** SHA-256 via `node:crypto` rather than `Bun.hash`, truncated to 64 bits. The lock is a committed artifact, so the digest has to be identical across runtimes and versions, and `@translate-local/core` also ships a Node build. 64 bits is ample for detecting that one string changed, and a quarter of the size of the full digest.
+- **Hash:** SHA-256 via `node:crypto` rather than `Bun.hash`, truncated to 64 bits. The lock is a committed artifact, so the digest has to be identical across runtimes and versions. 64 bits is ample for detecting that one string changed, and a quarter of the size of the full digest.
 - **Deterministic output:** keys sorted, 2-space indent, trailing newline, so it diffs cleanly in git.
 - **Atomic write:** the same temp-file + validate + rename as the target, done *after* the target. A crash in between costs at most one redundant re-translation, never a missed one.
 
