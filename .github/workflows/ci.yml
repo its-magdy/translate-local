@@ -49,7 +49,8 @@ jobs:
             run: bun run test --only --log-order=stream
 
           # Release binaries are only built on tags, so compile the host
-          # binary here and check that it starts and can open bun:sqlite.
+          # binary here, with release.yml's flags, and check that it starts,
+          # can open bun:sqlite, and can draw the TUI.
           - name: Compiled binary smoke test
             shell: bash
             env:
@@ -58,7 +59,7 @@ jobs:
             run: |
               bin="$RUNNER_TEMP/tl"
               if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
-              bun build --compile --minify apps/cli/src/index.ts --outfile "$bin"
+              bun build --compile --minify --sourcemap --bytecode --format=esm apps/cli/src/index.ts --outfile "$bin"
 
               export HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home"
               mkdir -p "$HOME"
@@ -70,6 +71,18 @@ jobs:
               "$bin" glossary add --source hello --target bonjour --from en --to fr
               "$bin" glossary list --from en --to fr | grep -q bonjour
               "$bin" "hello world" --from en --to fr
+
+              # No arguments starts the TUI, which loads OpenTUI's native library
+              # through bun:ffi. Without a terminal it still draws a frame, then
+              # waits for input until killed. (macOS has no `timeout`.)
+              out="$RUNNER_TEMP/tui.out"
+              "$bin" < /dev/null > "$out" 2>&1 &
+              tui=$!
+              for _ in $(seq 40); do grep -q Glossary "$out" && break; sleep 0.5; done
+              # kill fails if the TUI already exited: a crash whose stack trace
+              # quotes source mentioning Glossary must not pass.
+              kill "$tui" 2>/dev/null || { echo "::error::the TUI exited on its own"; cat "$out"; exit 1; }
+              grep -q Glossary "$out" || { echo "::error::the TUI did not draw its first frame"; cat "$out"; exit 1; }
 
   # The one required status check: passes only when every job above passed,
   # so jobs can be added or renamed without touching branch protection.
