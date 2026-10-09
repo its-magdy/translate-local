@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.5] - 2026-10-09
+
+### Fixed
+- **Removing glossary tags from model output no longer slows down on unclosed tags.** The cleanup took time proportional to the square of the output length when the model left `<term>` tags unclosed (100,000 of them took about 25 s). It now takes linear time, with the same result.
+- **Release assets no longer include source map files.** v0.5.4 uploaded a `.map` file next to each binary (and listed it in `SHA256SUMS`). The map is already embedded in the binary, so stack traces still point at the TypeScript sources.
+- **zsh completions** escape backslashes in option descriptions. No current description contains one, so the generated script is unchanged.
+
+### Changed
+- **Release binaries carry signed build provenance.** Check a download with `gh attestation verify <file> --repo its-magdy/translate-local`. Releases are also immutable from this version on, so a published binary can't be replaced.
+
 ## [0.5.4] - 2026-10-09
 
 ### Fixed

@@ -11,7 +11,7 @@
     },
     "apps/cli": {
       "name": "@translate-local/cli",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "bin": {
         "tl": "./src/index.ts",
       },
@@ -29,7 +29,7 @@
     },
     "apps/tui": {
       "name": "@translate-local/tui",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "dependencies": {
         "@opentui/core": "0.5.17",
         "@translate-local/adapters": "workspace:*",
@@ -43,7 +43,7 @@
     },
     "packages/adapters": {
       "name": "@translate-local/adapters",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "devDependencies": {
         "@translate-local/shared": "workspace:*",
         "@types/bun": "^1.4.2",
@@ -55,7 +55,7 @@
     },
     "packages/core": {
       "name": "@translate-local/core",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "dependencies": {
         "@formatjs/icu-messageformat-parser": "^3.5.21",
         "yaml": "^2.9.1",
@@ -73,7 +73,7 @@
     },
     "packages/npm-tl": {
       "name": "@translate-local/tl",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "bin": {
         "tl": "bin/tl.js",
       },
@@ -87,27 +87,27 @@
     },
     "packages/npm-tl-darwin-arm64": {
       "name": "@translate-local/tl-darwin-arm64",
-      "version": "0.5.4",
+      "version": "0.5.5",
     },
     "packages/npm-tl-darwin-x64": {
       "name": "@translate-local/tl-darwin-x64",
-      "version": "0.5.4",
+      "version": "0.5.5",
     },
     "packages/npm-tl-linux-arm64": {
       "name": "@translate-local/tl-linux-arm64",
-      "version": "0.5.4",
+      "version": "0.5.5",
     },
     "packages/npm-tl-linux-x64": {
       "name": "@translate-local/tl-linux-x64",
-      "version": "0.5.4",
+      "version": "0.5.5",
     },
     "packages/npm-tl-win32-x64": {
       "name": "@translate-local/tl-win32-x64",
-      "version": "0.5.4",
+      "version": "0.5.5",
     },
     "packages/shared": {
       "name": "@translate-local/shared",
-      "version": "0.5.4",
+      "version": "0.5.5",
       "devDependencies": {
         "@types/bun": "^1.4.2",
         "typescript": "^6.0",
