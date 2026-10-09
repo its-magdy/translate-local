@@ -43,5 +43,5 @@ Out of scope:
 
 ## Verifying a release
 
-- **Binary downloads:** every release includes a `SHA256SUMS` file. Compare your download against it, for example `sha256sum -c --ignore-missing SHA256SUMS` on Linux or `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS. `install.sh` does this check itself and aborts on a mismatch.
+- **Binary downloads:** every release includes a `SHA256SUMS` file. Compare your download against it, for example `sha256sum -c --ignore-missing SHA256SUMS` on Linux or `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS. `install.sh` does this check itself and aborts on a mismatch. Releases after 0.5.4 also carry signed build provenance for each binary: `gh attestation verify <file> --repo its-magdy/translate-local` confirms it was built by this repository's release workflow.
 - **npm packages:** `@translate-local/tl` and its platform packages are published from GitHub Actions with [provenance](https://docs.npmjs.com/generating-provenance-statements). In a project that has them installed, run `npm audit signatures` to check the registry signatures and provenance attestations.
