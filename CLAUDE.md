@@ -122,7 +122,7 @@ t/
 
 - Unit + integration tests (pipeline, SQLite, MockAdapter) always run: `bun run test`
 - Adapter tests (real Ollama): `TEST_ADAPTER=1 bun run test`
-- CLI tests: spawn binary, assert stdout/exit codes
+- CLI tests: spawn binary, assert stdout/exit codes. `apps/cli`'s test script passes `--timeout 30000` because each test cold-starts `bun`, which takes 1-2.5 s on Windows runners (a 5 s default flaked once); keep that flag if you run the CLI suite another way, and don't lower it without checking Windows timings
 - CI (`.github/workflows/ci.yml`) runs tests on Linux, macOS and Windows and smoke-tests the compiled host binary; `ci-ok` is the only required check, so add new jobs to its `needs`. For Windows: set `USERPROFILE` wherever a test overrides `HOME`, build expected paths with `join()`, and use `db.query()` rather than unfinalized `db.prepare()` statements (they keep the SQLite file open after `close()`, so deleting it fails with EBUSY)
 
 ## Reference Docs
