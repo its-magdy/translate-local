@@ -22,7 +22,7 @@ export function makeTranslateCommand(): Command {
     .option("--from <lang>", "Source language (BCP-47 or auto)")
     .option("--to <lang>", "Target language (BCP-47)")
     .option("--image <path>", "Path to an image file to translate")
-    .addOption(new Option("--glossary <mode>", "Glossary mode").choices(["prefer", "strict"]).default("prefer"))
+    .addOption(new Option("--glossary <mode>", "Glossary mode (default: glossary.mode from config, else prefer)").choices(["prefer", "strict"]))
     .option("--json", "Output JSON")
     .option("--file <path>", "Path to a JSON or YAML catalog to translate")
     .option("--out <path>", "Output path for file mode (default: locale-token replacement)")
@@ -35,14 +35,14 @@ export function makeTranslateCommand(): Command {
     .option("--translate-all", "File mode: bypass URL/email/semver/all-caps skip heuristics")
     .option("--max-size <mb>", "File mode: max source file size in MB", "20")
     .action((text: string | undefined, opts: {
-      from?: string; to?: string; image?: string; glossary: "prefer" | "strict"; json?: boolean;
+      from?: string; to?: string; image?: string; glossary?: "prefer" | "strict"; json?: boolean;
       file?: string; out?: string; force?: boolean; dryRun?: boolean; prune?: boolean; allowLargePrune?: boolean;
       format: FormatOpt; strict?: boolean; translateAll?: boolean; maxSize: string;
     }) => runAction(async () => {
       const config = loadConfig();
       const sourceLang = opts.from ?? config.defaults.sourceLang;
       const targetLang = opts.to ?? config.defaults.targetLang;
-      const glossaryMode = opts.glossary;
+      const glossaryMode = opts.glossary ?? config.glossary.mode;
 
       const inputModes = [text, opts.image, opts.file].filter(Boolean).length;
       if (inputModes === 0) {

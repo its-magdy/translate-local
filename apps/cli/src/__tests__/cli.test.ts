@@ -294,6 +294,22 @@ describe("tl CLI", () => {
       expect(r.stderr).toContain("Glossary: 100% covered");
     });
 
+    it("uses glossary.mode from the config unless --glossary is passed", () => {
+      const env = { TL_ADAPTER: "mock", ...ownHome() };
+      mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
+      writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), JSON.stringify({ glossary: { mode: "strict" } }));
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
+      // The glossary matches "Cache" case-insensitively, but MockAdapter's
+      // substitution is case-sensitive, so the term is always missing.
+      const strict = run(["translate", "clear the Cache", "--to", "ar"], env);
+      expect(strict.exitCode).toBe(1);
+      expect(strict.stderr).toContain("GLOSSARY_STRICT_MISS");
+
+      const prefer = run(["translate", "clear the Cache", "--to", "ar", "--glossary", "prefer"], env);
+      expect(prefer.exitCode).toBe(0);
+      expect(prefer.stderr).toContain("missing: cache");
+    });
+
     it("accepts flag-first invocation: tl --to ar <text>", () => {
       const r = run(["--to", "ar", "hello world"], { TL_ADAPTER: "mock" });
       expect(r.exitCode).toBe(0);

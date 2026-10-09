@@ -316,7 +316,7 @@ See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 |------|---------|-------------|
 | `--from <lang>` | `auto` | Source language (BCP-47) |
 | `--to <lang>` | `ar` | Target language (BCP-47) |
-| `--glossary <mode>` | `prefer` | `prefer` or `strict` |
+| `--glossary <mode>` | config `glossary.mode` (`prefer`) | `prefer` or `strict` |
 | `--json` | off | Output JSON |
 
 **Environment variables:**
