@@ -1,4 +1,4 @@
-import { SelectRenderable, type CliRenderer } from "@opentui/core";
+import { SelectRenderable, type CliRenderer, type Renderable } from "@opentui/core";
 import { LANG_NAMES } from "@translate-local/shared/constants";
 
 const PICKER_LANGUAGES = [
@@ -14,6 +14,13 @@ const LANG_OPTIONS_WITH_AUTO = PICKER_LANGUAGES.map(l => ({
 
 // "auto" is always index 0 by construction.
 const LANG_OPTIONS_NO_AUTO = LANG_OPTIONS_WITH_AUTO.slice(1);
+
+// remove() takes the child object (OpenTUI >= 0.4.3); keep the old
+// remove-by-id behavior, which was a no-op when the id was absent.
+export function removeById(parent: Renderable, id: string): void {
+  const child = parent.getRenderable(id);
+  if (child) parent.remove(child);
+}
 
 export interface LangPicker {
   renderable: SelectRenderable;
