@@ -17,28 +17,30 @@ function color(s: string, c: string, stream: NodeJS.WriteStream = process.stdout
 // `stream` is the stream the caller will write to — color must gate on ITS
 // TTY-ness (metadata goes to stderr, so gating on stdout would leak ANSI codes
 // into redirected stderr logs). includeTranslation: false emits metadata only,
-// for callers that already streamed the translation to stdout.
+// for callers that already streamed the translation to stdout. glossaryMatched:
+// false omits the coverage line (a result with no glossary hits reports 100%).
 export function formatTranslationResult(
   result: TranslationResult,
   json: boolean,
   stream: NodeJS.WriteStream = process.stdout,
-  { includeTranslation = true } = {},
+  { includeTranslation = true, glossaryMatched = true } = {},
 ): string {
   if (json) return JSON.stringify(result, null, 2);
 
   const lines: string[] = [];
   if (includeTranslation) lines.push(result.translated);
 
-  const pct = Math.round(result.glossaryCoverage * 100);
-  const covStr = result.missingTerms.length === 0
-    ? color(`Glossary: ${pct}% covered ✓`, GREEN, stream)
-    : color(`Glossary: ${pct}% covered (missing: ${result.missingTerms.join(", ")})`, YELLOW, stream);
-
   if (result.metadata.retries > 0) {
     lines.push(color(`  retried ${result.metadata.retries}x`, DIM, stream));
   }
   lines.push(color(`  ${result.metadata.adapter} · ${result.metadata.durationMs}ms`, DIM, stream));
-  lines.push(covStr);
+
+  if (glossaryMatched) {
+    const pct = Math.round(result.glossaryCoverage * 100);
+    lines.push(result.missingTerms.length === 0
+      ? color(`Glossary: ${pct}% covered ✓`, GREEN, stream)
+      : color(`Glossary: ${pct}% covered (missing: ${result.missingTerms.join(", ")})`, YELLOW, stream));
+  }
 
   return lines.join("\n");
 }
@@ -64,4 +66,13 @@ export function formatError(err: unknown): string {
     return lines.join("\n");
   }
   return color(`Error: ${String(err)}`, RED);
+}
+
+/** The --json error shape: `{ error: <tag>, message, hint }` (hint null when absent). */
+export function formatErrorJson(err: unknown): string {
+  if (err && typeof err === "object" && "tag" in err) {
+    const e = err as { tag: string; message: string; hint?: string };
+    return JSON.stringify({ error: e.tag, message: e.message, hint: e.hint ?? null });
+  }
+  return JSON.stringify({ error: "TRANSLATION_FAILED", message: String(err), hint: null });
 }

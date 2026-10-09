@@ -19,7 +19,8 @@ export type ErrorTag =
   | "FILE_INVALID_FORMAT"
   | "PLACEHOLDER_MISMATCH"
   | "PRUNE_REFUSED"
-  | "SAME_LOCALE";
+  | "SAME_LOCALE"
+  | "CANCELLED";
 
 export class TlError extends Error {
   readonly tag: ErrorTag;
@@ -31,4 +32,9 @@ export class TlError extends Error {
     this.tag = tag;
     this.hint = hint;
   }
+}
+
+/** A translation stopped by the caller's AbortSignal (as opposed to a timeout). */
+export function cancelledError(cause?: unknown): TlError {
+  return new TlError("CANCELLED", "Translation cancelled", "The request was aborted before it finished; run it again to retry.", cause);
 }

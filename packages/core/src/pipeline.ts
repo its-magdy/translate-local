@@ -1,6 +1,6 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
-import { TlError } from "@translate-local/shared/errors";
+import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { matchTerms, type GlossaryStore } from "./glossary";
 
 export interface PipelineOptions {
@@ -9,6 +9,8 @@ export interface PipelineOptions {
   contextSnippets?: string[];
   imageBase64?: string;
   onChunk?: (chunk: string) => void;
+  /** Forwarded to every attempt; once aborted, no further attempt starts (throws CANCELLED). */
+  signal?: AbortSignal;
   /** Caller-supplied glossary hits merged with the in-pipeline lookup. */
   extraGlossaryHits?: GlossaryHit[];
   /**
@@ -27,7 +29,7 @@ export async function runPipeline(
   glossaryStore: GlossaryStore,
   options: PipelineOptions = {},
 ): Promise<TranslationResult> {
-  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, extraGlossaryHits = [], glossaryEntries } = options;
+  const { glossaryMode = "prefer", maxRetries = 2, contextSnippets = [], imageBase64, onChunk, signal, extraGlossaryHits = [], glossaryEntries } = options;
   const isImageMode = !!imageBase64;
 
   const realHits = isImageMode
@@ -42,6 +44,7 @@ export async function runPipeline(
   let glossaryReminder: TranslationRequest["glossaryReminder"];
 
   while (true) {
+    if (signal?.aborted) throw cancelledError();
     const request: TranslationRequest = {
       source: isImageMode ? "" : taggedSource,
       sourceLang,
@@ -52,6 +55,7 @@ export async function runPipeline(
       glossaryReminder,
       // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
       onChunk: retries === 0 ? onChunk : undefined,
+      signal,
       options: { glossaryMode },
     };
 

@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
-import { TlError } from "@translate-local/shared/errors";
+import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { DEFAULT_OLLAMA_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { buildStructuredPrompt } from "../base";
 
@@ -33,6 +33,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
     // Idle timeout: bounds how long we wait for Ollama to send *something*
     // (headers, then each body chunk), not the total generation time, so a
     // long translation that keeps streaming tokens is never cut off.
+    // A caller's request.signal aborts the same fetch and reports CANCELLED.
     const controller = new AbortController();
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -44,8 +45,13 @@ export class TranslateGemmaLocalAdapter implements Adapter {
       }, this.timeoutMs);
     };
     resetTimer();
+    const signal = request.signal ? AbortSignal.any([controller.signal, request.signal]) : controller.signal;
     try {
-      return await this.generate(request, controller.signal, resetTimer, () => timedOut);
+      return await this.generate(request, signal, resetTimer, () => timedOut);
+    } catch (err) {
+      // Whatever error the abort surfaced as, a caller abort wins.
+      if (request.signal?.aborted) throw cancelledError(err);
+      throw err;
     } finally {
       clearTimeout(timer);
     }

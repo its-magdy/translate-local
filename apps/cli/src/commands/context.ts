@@ -38,7 +38,7 @@ export function makeContextCommand(): Command {
           console.log(`${s.id.slice(0, 8)}  ${s.path}  (${s.fileCount} files, indexed: ${s.indexedAt ?? "never"})`);
         }
       }
-    }));
+    }, { json: opts.json }));
 
   cmd
     .command("remove <path>")

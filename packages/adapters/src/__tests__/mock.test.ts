@@ -55,6 +55,11 @@ describe("MockAdapter", () => {
     expect(result.translated).toBe("[image] label");
   });
 
+  test("throws CANCELLED for an already-aborted signal", async () => {
+    const adapter = new MockAdapter();
+    await expect(adapter.translate(makeRequest({ signal: AbortSignal.abort() }))).rejects.toMatchObject({ tag: "CANCELLED" });
+  });
+
   test("dispose resolves without error", async () => {
     const adapter = new MockAdapter();
     await expect(adapter.dispose()).resolves.toBeUndefined();

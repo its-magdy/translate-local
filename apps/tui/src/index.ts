@@ -6,10 +6,9 @@ import {
   TabSelectRenderableEvents,
   type CliRenderer,
 } from "@opentui/core";
-import { loadConfig, toAdapterConfig } from "@translate-local/core/config";
-import { GlossaryStore } from "@translate-local/core/glossary";
-import { createAdapter } from "@translate-local/adapters/factory";
-import type { Adapter } from "@translate-local/shared/types";
+import { loadConfig } from "@translate-local/core/config";
+import type { GlossaryStore } from "@translate-local/core/glossary";
+import { TranslationSession } from "@translate-local/core/session";
 import type { CoreConfig } from "@translate-local/core/config";
 import { TlError } from "@translate-local/shared/errors";
 import { makeTranslateView } from "./views/translate";
@@ -18,17 +17,16 @@ import { C } from "./theme";
 
 export interface AppState {
   config: CoreConfig;
-  adapter: Adapter;
+  session: TranslationSession;
   glossaryStore: GlossaryStore;
   renderer: CliRenderer;
 }
 
 export async function runTui(): Promise<void> {
-  let config: CoreConfig, adapter: Adapter, glossaryStore: GlossaryStore, renderer: CliRenderer;
+  let config: CoreConfig, session: TranslationSession, renderer: CliRenderer;
   try {
     config = loadConfig();
-    adapter = createAdapter(toAdapterConfig(config));
-    glossaryStore = new GlossaryStore(config.glossary.dbPath);
+    session = new TranslationSession(config);
     renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 });
   } catch (err) {
     const msg = err instanceof TlError ? err.hint : String(err);
@@ -36,12 +34,17 @@ export async function runTui(): Promise<void> {
     process.exit(1);
   }
 
-  const state: AppState = { config, adapter, glossaryStore, renderer };
+  const state: AppState = { config, session, glossaryStore: session.glossaryStore, renderer };
 
+  // Restore the terminal first so quitting looks instant, then cancel any
+  // in-flight translation and give the model unload up to 3 s.
+  let tearingDown = false;
   async function teardown() {
-    try { glossaryStore.close(); } catch {}
-    try { await Promise.race([adapter.dispose(), new Promise(r => setTimeout(r, 3000))]); } catch {}
+    if (tearingDown) return;
+    tearingDown = true;
+    session.abort();
     try { renderer.destroy(); } catch {}
+    try { await Promise.race([session.dispose(), new Promise(r => setTimeout(r, 3000))]); } catch {}
     process.exit(0);
   }
 

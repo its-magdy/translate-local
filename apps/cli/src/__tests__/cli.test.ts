@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pkg from "../../package.json" with { type: "json" };
@@ -199,6 +199,32 @@ describe("tl CLI", () => {
     });
   });
 
+  describe("--json errors", () => {
+    // A broken config makes every command fail before it does any work.
+    const brokenHome = () => {
+      mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
+      writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), "{ not json");
+      return ownHome();
+    };
+
+    for (const args of [["glossary", "list", "--json"], ["glossary", "export", "--json"], ["context", "list", "--json"], ["translate", "hi", "--json"]]) {
+      it(`${args.join(" ")} reports errors as JSON on stderr`, () => {
+        const r = run(args, brokenHome());
+        expect(r.exitCode).toBe(1);
+        const parsed = JSON.parse(r.stderr);
+        expect(parsed.error).toBe("CONFIG_INVALID");
+        expect(parsed.message).toContain("not valid JSONC");
+        expect(typeof parsed.hint).toBe("string");
+      });
+    }
+
+    it("without --json, errors stay plain text", () => {
+      const r = run(["glossary", "list"], brokenHome());
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("Error [CONFIG_INVALID]");
+    });
+  });
+
   describe("translate help", () => {
     it("shows translate help", () => {
       const r = run(["translate", "--help"]);
@@ -237,7 +263,8 @@ describe("tl CLI", () => {
       // MockAdapter doesn't stream — the final translation must still be printed
       expect(r.stdout).toContain("[ar] hello world");
       expect(r.stderr).toContain("mock");
-      expect(r.stderr).toContain("Glossary:");
+      // No glossary term matched, so there is no coverage to report.
+      expect(r.stderr).not.toContain("Glossary:");
     });
 
     it("keeps stdout pipe-safe: translation only, metadata on stderr", () => {
@@ -264,6 +291,23 @@ describe("tl CLI", () => {
       const r = run(["translate", "clear the cache", "--to", "ar"], env);
       expect(r.exitCode).toBe(0);
       expect(r.stdout.trim()).toBe("[ar] clear the ذاكرة");
+      expect(r.stderr).toContain("Glossary: 100% covered");
+    });
+
+    it("uses glossary.mode from the config unless --glossary is passed", () => {
+      const env = { TL_ADAPTER: "mock", ...ownHome() };
+      mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
+      writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), JSON.stringify({ glossary: { mode: "strict" } }));
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
+      // The glossary matches "Cache" case-insensitively, but MockAdapter's
+      // substitution is case-sensitive, so the term is always missing.
+      const strict = run(["translate", "clear the Cache", "--to", "ar"], env);
+      expect(strict.exitCode).toBe(1);
+      expect(strict.stderr).toContain("GLOSSARY_STRICT_MISS");
+
+      const prefer = run(["translate", "clear the Cache", "--to", "ar", "--glossary", "prefer"], env);
+      expect(prefer.exitCode).toBe(0);
+      expect(prefer.stderr).toContain("missing: cache");
     });
 
     it("accepts flag-first invocation: tl --to ar <text>", () => {

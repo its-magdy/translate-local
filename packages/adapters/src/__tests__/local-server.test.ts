@@ -156,6 +156,30 @@ describe("TranslateGemmaLocalAdapter against a fake Ollama", () => {
     expect(err.message).toContain("model 'm' not found");
   });
 
+  test("a caller abort mid-stream throws CANCELLED, not a timeout", async () => {
+    const endpoint = serveParts([{ text: line({ response: "a", done: false }) }], false);
+    const controller = new AbortController();
+    const req = makeRequest({ signal: controller.signal, onChunk: () => controller.abort() });
+    const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint, 5000), req);
+    expect(err.tag).toBe("CANCELLED");
+  });
+
+  test("a caller abort before headers throws CANCELLED", async () => {
+    const endpoint = serveJson({ response: "late" }, 2000);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    const start = Date.now();
+    const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint, 5000), makeRequest({ signal: controller.signal }));
+    expect(err.tag).toBe("CANCELLED");
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  test("an already-aborted signal throws CANCELLED", async () => {
+    const endpoint = serveJson({ response: "x", done: true });
+    const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint), makeRequest({ signal: AbortSignal.abort() }));
+    expect(err.tag).toBe("CANCELLED");
+  });
+
   test("without onChunk: a stalled stream times out", async () => {
     const endpoint = serveParts([{ text: line({ response: "a", done: false }) }], false);
     const err = await translateError(new TranslateGemmaLocalAdapter("m", endpoint, 150), makeRequest());

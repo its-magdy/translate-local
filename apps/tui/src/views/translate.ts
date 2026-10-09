@@ -5,9 +5,9 @@ import {
   TextareaRenderable,
   type CliRenderer,
 } from "@opentui/core";
-import { runPipeline } from "@translate-local/core/pipeline";
+import { readImageBase64 } from "@translate-local/core/session";
 import { TlError } from "@translate-local/shared/errors";
-import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
+import { IMAGE_EXT_RE, IMAGE_EXT_PATTERN } from "@translate-local/shared/constants";
 import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
 import { makeLangPicker, destroyById } from "./widgets";
@@ -19,7 +19,7 @@ export interface View {
 }
 
 export function makeTranslateView(state: AppState, parent: BoxRenderable): View {
-  const { renderer, adapter, glossaryStore, config } = state;
+  const { renderer, session, config } = state;
 
   const container = new BoxRenderable(renderer, {
     id: "translate-view",
@@ -233,24 +233,18 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
   let activeAbort: AbortController | null = null;
 
+  function showError(err: unknown) {
+    updateStatus(C.red, err instanceof TlError ? `${err.message} — ${err.hint}` : `Error: ${String(err)}`);
+  }
+
   // Read an image file to base64. On failure, set the error status (unless the
   // request was aborted) and return null.
   async function loadImage(path: string, abort: AbortController): Promise<string | null> {
     updateStatus(C.amber, "Translating image…");
     try {
-      const file = Bun.file(path);
-      if (!(await file.exists())) {
-        if (!abort.signal.aborted) updateStatus(C.red, `Image not found: ${path}`);
-        return null;
-      }
-      if (file.size > IMAGE_MAX_BYTES) {
-        if (!abort.signal.aborted) updateStatus(C.red, `Image exceeds 10 MB: ${path}`);
-        return null;
-      }
-      const buf = await file.arrayBuffer();
-      return Buffer.from(buf).toString("base64");
+      return await readImageBase64(path);
     } catch (err) {
-      if (!abort.signal.aborted) updateStatus(C.red, `Image error: ${err instanceof Error ? err.message : String(err)}`);
+      if (!abort.signal.aborted) showError(err);
       return null;
     }
   }
@@ -261,7 +255,7 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
     const raw = sourceTextarea.plainText.trim();
     if (!raw) return;
 
-    // Cancel any in-flight translation so the new one takes over
+    // Cancel any in-flight translation (in Ollama too) so the new one takes over
     if (activeAbort) activeAbort.abort();
     const abort = new AbortController();
     activeAbort = abort;
@@ -304,8 +298,9 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
 
       let streamBuffer = "";
       let lastRenderMs = 0;
-      runPipeline(textToTranslate, sourceLang, targetLang, adapter, glossaryStore, {
+      session.translate(textToTranslate, sourceLang, targetLang, {
         imageBase64,
+        signal: abort.signal,
         onChunk: (chunk) => {
           if (abort.signal.aborted) return;
           streamBuffer += chunk;
@@ -320,12 +315,15 @@ export function makeTranslateView(state: AppState, parent: BoxRenderable): View 
           if (abort.signal.aborted) return;
           streamBuffer = "";
           updateOutput(result.translated);
-          updateStatus(C.accent, `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ${result.metadata.durationMs}ms`);
+          // With no glossary hit the pipeline reports 100%, so only show
+          // coverage when a term matched (images skip the glossary).
+          const glossaryMatched = !imageBase64 && session.glossaryStore.findMatches(textToTranslate, sourceLang, targetLang).length > 0;
+          const coverage = glossaryMatched ? `Coverage ${Math.round(result.glossaryCoverage * 100)}%  ·  ` : "";
+          updateStatus(C.accent, `${coverage}${result.metadata.durationMs}ms`);
         })
         .catch((err: unknown) => {
           if (abort.signal.aborted) return;
-          const msg = err instanceof TlError ? `[${err.tag}] ${err.hint}` : String(err);
-          updateStatus(C.red, `Error: ${msg}`);
+          showError(err);
         })
         .finally(() => {
           if (activeAbort === abort) activeAbort = null;

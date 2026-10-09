@@ -24,6 +24,7 @@ export interface TranslationRequest {
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
   onChunk?: (chunk: string) => void; // Streaming callback, one call per token
+  signal?: AbortSignal;              // Caller cancellation
   options?: {
     glossaryMode?: "strict" | "prefer";
   };
@@ -50,6 +51,10 @@ export interface TranslationResult {
 ### Streaming (`onChunk`)
 
 When `request.onChunk` is set, the pipeline wants tokens as they arrive. Streaming adapters request a streamed response from the backend, call `onChunk` for each token, and still accumulate the full text for `translated`. Adapters that don't support streaming can ignore the field. The pipeline passes `onChunk` on the first attempt only, so retries never concatenate tokens across attempts.
+
+### Cancellation (`signal`)
+
+When `request.signal` aborts (a superseded TUI translation, Ctrl+C in the CLI), stop the backend request (pass the signal to `fetch`) and throw `cancelledError()` from `@translate-local/shared/errors` (tag `CANCELLED`), so callers can tell a cancel from a timeout or backend failure. At minimum, throw it when the signal is already aborted on entry. The pipeline starts no further attempt once the signal is aborted.
 
 ### `dispose()`
 
