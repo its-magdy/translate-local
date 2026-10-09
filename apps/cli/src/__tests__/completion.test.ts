@@ -8,7 +8,7 @@ import { Command } from "commander";
 import { SUPPORTED_LANGUAGES } from "@translate-local/shared/constants";
 import { SPEC } from "../completions/spec";
 import { generateBash } from "../completions/bash";
-import { generateZsh } from "../completions/zsh";
+import { generateZsh, zq } from "../completions/zsh";
 import { generateFish } from "../completions/fish";
 
 import { makeTranslateCommand } from "../commands/translate";
@@ -122,6 +122,12 @@ describe("tl completion", () => {
       const result = shellSyntaxCheck("zsh", ["-n", path]);
       if (result === "missing") return;
       expect(result).toBe("ok");
+    });
+
+    it("zsh escaping doubles backslashes before adding its own", () => {
+      expect(zq("a\\b")).toBe("a\\\\b");
+      expect(zq("it's [x]")).toBe("it'\\''s [x\\]");
+      expect(zq("\\]")).toBe("\\\\\\]");
     });
 
     it("fish output passes `fish --no-execute`", () => {

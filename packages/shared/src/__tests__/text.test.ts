@@ -91,6 +91,32 @@ describe("stripGlossaryTags", () => {
     const input = '<term translation="تعلم الآلة">machine learning<term translation="شبكة عصبية">neural network';
     expect(stripGlossaryTags(input)).toBe("تعلم الآلةشبكة عصبية");
   });
+
+  test("matches the original regex implementation on random tag soup", () => {
+    const regexStrip = (text: string) =>
+      text
+        .replace(/<term[^>]*>(.*?)<\/term>/gs, "$1")
+        .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
+        .replace(/<term[^>]*>/g, "");
+    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", " ", "\n", "<b>"];
+    let seed = 42;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed % n;
+    };
+    for (let i = 0; i < 5000; i++) {
+      let input = "";
+      for (let j = rand(12); j > 0; j--) input += pieces[rand(pieces.length)];
+      expect(stripGlossaryTags(input)).toBe(regexStrip(input));
+    }
+  });
+
+  test("runs in linear time on many unclosed tags", () => {
+    const start = performance.now();
+    stripGlossaryTags("<term>".repeat(100_000));
+    stripGlossaryTags("<term".repeat(100_000));
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
 });
 
 describe("normalizeWhitespace", () => {
