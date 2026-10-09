@@ -46,7 +46,7 @@ Installs `tl` and keeps it up to date with `brew upgrade tl`.
 curl -fsSL https://raw.githubusercontent.com/its-magdy/translate-local/main/install.sh | sh
 ```
 
-Auto-detects your platform and architecture, installs to `~/.local/bin`, and patches your shell profile. No `sudo` required.
+Auto-detects your platform and architecture, installs to `~/.local/bin`, and patches your shell profile. No `sudo` required. The binary is verified against the release's `SHA256SUMS` before it is installed; on a mismatch (or if no SHA-256 tool is available) the script aborts without installing anything.
 
 ### npm / bun
 
@@ -70,7 +70,7 @@ Download for your platform from the [latest release](https://github.com/its-magd
 | Linux — ARM64 | `tl-linux-arm64` |
 | Windows — x64 | `tl-windows-x64.exe` |
 
-Verify downloads against the `SHA256SUMS` file from the same release.
+Verify manual downloads against the `SHA256SUMS` file from the same release (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS).
 
 ### Develop / contribute to tl
 
