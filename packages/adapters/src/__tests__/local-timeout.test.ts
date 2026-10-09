@@ -23,14 +23,10 @@ describe("TranslateGemmaLocalAdapter timeout", () => {
     globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
       const signal = init?.signal as AbortSignal | undefined;
       if (signal) {
-        // Poll instead of awaiting the abort event: on Windows, awaiting it
-        // hangs bun test (oven-sh/bun#33334).
         await new Promise<void>((_, reject) => {
-          const poll = setInterval(() => {
-            if (!signal.aborted) return;
-            clearInterval(poll);
+          signal.addEventListener("abort", () => {
             reject(new DOMException("The operation timed out.", "TimeoutError"));
-          }, 1);
+          });
         });
       }
       return new Response("", { status: 200 });

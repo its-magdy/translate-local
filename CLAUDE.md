@@ -123,7 +123,7 @@ t/
 - Unit + integration tests (pipeline, SQLite, MockAdapter) always run: `bun run test`
 - Adapter tests (real Ollama): `TEST_ADAPTER=1 bun run test`
 - CLI tests: spawn binary, assert stdout/exit codes
-- CI (`.github/workflows/ci.yml`) runs tests on Linux, macOS and Windows and smoke-tests the compiled host binary; `ci-ok` is the only required check, so add new jobs to its `needs`. For Windows: set `USERPROFILE` wherever a test overrides `HOME`, build expected paths with `join()`, use `db.query()` rather than unfinalized `db.prepare()` statements (they keep the SQLite file open after `close()`, so deleting it fails with EBUSY), and don't await an `AbortSignal` `abort` event in tests (hangs `bun test` on Windows, oven-sh/bun#33334)
+- CI (`.github/workflows/ci.yml`) runs tests on Linux, macOS and Windows and smoke-tests the compiled host binary; `ci-ok` is the only required check, so add new jobs to its `needs`. For Windows: set `USERPROFILE` wherever a test overrides `HOME`, build expected paths with `join()`, and use `db.query()` rather than unfinalized `db.prepare()` statements (they keep the SQLite file open after `close()`, so deleting it fails with EBUSY)
 
 ## Reference Docs
 
