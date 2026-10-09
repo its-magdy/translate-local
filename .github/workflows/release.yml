@@ -82,6 +82,9 @@ jobs:
 
       # Each target builds on its native OS so platform-specific optional deps
       # (opentui, bun:sqlite) install and bundle correctly without cross-compilation hacks.
+      # --bytecode precompiles the JS so the binary starts faster. On its own it
+      # emits cjs, which rejects the CLI's top-level await, hence --format=esm.
+      # ci.yml compiles its smoke-test binary with the same flags; keep them in sync.
       - name: Compile binary
         shell: bash
         working-directory: apps/cli
@@ -91,7 +94,7 @@ jobs:
           if [ "${{ matrix.target.name }}" = "windows-x64" ]; then
             OUT="${OUT}.exe"
           fi
-          bun build --compile --minify \
+          bun build --compile --minify --bytecode --format=esm \
             --target=${{ matrix.target.bun }} \
             ./src/index.ts \
             --outfile "$OUT"
