@@ -15,11 +15,12 @@ const LANG_OPTIONS_WITH_AUTO = PICKER_LANGUAGES.map(l => ({
 // "auto" is always index 0 by construction.
 const LANG_OPTIONS_NO_AUTO = LANG_OPTIONS_WITH_AUTO.slice(1);
 
-// remove() takes the child object (OpenTUI >= 0.4.3); keep the old
-// remove-by-id behavior, which was a no-op when the id was absent.
-export function removeById(parent: Renderable, id: string): void {
-  const child = parent.getRenderable(id);
-  if (child) parent.remove(child);
+// Destroy (not just remove) a child by id; a missing id is a no-op.
+// remove() only detaches: the renderable stays in OpenTUI's global registry
+// with its native text buffers and yoga node until destroy(), which also
+// detaches it from the parent.
+export function destroyById(parent: Renderable, id: string): void {
+  parent.getRenderable(id)?.destroyRecursively();
 }
 
 export interface LangPicker {
