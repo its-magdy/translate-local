@@ -70,7 +70,7 @@ Download for your platform from the [latest release](https://github.com/its-magd
 | Linux — ARM64 | `tl-linux-arm64` |
 | Windows — x64 | `tl-windows-x64.exe` |
 
-Verify manual downloads against the `SHA256SUMS` file from the same release (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS).
+Verify manual downloads against the `SHA256SUMS` file from the same release (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS). Since 0.5.5 you can also check that a binary was built by this repository's release workflow: `gh attestation verify tl-darwin-arm64 --repo its-magdy/translate-local`.
 
 ### Develop / contribute to tl
 
