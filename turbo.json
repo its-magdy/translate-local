@@ -2,18 +2,20 @@
   "$schema": "https://turbo.build/schema.json",
   "agentGuidance": false,
   "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["transit"],
       "outputs": ["dist/**"]
     },
     "test": {
-      "dependsOn": ["build"],
+      "dependsOn": ["transit"],
       "env": ["TEST_ADAPTER"]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["transit"]
     },
-    "lint": {},
     "dev": {
       "cache": false,
       "persistent": true
