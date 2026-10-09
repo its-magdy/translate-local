@@ -100,6 +100,9 @@ jobs:
             --target=${{ matrix.target.bun }} \
             ./src/index.ts \
             --outfile "$OUT"
+          # The binary embeds the map; the separate .map copy would otherwise
+          # match the upload glob and ship as a release asset.
+          rm -f "$OUT.map"
 
       # Ad-hoc sign macOS binaries so Gatekeeper doesn't kill them on Apple Silicon / macOS 15+.
       # This uses the free "-s -" identity (no Apple Developer account needed).
