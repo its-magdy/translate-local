@@ -263,7 +263,8 @@ describe("tl CLI", () => {
       // MockAdapter doesn't stream — the final translation must still be printed
       expect(r.stdout).toContain("[ar] hello world");
       expect(r.stderr).toContain("mock");
-      expect(r.stderr).toContain("Glossary:");
+      // No glossary term matched, so there is no coverage to report.
+      expect(r.stderr).not.toContain("Glossary:");
     });
 
     it("keeps stdout pipe-safe: translation only, metadata on stderr", () => {
@@ -290,6 +291,7 @@ describe("tl CLI", () => {
       const r = run(["translate", "clear the cache", "--to", "ar"], env);
       expect(r.exitCode).toBe(0);
       expect(r.stdout.trim()).toBe("[ar] clear the ذاكرة");
+      expect(r.stderr).toContain("Glossary: 100% covered");
     });
 
     it("accepts flag-first invocation: tl --to ar <text>", () => {

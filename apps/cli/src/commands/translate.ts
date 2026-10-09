@@ -197,8 +197,11 @@ export function makeTranslateCommand(): Command {
             } else {
               process.stdout.write("\n");
             }
+            // Same lookup the pipeline did (images skip the glossary): coverage
+            // is only worth a line when some term actually matched.
+            const glossaryMatched = !imageBase64 && session.glossaryStore.findMatches(text ?? "", sourceLang, targetLang).length > 0;
             // Metadata on stderr so stdout carries only the translation (pipe-safe).
-            const meta = formatTranslationResult(result, false, process.stderr, { includeTranslation: false });
+            const meta = formatTranslationResult(result, false, process.stderr, { includeTranslation: false, glossaryMatched });
             process.stderr.write(`${meta}\n`);
           }
         }
