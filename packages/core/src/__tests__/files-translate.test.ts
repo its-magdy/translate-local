@@ -905,6 +905,55 @@ describe("translateFile", () => {
     })).rejects.toThrow(/ICU MessageFormat in an i18next catalog at pick/);
   });
 
+  it("failed entries carry a JSON Pointer and the tag --strict would throw", async () => {
+    const src = writeSrc("en.json", JSON.stringify({
+      "a.b": "Hello {{name}}",
+      nest: { x: "{n, plural, one {# item}}" },
+    }));
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context,
+    });
+    expect(summary.failed.map(({ path, pointer, tag }) => ({ path, pointer, tag }))).toEqual([
+      { path: "a.b", pointer: "/a.b", tag: "PLACEHOLDER_MISMATCH" },
+      { path: "nest.x", pointer: "/nest/x", tag: "FILE_INVALID_FORMAT" },
+    ]);
+
+    const dry = await translateFile({
+      sourcePath: src, outPath: join(dir, "fr.json"),
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context, dryRun: true,
+    });
+    expect(dry.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([{ pointer: "/nest/x", tag: "FILE_INVALID_FORMAT" }]);
+  });
+
+  it("a pipeline failure is tagged with the pipeline error's tag", async () => {
+    class ThrowingAdapter extends MockAdapter {
+      async translate(): Promise<never> {
+        throw new Error("boom");
+      }
+    }
+    const src = writeSrc("en.json", JSON.stringify({ a: "Hello", b: "{n, number} items" }));
+    const summary = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new ThrowingAdapter(), glossary, context,
+    });
+    expect(summary.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([
+      { pointer: "/a", tag: "TRANSLATION_FAILED" },
+      { pointer: "/b", tag: "TRANSLATION_FAILED" },
+    ]);
+
+    glossary.add({ sourceTerm: "Hello", targetTerm: "XYZ", sourceLang: "en", targetLang: "ar" });
+    const strictMiss = await translateFile({
+      sourcePath: src, outPath: join(dir, "ar2.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter: new DropSentinelAdapter(), glossary, context, glossaryMode: "strict", mode: "force",
+    });
+    expect(strictMiss.failed.find((f) => f.pointer === "/a")?.tag).toBe("GLOSSARY_STRICT_MISS");
+  });
+
   it("malformed ICU falls back to source by default", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
     const out = join(dir, "ar.json");

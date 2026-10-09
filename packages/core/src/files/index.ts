@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, realpathSync } from "fs";
 import { extname, resolve, dirname, basename, join } from "path";
 import type { Adapter, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { TlError } from "@translate-local/shared/errors";
+import { TlError, type ErrorTag } from "@translate-local/shared/errors";
 import { DEFAULT_MAX_SNIPPETS, DEFAULT_MIN_RELEVANCE } from "@translate-local/shared/constants";
 import type { GlossaryStore } from "../glossary";
 import type { ContextStore } from "../context";
@@ -64,7 +64,11 @@ export type FileTranslateSummary = {
   totalLeaves: number;
   translated: number;
   skipped: { count: number; reasons: Record<string, number> };
-  failed: { path: string; reason: string }[];
+  /**
+   * `path` is the dotted key path (ambiguous when a key contains a dot);
+   * `pointer` is the unambiguous JSON Pointer; `tag` is the error --strict would throw.
+   */
+  failed: { path: string; pointer: string; tag: ErrorTag; reason: string }[];
   /** Keys re-queued because their source value changed since the last run (per the lock file). */
   changed: string[];
   /** Target paths removed (or that would be, under dryRun) by prune. */
@@ -154,6 +158,13 @@ class UnitFailed extends Error {
   ) {
     super(message);
   }
+}
+
+// The tag --strict would throw for this failure: a pipeline error is rethrown
+// as-is, and one that isn't a TlError reaches the CLI as TRANSLATION_FAILED.
+function failureTag(err: UnitFailed): ErrorTag {
+  if (err.pipelineError === undefined) return err.tag;
+  return err.pipelineError instanceof TlError ? err.pipelineError.tag : "TRANSLATION_FAILED";
 }
 
 // translategemma reliably honors <term> tags from the glossary path; routing
@@ -544,8 +555,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   // Records a key that could not be translated and falls back to its source.
   // Its lock hash is not refreshed, so a later run still sees a changed source.
-  const fail = (p: PendingTranslation, pathStr: string, reason: string): void => {
-    summary.failed.push({ path: pathStr, reason });
+  const fail = (p: PendingTranslation, pathStr: string, reason: string, tag: ErrorTag): void => {
+    summary.failed.push({ path: pathStr, pointer: lockKey(p.path), tag, reason });
     failedKeys.add(lockKey(p.path));
     if (!dryRun) p.set(p.source);
   };
@@ -601,13 +612,13 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
         );
       }
       icuInI18next++;
-      fail(p, pathStr, reason);
+      fail(p, pathStr, reason, "FILE_INVALID_FORMAT");
       continue;
     }
 
     if (dryRun) {
       if (isICU && !parsesAsICU(p.source)) {
-        fail(p, pathStr, `Invalid ICU MessageFormat at ${pathStr}`);
+        fail(p, pathStr, `Invalid ICU MessageFormat at ${pathStr}`, "FILE_INVALID_FORMAT");
       } else {
         summary.translated++;
       }
@@ -621,7 +632,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       if (!(err instanceof UnitFailed)) throw err;
       if (continueOnError) {
         // Fall back to source so every key has a value; user can grep source text to find failures.
-        fail(p, pathStr, err.message);
+        fail(p, pathStr, err.message, failureTag(err));
         continue;
       }
       if (err.pipelineError !== undefined) throw err.pipelineError;

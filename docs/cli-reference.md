@@ -127,10 +127,12 @@ tl translate --file en.json --to ar --strict
 ```json
 {
   "contentFormat": "vanilla",
-  "totalLeaves": 12,
+  "totalLeaves": 13,
   "translated": 10,
   "skipped": { "count": 2, "reasons": { "url": 1, "all-caps-short": 1 } },
-  "failed": [],
+  "failed": [
+    { "path": "nav.greeting", "pointer": "/nav/greeting", "tag": "PLACEHOLDER_MISMATCH", "reason": "Placeholder mismatch at nav.greeting (attempt 10/10) — missing: [{{name}}], extra: []" }
+  ],
   "changed": ["/nav/home"],
   "pruned": [],
   "warnings": [],
@@ -138,6 +140,8 @@ tl translate --file en.json --to ar --strict
   "outPath": "/path/to/ar.json"
 }
 ```
+
+Each `failed` entry keeps the dotted `path` and adds the JSON Pointer `pointer` (unambiguous when a key contains a dot) and `tag`, the error `--strict` would have thrown. The source value was written as the fallback for each.
 
 See [`docs/file-translate-guide.md`](file-translate-guide.md) for deeper coverage of format detection, sync semantics, edge cases, and refused-format rationales.
 

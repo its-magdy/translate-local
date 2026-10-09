@@ -218,6 +218,8 @@ The prompt also includes few-shot examples showing the model how source-with-sen
 
 **Failure mode (default):** a placeholder mismatch is recorded in the run summary and the source value is written to the target as a fallback (so the output file remains complete and you can grep for un-translated source text). The exit code is non-zero (`2`) if any keys failed, so CI catches it. Pass `--strict` to switch to abort-on-first-failure (the original target file is then left untouched).
 
+Each entry in the `--json` summary's `failed` array has `path` (dotted, e.g. `nav.home`; ambiguous when a key itself contains a dot), `pointer` (the JSON Pointer, `/nav/home`, as in `changed` and `pruned`), `tag` (the error `--strict` would have thrown: `PLACEHOLDER_MISMATCH`, `FILE_INVALID_FORMAT`, or for a failed model call its own tag such as `GLOSSARY_STRICT_MISS`, `ADAPTER_UNAVAILABLE` or `TRANSLATION_FAILED`) and a human-readable `reason`.
+
 ---
 
 ## ICU MessageFormat
