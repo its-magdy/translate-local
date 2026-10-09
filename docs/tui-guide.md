@@ -27,7 +27,11 @@ The TUI has two tabs, switchable with **Tab** / **Shift+Tab**:
 
 Language selectors at the top control the source and target languages. Source defaults to auto-detect; target defaults to the language in your config (fallback: French).
 
-The status bar at the bottom shows translation progress, glossary coverage, and duration after each translation.
+The status bar at the bottom shows translation progress, glossary coverage, and duration after each translation, or the error and its hint when one fails.
+
+Pressing **Ctrl+T** again while a translation is running cancels it (the model stops generating) and starts a new one.
+
+Translations use the same settings as the CLI: `TL_ADAPTER`, the glossary mode and retries from your config, and snippets from your [context sources](context-guide.md).
 
 ### Image translation
 
@@ -81,7 +85,7 @@ Navigate the list with **Up/Down** arrows, then press **Ctrl+D** to delete the s
 
 ## Exit
 
-Quitting gracefully unloads the model from memory and closes the database. Use **Ctrl+Q** or **Ctrl+C**.
+Quitting restores the terminal immediately, cancels any running translation, then unloads the model from memory (waiting at most 3 s) and closes the databases. Use **Ctrl+Q** or **Ctrl+C**.
 
 ---
 

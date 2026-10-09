@@ -48,7 +48,13 @@ tl translate --file en.json --to ar          # see File mode
 timing, glossary coverage) goes to **stderr**. Token-by-token streaming happens
 only when stdout is an interactive terminal — piped or redirected stdout
 (`tl ... > out.txt`, `tl ... | grep`) receives exactly the final translation,
-once, so pipes and `$(tl ...)` substitution are always safe.
+once, so pipes and `$(tl ...)` substitution are always safe. The
+`Glossary: N% covered` line appears only when a glossary term matched the
+input.
+
+**Ctrl+C:** interrupting a translation (`SIGINT`, or `SIGTERM`) cancels the
+request, unloads the model (waiting at most 3 s) and exits `130` (`143` for
+`SIGTERM`). A second Ctrl+C exits immediately.
 
 **JSON output shape (string / image mode):**
 
@@ -464,5 +470,16 @@ the limitations above.
 |------|---------|
 | `0` | Success |
 | `1` | Error (adapter failure, glossary strict miss, config invalid, etc.) |
+| `2` | File mode: some keys failed and fell back to the source value |
+| `130` / `143` | Interrupted by `SIGINT` (Ctrl+C) / `SIGTERM` |
 
 Error messages are printed to stderr with an actionable hint when available.
+With `--json` (`translate`, `glossary list`, `glossary export`, `context list`)
+the error is a single JSON line on stderr instead:
+
+```json
+{"error":"CONFIG_INVALID","message":"Config file is not valid JSONC: ...","hint":"Fix the syntax in ~/.config/tl/config.jsonc"}
+```
+
+`error` is the error tag (`UNKNOWN_ERROR` for an unexpected non-`tl` error)
+and `hint` is `null` when there is none.
