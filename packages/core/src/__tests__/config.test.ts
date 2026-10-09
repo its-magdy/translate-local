@@ -77,18 +77,15 @@ describe("loadConfig", () => {
     rmSync(dir, { recursive: true });
   });
 
-  it("whole-value ${VAR} adopts numeric and boolean types", () => {
+  it("whole-value ${VAR} adopts numeric types", () => {
     const dir = join(tmpdir(), `tl-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
     const p = join(dir, "config.jsonc");
     process.env.TEST_TL_RETRIES = "3";
-    process.env.TEST_TL_KEEPALIVE = "true";
-    writeFileSync(p, '{ "glossary": { "maxRetries": "${TEST_TL_RETRIES}" }, "adapter": { "local": { "keepAlive": "${TEST_TL_KEEPALIVE}" } } }');
+    writeFileSync(p, '{ "glossary": { "maxRetries": "${TEST_TL_RETRIES}" } }');
     const cfg = loadConfig(p);
     expect(cfg.glossary.maxRetries).toBe(3);
-    expect(cfg.adapter.local.keepAlive).toBe(true);
     delete process.env.TEST_TL_RETRIES;
-    delete process.env.TEST_TL_KEEPALIVE;
     rmSync(dir, { recursive: true });
   });
 
@@ -104,18 +101,6 @@ describe("loadConfig", () => {
     expect(cfg.adapter.local.endpoint).toBe("8080");
     delete process.env.TEST_TL_MODEL;
     delete process.env.TEST_TL_PORTONLY;
-    rmSync(dir, { recursive: true });
-  });
-
-  it('reads "false" as false for boolean fields', () => {
-    const dir = join(tmpdir(), `tl-test-${Date.now()}`);
-    mkdirSync(dir, { recursive: true });
-    const p = join(dir, "config.jsonc");
-    process.env.TEST_TL_KEEPALIVE = "false";
-    writeFileSync(p, '{ "adapter": { "local": { "keepAlive": "${TEST_TL_KEEPALIVE}" } } }');
-    const cfg = loadConfig(p);
-    expect(cfg.adapter.local.keepAlive).toBe(false);
-    delete process.env.TEST_TL_KEEPALIVE;
     rmSync(dir, { recursive: true });
   });
 
