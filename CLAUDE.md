@@ -96,7 +96,7 @@ t/
 - **Unified versioning**: all packages share a single version number, bumped together on each release.
 - Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
 - A single root `CHANGELOG.md` tracks all changes (no per-package changelogs).
-- When completing a feature, bump the version in **all** `package.json` files (the CLI reads its `--version` from `apps/cli/package.json`) and update the root `CHANGELOG.md`.
+- Feature and fix PRs leave versions and `CHANGELOG.md` alone. A release PR (`chore(release): prepare X.Y.Z`) bumps the version in **all** `package.json` files (the CLI reads its `--version` from `apps/cli/package.json`), refreshes `bun.lock` and adds the root `CHANGELOG.md` entry; after it merges, push the `vX.Y.Z` tag. See CONTRIBUTING.md's Releases section.
 - Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
 
 ## Key Patterns
