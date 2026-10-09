@@ -79,7 +79,9 @@ jobs:
               "$bin" < /dev/null > "$out" 2>&1 &
               tui=$!
               for _ in $(seq 40); do grep -q Glossary "$out" && break; sleep 0.5; done
-              kill "$tui" 2>/dev/null || true
+              # kill fails if the TUI already exited: a crash whose stack trace
+              # quotes source mentioning Glossary must not pass.
+              kill "$tui" 2>/dev/null || { echo "::error::the TUI exited on its own"; cat "$out"; exit 1; }
               grep -q Glossary "$out" || { echo "::error::the TUI did not draw its first frame"; cat "$out"; exit 1; }
 
   # The one required status check: passes only when every job above passed,
