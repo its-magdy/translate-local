@@ -9,7 +9,7 @@ import type { GlossaryEntry } from "@translate-local/shared/types";
 import { isRtlLang, hasRtlChars } from "@translate-local/shared/utils/language";
 import type { AppState } from "../index";
 import type { View } from "./translate";
-import { makeLangPicker } from "./widgets";
+import { makeLangPicker, removeById } from "./widgets";
 import { C } from "../theme";
 
 export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
@@ -117,14 +117,14 @@ export function makeGlossaryView(state: AppState, parent: BoxRenderable): View {
 
   function refreshList() {
     for (const child of [...listContainer.getChildren()]) {
-      listContainer.remove(child.id);
+      listContainer.remove(child);
     }
     try {
       entries = glossaryStore.list();
     } catch {
       entries = [];
     }
-    footer.remove("glossary-entry-count");
+    removeById(footer, "glossary-entry-count");
     footer.add(new TextRenderable(renderer, {
       id: "glossary-entry-count",
       content: `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`,
