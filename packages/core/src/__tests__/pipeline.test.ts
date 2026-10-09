@@ -158,4 +158,40 @@ describe("runPipeline", () => {
     expect(result.missingTerms).toHaveLength(0);
     expect(result.translated).toContain("واجهة برمجة");
   });
+
+  it("forwards the signal to every attempt", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    const signals: (AbortSignal | undefined)[] = [];
+    const missAdapter = {
+      async translate(req: any) {
+        signals.push(req.signal);
+        return { ...(await new MockAdapter().translate(req)), translated: "[ar] untranslated" };
+      },
+      async dispose() {},
+    };
+    const controller = new AbortController();
+    await expect(
+      runPipeline("The API", "en", "ar", missAdapter as any, store, { glossaryMode: "strict", maxRetries: 2, signal: controller.signal }),
+    ).rejects.toMatchObject({ tag: "GLOSSARY_STRICT_MISS" });
+    expect(signals).toEqual([controller.signal, controller.signal, controller.signal]);
+  });
+
+  it("stops retrying once the signal is aborted", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    const controller = new AbortController();
+    let calls = 0;
+    // Ignores the signal itself, so only the pipeline can stop the retries.
+    const missAdapter = {
+      async translate(req: any) {
+        calls++;
+        controller.abort();
+        return { ...(await new MockAdapter().translate({ ...req, signal: undefined })), translated: "[ar] untranslated" };
+      },
+      async dispose() {},
+    };
+    await expect(
+      runPipeline("The API", "en", "ar", missAdapter as any, store, { glossaryMode: "strict", maxRetries: 2, signal: controller.signal }),
+    ).rejects.toMatchObject({ tag: "CANCELLED" });
+    expect(calls).toBe(1);
+  });
 });

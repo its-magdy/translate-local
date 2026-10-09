@@ -10,6 +10,8 @@ export interface TranslationRequest {
   /** Strict-mode retries: glossary terms the previous attempt left out, rendered as instructions (never appended to `source`). */
   glossaryReminder?: { source: string; target: string }[];
   onChunk?: (chunk: string) => void;
+  /** Caller cancellation: adapters stop the request and throw `cancelledError()` (tag `CANCELLED`). */
+  signal?: AbortSignal;
   options?: {
     glossaryMode?: "strict" | "prefer";
   };

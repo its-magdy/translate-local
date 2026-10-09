@@ -1,4 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import { cancelledError } from "@translate-local/shared/errors";
 
 /**
  * Deterministic mock adapter for testing.
@@ -9,6 +10,7 @@ export class MockAdapter implements Adapter {
   readonly name = "mock";
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
+    if (request.signal?.aborted) throw cancelledError();
     const start = Date.now();
 
     let translated = request.imageBase64
