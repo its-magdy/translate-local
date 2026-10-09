@@ -8,7 +8,7 @@ import type { ContextStore } from "../context";
 import { runPipeline } from "../pipeline";
 import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } from "./detect";
 import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
-import { readYaml, writeYaml, type YamlReadResult } from "./yaml";
+import { readYaml, writeYaml, deleteYamlPath, type YamlReadResult } from "./yaml";
 import { diffForSync, makeEmptyTargetLike, pruneTarget, type PendingTranslation, type SyncMode } from "./sync";
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
 import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices } from "./placeholders";
@@ -124,6 +124,22 @@ function sameFile(sourcePath: string, outPath: string): boolean {
 
 function isMap(v: JsonValue): v is { [k: string]: JsonValue } {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// Removes the value at `path`, then any map or array left empty above it.
+function deletePath(root: JsonValue, path: (string | number)[]): void {
+  for (let n = path.length; n > 0; n--) {
+    const parent = getAtPath(root, path.slice(0, n - 1));
+    const seg = path[n - 1];
+    if (Array.isArray(parent) && typeof seg === "number" && seg < parent.length) {
+      parent.splice(seg, 1);
+    } else if (parent !== undefined && isMap(parent) && typeof seg === "string" && seg in parent) {
+      delete parent[seg];
+    } else {
+      return;
+    }
+    if ((Array.isArray(parent) ? parent.length : Object.keys(parent).length) > 0) return;
+  }
 }
 
 function countValues(node: JsonValue): number {
@@ -490,6 +506,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     diffSource = plurals.data;
     if (yamlRead) regenerateYamlPlurals(yamlRead.doc, sourceLang, targetLang);
   }
+  const existingTarget = targetData !== undefined;
   targetData ??= makeEmptyTargetLike(diffSource);
 
 
@@ -516,6 +533,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     }
   }
   const unsyncedKeys = new Set<string>();
+  // Keys an abort never reached, to remove from the YAML write template.
+  const unreachedYamlPaths: (string | number)[][] = [];
 
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
@@ -588,15 +607,18 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     if (signal?.aborted) {
       summary.aborted = true;
       summary.warnings.push(`Interrupted: ${pending.length - i} of ${pending.length} key(s) not translated. Re-run to translate them.`);
-      for (const q of pending.slice(i)) {
+      // Reverse order, so removing an array element never shifts one still to visit.
+      for (const q of pending.slice(i).reverse()) {
         // Their source isn't synced: keep each key's previous lock hash so a
         // changed key is still re-queued next run.
         unsyncedKeys.add(lockKey(q.path));
-        // A key the target lacks is written as "" (missing to the next run):
-        // the YAML write template is the source document, so an absent key
-        // would otherwise be written with its source text.
-        const existing = getAtPath(targetData, q.path);
-        if (!dryRun && (existing === undefined || existing === null)) q.set("");
+        // A key the target file lacks stays absent, so the app falls back to its
+        // default locale ("" would render blank); one it has keeps its value.
+        const existing = existingTarget ? getAtPath(targetData, q.path) : undefined;
+        if (existing === undefined) deletePath(targetData, q.path);
+        // writeYaml keeps the source document's value wherever the data has none
+        // (null included), so drop those keys from the write template too.
+        if (existing === undefined || existing === null) unreachedYamlPaths.push(q.path);
       }
       break;
     }
@@ -697,6 +719,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   try {
     if (parseFormat === "yaml") {
       if (localeRoot) renameYamlRootKey(yamlRead!.doc, localeRoot.rename);
+      for (const path of unreachedYamlPaths) deleteYamlPath(yamlRead!.doc, path);
       writeYaml(outPath, yamlRead!.doc, yamlRead!.meta, targetData);
     } else {
       writeJson(outPath, targetData, jsonMeta!);

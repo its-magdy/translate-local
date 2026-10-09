@@ -1776,7 +1776,7 @@ describe("translateFile", () => {
   }
 
   it("an aborted run writes the leaves completed so far and the next run picks up the rest", async () => {
-    const src = writeSrc("en.json", JSON.stringify({ a: "One", b: "Two", c: "Three" }, null, 2));
+    const src = writeSrc("en.json", JSON.stringify({ a: "One", nest: { b: "Two", c: "Three" }, list: ["x y", "z w"] }, null, 2));
     const out = join(dir, "ar.json");
     const summary = await translateFile({
       sourcePath: src, outPath: out,
@@ -1786,8 +1786,10 @@ describe("translateFile", () => {
     });
     expect(summary.aborted).toBe(true);
     expect(summary.translated).toBe(1);
-    expect(summary.warnings.some((w) => /Interrupted: 2 of 3 key\(s\) not translated/.test(w))).toBe(true);
-    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", b: "", c: "" });
+    expect(summary.warnings.some((w) => /Interrupted: 4 of 5 key\(s\) not translated/.test(w))).toBe(true);
+    // Unreached keys stay absent (apps fall back to the default locale; "" would render blank),
+    // and so do the containers left empty.
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One" });
     expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
 
     const rerun = await translateFile({
@@ -1796,15 +1798,15 @@ describe("translateFile", () => {
       adapter, glossary, context,
     });
     expect(rerun.aborted).toBe(false);
-    expect(rerun.translated).toBe(2);
-    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", b: "[ar] Two", c: "[ar] Three" });
-    expect(Object.keys(readLockFile(out))).toEqual(["/a", "/b", "/c"]);
+    expect(rerun.translated).toBe(4);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", nest: { b: "[ar] Two", c: "[ar] Three" }, list: ["[ar] x y", "[ar] z w"] });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a", "/list/0", "/list/1", "/nest/b", "/nest/c"]);
   });
 
   it("an aborted YAML run never writes source text for keys it did not reach", async () => {
-    const src = writeSrc("en.yml", "a: One\nb: Two\nc: Three\n");
+    const src = writeSrc("en.yml", "a: One\nb: Two\nc: Three\nnest:\n  d: Four\nlist:\n  - x y\n  - z w\nempty: Five\n");
     const out = join(dir, "ar.yml");
-    writeFileSync(out, "a: EXISTING\n");
+    writeFileSync(out, "a: EXISTING\nempty: \"\"\n");
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
@@ -1812,8 +1814,19 @@ describe("translateFile", () => {
       ...abortAfter(0),
     });
     expect(summary.aborted).toBe(true);
-    // The write template is the source document: an absent key would keep its source value.
-    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", c: "" });
+    // The write template is the source document: unreached keys are removed from it
+    // (with the containers left empty), never written with their source text.
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", empty: "" });
+
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.translated).toBe(5);
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({
+      a: "EXISTING", b: "[ar] Two", c: "[ar] Three", nest: { d: "[ar] Four" }, list: ["[ar] x y", "[ar] z w"], empty: "[ar] Five",
+    });
   });
 
   it("an aborted run keeps the previous lock hash of a changed key it did not reach", async () => {

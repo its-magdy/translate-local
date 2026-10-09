@@ -203,6 +203,42 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
   }
 }
 
+/**
+ * Removes the node at `path` from the write template, then any map or sequence
+ * left empty above it. writeYaml keeps the template's (source) value for a key
+ * the data lacks, so a key that must stay absent has to go from the template.
+ * Keys match by String(key), as in apply().
+ */
+export function deleteYamlPath(doc: Document.Parsed, path: (string | number)[]): void {
+  const chain: unknown[] = [doc.contents];
+  for (const seg of path.slice(0, -1)) {
+    const node = chain[chain.length - 1];
+    const next = isMap(node)
+      ? node.items.find((item) => keyString(item.key) === String(seg))?.value
+      : isSeq(node) ? node.items[seg as number] : undefined;
+    if (next === undefined || next === null) return;
+    chain.push(next);
+  }
+  for (let n = path.length; n > 0; n--) {
+    const node = chain[n - 1];
+    const seg = path[n - 1];
+    if (isMap(node)) {
+      const idx = node.items.findIndex((item) => keyString(item.key) === String(seg));
+      if (idx < 0) return;
+      node.items.splice(idx, 1);
+    } else if (isSeq(node) && typeof seg === "number" && seg < node.items.length) {
+      node.items.splice(seg, 1);
+    } else {
+      return;
+    }
+    if (node.items.length > 0) return;
+  }
+}
+
+function keyString(key: unknown): string {
+  return isScalar(key) ? String((key as Scalar).value) : String(key);
+}
+
 export function writeYaml(path: string, doc: Document.Parsed, meta: YamlMeta, data: JsonValue): void {
   applyToDoc(doc, data);
   let text = doc.toString({ indent: meta.indent, lineWidth: 0 });
