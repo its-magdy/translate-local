@@ -17,7 +17,7 @@ import { classifyValue } from "./skip";
 import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
 import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
 import { sampleRegex } from "./plurals";
-import { walkLeaves, type JsonValue } from "./walk";
+import { walkLeaves, getAtPath, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
   sourcePath: string;
@@ -57,6 +57,13 @@ export type FileTranslateOptions = {
    */
   allowLargePrune?: boolean;
   onProgress?: (info: { done: number; total: number; path: string }) => void;
+  /**
+   * Checked before each leaf. Once aborted, no further leaf is translated; the
+   * target and lock are still written with the leaves completed so far (not in
+   * a dry run) and the summary has `aborted: true`. The signal is not forwarded
+   * to the pipeline, so an in-flight model call finishes first.
+   */
+  signal?: AbortSignal;
 };
 
 export type FileTranslateSummary = {
@@ -76,6 +83,8 @@ export type FileTranslateSummary = {
   warnings: string[];
   /** i18next plural forms translated without the sample count meant to set their grammatical number. */
   pluralFallbacks: number;
+  /** True when `signal` stopped the run early; the remaining keys were left for the next run. */
+  aborted: boolean;
   outPath: string;
   /** Set when the source's root locale key (Rails `en:`) was renamed to the target locale. */
   rootLocaleKey?: RootLocaleRename;
@@ -366,6 +375,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     prune = false,
     allowLargePrune = false,
     onProgress,
+    signal,
   } = opts;
 
   if (sourceLang !== "auto" && sourceLang === targetLang) {
@@ -505,7 +515,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       guardPrune(before - countValues(targetData), before, topKeysBefore, targetData);
     }
   }
-  const failedKeys = new Set<string>();
+  const unsyncedKeys = new Set<string>();
 
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
@@ -526,6 +536,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     pruned: pruned.map(lockKey),
     warnings: [],
     pluralFallbacks: 0,
+    aborted: false,
     outPath,
     ...(localeRoot && { rootLocaleKey: localeRoot.rename }),
   };
@@ -557,7 +568,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // Its lock hash is not refreshed, so a later run still sees a changed source.
   const fail = (p: PendingTranslation, pathStr: string, reason: string, tag: ErrorTag): void => {
     summary.failed.push({ path: pathStr, pointer: lockKey(p.path), tag, reason });
-    failedKeys.add(lockKey(p.path));
+    unsyncedKeys.add(lockKey(p.path));
     if (!dryRun) p.set(p.source);
   };
   const leafCtx: LeafContext = {
@@ -574,6 +585,21 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   };
 
   for (let i = 0; i < pending.length; i++) {
+    if (signal?.aborted) {
+      summary.aborted = true;
+      summary.warnings.push(`Interrupted: ${pending.length - i} of ${pending.length} key(s) not translated. Re-run to translate them.`);
+      for (const q of pending.slice(i)) {
+        // Their source isn't synced: keep each key's previous lock hash so a
+        // changed key is still re-queued next run.
+        unsyncedKeys.add(lockKey(q.path));
+        // A key the target lacks is written as "" (missing to the next run):
+        // the YAML write template is the source document, so an absent key
+        // would otherwise be written with its source text.
+        const existing = getAtPath(targetData, q.path);
+        if (!dryRun && (existing === undefined || existing === null)) q.set("");
+      }
+      break;
+    }
     const p = pending[i];
     const pathStr = p.path.map(String).join(".");
     onProgress?.({ done: i, total: pending.length, path: pathStr });
@@ -649,7 +675,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     p.set(result.value);
     summary.translated++;
   }
-  onProgress?.({ done: pending.length, total: pending.length, path: "" });
+  if (!summary.aborted) onProgress?.({ done: pending.length, total: pending.length, path: "" });
 
   summary.pluralFallbacks = unhinted.length;
   if (unhinted.length > 0) {
@@ -682,13 +708,13 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   // Written after the target so a crash in between only costs a redundant
   // re-translation next run, never a missed one. Entries are rebuilt from the
-  // current source, so keys removed from the source drop out. A failed key
-  // keeps its previous hash (if any): when that was a source change, the next
-  // run sees the mismatch again and retries it.
+  // current source, so keys removed from the source drop out. A failed key (or
+  // one an abort never reached) keeps its previous hash (if any): when that was
+  // a source change, the next run sees the mismatch again and retries it.
   const checksums: Checksums = {};
   for (const leaf of walkLeaves(diffSource)) {
     const key = lockKey(leaf.path);
-    if (failedKeys.has(key)) {
+    if (unsyncedKeys.has(key)) {
       if (lock?.[key] !== undefined) checksums[key] = lock[key];
     } else {
       checksums[key] = hashSource(leaf.value);

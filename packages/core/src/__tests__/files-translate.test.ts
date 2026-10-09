@@ -1763,4 +1763,89 @@ describe("translateFile", () => {
     expect(text).toContain('keep: "TK"');
     expect(text).toContain("greeting: TG");
   });
+
+  // ── Abort (signal) ────────────────────────────────────────────────
+
+  // Aborts once the leaf at `afterIndex` has started, so it and every earlier leaf complete.
+  function abortAfter(afterIndex: number) {
+    const ctl = new AbortController();
+    return {
+      signal: ctl.signal,
+      onProgress: ({ done }: { done: number }) => { if (done === afterIndex) ctl.abort(); },
+    };
+  }
+
+  it("an aborted run writes the leaves completed so far and the next run picks up the rest", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One", b: "Two", c: "Three" }, null, 2));
+    const out = join(dir, "ar.json");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(0),
+    });
+    expect(summary.aborted).toBe(true);
+    expect(summary.translated).toBe(1);
+    expect(summary.warnings.some((w) => /Interrupted: 2 of 3 key\(s\) not translated/.test(w))).toBe(true);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", b: "", c: "" });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
+
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.aborted).toBe(false);
+    expect(rerun.translated).toBe(2);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One", b: "[ar] Two", c: "[ar] Three" });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a", "/b", "/c"]);
+  });
+
+  it("an aborted YAML run never writes source text for keys it did not reach", async () => {
+    const src = writeSrc("en.yml", "a: One\nb: Two\nc: Three\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "a: EXISTING\n");
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(0),
+    });
+    expect(summary.aborted).toBe(true);
+    // The write template is the source document: an absent key would keep its source value.
+    expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", c: "" });
+  });
+
+  it("an aborted run keeps the previous lock hash of a changed key it did not reach", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One", b: "Two" }));
+    const out = join(dir, "ar.json");
+    const base = { sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context };
+    await translateFile(base);
+    const before = readLockFile(out);
+
+    writeFileSync(src, JSON.stringify({ a: "One!", b: "Two!" }));
+    const aborted = await translateFile({ ...base, ...abortAfter(0) });
+    expect(aborted.aborted).toBe(true);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] One!", b: "[ar] Two" });
+    expect(readLockFile(out)["/b"]).toBe(before["/b"]);
+
+    const rerun = await translateFile(base);
+    expect(rerun.changed).toEqual(["/b"]);
+    expect(JSON.parse(readFileSync(out, "utf8")).b).toBe("[ar] Two!");
+  });
+
+  it("an already-aborted signal still writes nothing in a dry run", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "One" }));
+    const out = join(dir, "ar.json");
+    const ctl = new AbortController();
+    ctl.abort();
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context, dryRun: true, signal: ctl.signal,
+    });
+    expect(summary.aborted).toBe(true);
+    expect(summary.translated).toBe(0);
+    expect(existsSync(out)).toBe(false);
+  });
 });

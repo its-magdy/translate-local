@@ -137,6 +137,7 @@ tl translate --file en.json --to ar --strict
   "pruned": [],
   "warnings": [],
   "pluralFallbacks": 0,
+  "aborted": false,
   "outPath": "/path/to/ar.json"
 }
 ```
