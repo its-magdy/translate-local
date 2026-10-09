@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.3] - 2026-10-09
+
+### Fixed
+- **`install.sh` verifies the binary before installing it.** The download is checked against the release's `SHA256SUMS`; on a mismatch, a missing or malformed entry, or when no SHA-256 tool (`sha256sum`, `shasum` or `openssl`) is available, the script aborts without installing anything. The README already said downloads are verified, but the script never checked. The temporary download directory is now also removed when the script exits.
+- **Installing the repo no longer downloads the 0.3.4 binaries.** The `@translate-local/tl` wrapper's platform `optionalDependencies` were pinned to `0.3.4`, so every `bun install` fetched those binaries from npm. They now resolve from the workspace; the release still publishes them with the release version, and the publish script refuses a package that still contains `workspace:`.
+
+### Changed
+- **Bun 1.4.2** (was 1.3.13).
+- **TUI:** `@opentui/core` 0.5.17 (was 0.2).
+- **Releases:** the Homebrew tap is updated with a short-lived GitHub App token, scoped to the tap repository, instead of a personal access token.
+
 ## [0.5.2] - 2026-10-09
 
 ### Fixed
