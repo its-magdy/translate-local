@@ -7,6 +7,8 @@ import { GlossaryStore } from "../glossary";
 import { ContextStore } from "../context";
 import { MockAdapter } from "@translate-local/adapters/mock";
 import { translateFile } from "../files";
+import { cancelledError } from "@translate-local/shared/errors";
+import type { TranslationRequest } from "@translate-local/shared/types";
 
 // MockAdapter-only — no Ollama needed. Runs by default; the TEST_INTEGRATION gate
 // previously here was hiding the whole orchestrator suite from default `bun run test`.
@@ -1766,12 +1768,13 @@ describe("translateFile", () => {
 
   // ── Abort (signal) ────────────────────────────────────────────────
 
-  // Aborts once the leaf at `afterIndex` has started, so it and every earlier leaf complete.
+  // Aborts once the leaf after `afterIndex` has started. The signal reaches its
+  // model call, so that leaf is cancelled; `afterIndex` and earlier complete.
   function abortAfter(afterIndex: number) {
     const ctl = new AbortController();
     return {
       signal: ctl.signal,
-      onProgress: ({ done }: { done: number }) => { if (done === afterIndex) ctl.abort(); },
+      onProgress: ({ done }: { done: number }) => { if (done === afterIndex + 1) ctl.abort(); },
     };
   }
 
@@ -1845,6 +1848,67 @@ describe("translateFile", () => {
     const rerun = await translateFile(base);
     expect(rerun.changed).toEqual(["/b"]);
     expect(JSON.parse(readFileSync(out, "utf8")).b).toBe("[ar] Two!");
+  });
+
+  it("a CANCELLED model call stops the run like an abort, never as failed keys with source copied in", async () => {
+    // A TranslationSession cancels through its adapter: after session.abort()
+    // every call throws CANCELLED, even without a signal on translateFile.
+    const src = writeSrc("en.json", JSON.stringify({ a: "one", b: "two", c: "three", d: "four" }));
+    const out = join(dir, "ar.json");
+    let calls = 0;
+    const cancelling = {
+      async translate(req: TranslationRequest) {
+        if (++calls > 1) throw cancelledError();
+        return adapter.translate(req);
+      },
+      async dispose() {},
+    };
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: cancelling, glossary, context,
+    });
+    expect(summary.aborted).toBe(true);
+    expect(summary.failed).toEqual([]);
+    expect(summary.translated).toBe(1);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] one" });
+    expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
+
+    const rerun = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(rerun.translated).toBe(3);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] one", b: "[ar] two", c: "[ar] three", d: "[ar] four" });
+  });
+
+  it("the signal reaches the model call, and the leaf it cancels counts as not reached", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ a: "one", b: "two", c: "three" }));
+    const out = join(dir, "ar.json");
+    const ctl = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    const slow = {
+      async translate(req: TranslationRequest) {
+        signals.push(req.signal);
+        if (signals.length === 2) {
+          ctl.abort(); // Ctrl+C while "b" is generating
+          if (req.signal?.aborted) throw cancelledError();
+        }
+        return adapter.translate(req);
+      },
+      async dispose() {},
+    };
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: slow, glossary, context, signal: ctl.signal,
+    });
+    expect(signals[0]).toBe(ctl.signal);
+    expect(summary.aborted).toBe(true);
+    expect(summary.failed).toEqual([]);
+    expect(summary.warnings.some((w) => /Interrupted: 2 of 3 key\(s\) not translated/.test(w))).toBe(true);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] one" });
   });
 
   it("an already-aborted signal still writes nothing in a dry run", async () => {

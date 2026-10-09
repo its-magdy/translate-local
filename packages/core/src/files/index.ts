@@ -58,10 +58,13 @@ export type FileTranslateOptions = {
   allowLargePrune?: boolean;
   onProgress?: (info: { done: number; total: number; path: string }) => void;
   /**
-   * Checked before each leaf. Once aborted, no further leaf is translated; the
-   * target and lock are still written with the leaves completed so far (not in
-   * a dry run) and the summary has `aborted: true`. The signal is not forwarded
-   * to the pipeline, so an in-flight model call finishes first.
+   * Checked before each leaf and forwarded to the pipeline. Once aborted, no
+   * further leaf is translated and an in-flight model call is cancelled (that
+   * leaf counts as not reached); the target and lock are still written with the
+   * leaves completed so far (not in a dry run) and the summary has
+   * `aborted: true`. A CANCELLED pipeline error stops the run the same way,
+   * even without a signal here (e.g. a TranslationSession aborted through its
+   * adapter): it is never recorded as a failed key.
    */
   signal?: AbortSignal;
 };
@@ -185,6 +188,12 @@ class UnitFailed extends Error {
   }
 }
 
+// A cancelled model call: the run was aborted, the leaf did not fail.
+function isCancelled(err: unknown): boolean {
+  const cause = err instanceof UnitFailed ? err.pipelineError : err;
+  return cause instanceof TlError && cause.tag === "CANCELLED";
+}
+
 // The tag --strict would throw for this failure: a pipeline error is rethrown
 // as-is, and one that isn't a TlError reaches the CLI as TRANSLATION_FAILED.
 function failureTag(err: UnitFailed): ErrorTag {
@@ -245,6 +254,7 @@ type LeafContext = {
   maxSnippets: number;
   minRelevance: number;
   plurals?: PluralRegenResult;
+  signal?: AbortSignal;
 };
 
 /**
@@ -266,6 +276,7 @@ async function translateLeaf(
       contextSnippets: snippets,
       extraGlossaryHits: hits,
       glossaryEntries: ctx.glossaryEntries,
+      signal: ctx.signal,
     });
     return result.translated;
   };
@@ -340,7 +351,7 @@ async function translateLeaf(
       } catch (err) {
         // A sample count can derail the model (e.g. Ollama aborting on a
         // repeated "0" token for 1000000) — move on to the plain text instead.
-        if (err instanceof TlError && err.tag === "ADAPTER_UNAVAILABLE") throw pipelineFailed(err);
+        if (err instanceof TlError && (err.tag === "ADAPTER_UNAVAILABLE" || err.tag === "CANCELLED")) throw pipelineFailed(err);
         continue;
       }
       let expected = p.source;
@@ -601,25 +612,31 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     maxSnippets,
     minRelevance,
     plurals,
+    signal,
+  };
+
+  // Leaves pending[i..] were not reached: keep them out of the target and lock.
+  const stopAt = (i: number): void => {
+    summary.aborted = true;
+    summary.warnings.push(`Interrupted: ${pending.length - i} of ${pending.length} key(s) not translated. Re-run to translate them.`);
+    // Reverse order, so removing an array element never shifts one still to visit.
+    for (const q of pending.slice(i).reverse()) {
+      // Their source isn't synced: keep each key's previous lock hash so a
+      // changed key is still re-queued next run.
+      unsyncedKeys.add(lockKey(q.path));
+      // A key the target file lacks stays absent, so the app falls back to its
+      // default locale ("" would render blank); one it has keeps its value.
+      const existing = existingTarget ? getAtPath(targetData, q.path) : undefined;
+      if (existing === undefined) deletePath(targetData, q.path);
+      // writeYaml keeps the source document's value wherever the data has none
+      // (null included), so drop those keys from the write template too.
+      if (existing === undefined || existing === null) unreachedYamlPaths.push(q.path);
+    }
   };
 
   for (let i = 0; i < pending.length; i++) {
     if (signal?.aborted) {
-      summary.aborted = true;
-      summary.warnings.push(`Interrupted: ${pending.length - i} of ${pending.length} key(s) not translated. Re-run to translate them.`);
-      // Reverse order, so removing an array element never shifts one still to visit.
-      for (const q of pending.slice(i).reverse()) {
-        // Their source isn't synced: keep each key's previous lock hash so a
-        // changed key is still re-queued next run.
-        unsyncedKeys.add(lockKey(q.path));
-        // A key the target file lacks stays absent, so the app falls back to its
-        // default locale ("" would render blank); one it has keeps its value.
-        const existing = existingTarget ? getAtPath(targetData, q.path) : undefined;
-        if (existing === undefined) deletePath(targetData, q.path);
-        // writeYaml keeps the source document's value wherever the data has none
-        // (null included), so drop those keys from the write template too.
-        if (existing === undefined || existing === null) unreachedYamlPaths.push(q.path);
-      }
+      stopAt(i);
       break;
     }
     const p = pending[i];
@@ -677,6 +694,10 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     try {
       result = await translateLeaf(p, pathStr, isICU, leafCtx);
     } catch (err) {
+      if (isCancelled(err)) {
+        stopAt(i);
+        break;
+      }
       if (!(err instanceof UnitFailed)) throw err;
       if (continueOnError) {
         // Fall back to source so every key has a value; user can grep source text to find failures.
