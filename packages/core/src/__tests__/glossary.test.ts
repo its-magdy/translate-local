@@ -357,6 +357,41 @@ describe("GlossaryStore", () => {
     expect(store.lookup("en-US", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
   });
 
+  it("lookup with an auto source sees entries of any source language", () => {
+    store.add({ sourceTerm: "cache", targetTerm: "ذاكرة", sourceLang: "en", targetLang: "ar" });
+    store.add({ sourceTerm: "fichier", targetTerm: "ملف", sourceLang: "fr", targetLang: "ar" });
+    store.add({ sourceTerm: "cache", targetTerm: "Cache", sourceLang: "en", targetLang: "de" });
+    expect(store.lookup("auto", "ar").map((e) => e.targetTerm).sort()).toEqual(["ذاكرة", "ملف"]);
+    const hits = store.findMatches("clear the cache", "auto", "ar");
+    expect(hits.map((h) => h.entry.targetTerm)).toEqual(["ذاكرة"]);
+  });
+
+  it("lookup with an auto source keeps target fallback and specificity", () => {
+    store.add({ sourceTerm: "email", targetTerm: "e-mail", sourceLang: "en", targetLang: "fr" });
+    store.add({ sourceTerm: "email", targetTerm: "courriel", sourceLang: "en", targetLang: "fr-CA" });
+    expect(store.lookup("auto", "fr-CA").map((e) => e.targetTerm)).toEqual(["courriel"]);
+    expect(store.lookup("auto", "fr-FR").map((e) => e.targetTerm)).toEqual(["e-mail"]);
+    expect(store.lookup("auto", "fr").map((e) => e.targetTerm)).toEqual(["e-mail"]);
+  });
+
+  it("lookup with an auto source breaks cross-language ties by source tag, alphabetically", () => {
+    store.add({ sourceTerm: "chat", targetTerm: "Katze", sourceLang: "fr", targetLang: "de" });
+    store.add({ sourceTerm: "Chat", targetTerm: "Chat", sourceLang: "en", targetLang: "de" });
+    expect(store.lookup("auto", "de").map((e) => e.targetTerm)).toEqual(["Chat"]);
+    // Insertion order must not matter
+    store.close();
+    rmSync(dbPath, { force: true });
+    store = new GlossaryStore(dbPath);
+    store.add({ sourceTerm: "Chat", targetTerm: "Chat", sourceLang: "en", targetLang: "de" });
+    store.add({ sourceTerm: "chat", targetTerm: "Katze", sourceLang: "fr", targetLang: "de" });
+    expect(store.lookup("auto", "de").map((e) => e.targetTerm)).toEqual(["Chat"]);
+  });
+
+  it("list stays an exact match on auto", () => {
+    store.add({ sourceTerm: "cache", targetTerm: "ذاكرة", sourceLang: "en", targetLang: "ar" });
+    expect(store.list("auto", "ar")).toHaveLength(0);
+  });
+
   it("findMatches uses language fallback", () => {
     store.add({ sourceTerm: "API", targetTerm: "interface", sourceLang: "en", targetLang: "fr" });
     expect(store.findMatches("The API is ready", "en-US", "fr-CA")).toHaveLength(1);

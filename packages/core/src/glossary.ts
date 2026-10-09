@@ -264,19 +264,25 @@ export class GlossaryStore {
    * never the other way: an "en" query does not see "en-US" entries. When a
    * source term (case-insensitively) has entries at several levels, only the
    * most specific survive: deeper target tag first, then deeper source tag.
+   *
+   * sourceLang "auto" (source not known) matches entries of every source
+   * language, ranked on the target tag alone. If one term then survives under
+   * several source tags, the alphabetically first tag wins ("en" over "fr"),
+   * so the pick never depends on insertion order.
    */
   lookup(sourceLang: string, targetLang: string): GlossaryEntry[] {
-    const sourceChain = langFallbackChain(sourceLang);
+    const anySource = normalizeLang(sourceLang) === "auto";
+    const sourceChain = anySource ? [] : langFallbackChain(sourceLang);
     const targetChain = langFallbackChain(targetLang);
     // Depth of the matched tag (1 = base language). Target outranks source: the
     // output language decides the right term, so en/fr-CA beats en-US/fr.
     const depth = (chain: string[], lang: string) => chain.length - chain.indexOf(normalizeLang(lang));
     const rank = (e: GlossaryEntry) =>
-      depth(targetChain, e.targetLang) * (sourceChain.length + 1) + depth(sourceChain, e.sourceLang);
+      depth(targetChain, e.targetLang) * (sourceChain.length + 1) + (anySource ? 0 : depth(sourceChain, e.sourceLang));
 
+    const sourceFilter = anySource ? "" : ` lower(source_lang) IN (${sourceChain.map(() => "?").join(", ")}) AND`;
     const candidates = this.queryEntries(
-      ` WHERE lower(source_lang) IN (${sourceChain.map(() => "?").join(", ")})` +
-        ` AND lower(target_lang) IN (${targetChain.map(() => "?").join(", ")})`,
+      ` WHERE${sourceFilter} lower(target_lang) IN (${targetChain.map(() => "?").join(", ")})`,
       [...sourceChain, ...targetChain],
       "Failed to look up glossary entries",
     );
@@ -288,7 +294,17 @@ export class GlossaryStore {
       const key = foldKey(e.sourceTerm);
       best.set(key, Math.max(best.get(key) ?? 0, rank(e)));
     }
-    return candidates.filter((e) => rank(e) === best.get(foldKey(e.sourceTerm)));
+    const top = candidates.filter((e) => rank(e) === best.get(foldKey(e.sourceTerm)));
+    // Same-rank survivors share one source tag unless the source is "auto"
+    // (a fixed source has one tag per depth), so this only breaks auto ties.
+    const firstSource = new Map<string, string>();
+    for (const e of top) {
+      const key = foldKey(e.sourceTerm);
+      const src = normalizeLang(e.sourceLang);
+      const cur = firstSource.get(key);
+      if (cur === undefined || src < cur) firstSource.set(key, src);
+    }
+    return top.filter((e) => normalizeLang(e.sourceLang) === firstSource.get(foldKey(e.sourceTerm)));
   }
 
   findMatches(text: string, sourceLang: string, targetLang: string): GlossaryHit[] {

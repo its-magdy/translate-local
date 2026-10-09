@@ -111,6 +111,31 @@ describe("translateFile", () => {
     expect(after.other).toContain("no glossary term");
   });
 
+  it("applies glossary entries of any source language when sourceLang is auto", async () => {
+    glossary.add({ sourceTerm: "API", targetTerm: "واجهة", sourceLang: "en", targetLang: "ar" });
+    const src = writeSrc("strings.json", '{\n  "doc": "The API is fast"\n}\n');
+    const out = join(dir, "ar.json");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "auto", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(JSON.parse(readFileSync(out, "utf8")).doc).toContain("واجهة");
+  });
+
+  it("prefers the filename's source locale for glossary lookup when sourceLang is auto", async () => {
+    glossary.add({ sourceTerm: "chat", targetTerm: "Katze", sourceLang: "fr", targetLang: "de" });
+    glossary.add({ sourceTerm: "chat", targetTerm: "Chat", sourceLang: "en", targetLang: "de" });
+    const src = writeSrc("fr.json", '{\n  "pet": "le chat"\n}\n');
+    const out = join(dir, "de.json");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "auto", sourceLocale: "fr", targetLang: "de",
+      adapter, glossary, context,
+    });
+    expect(JSON.parse(readFileSync(out, "utf8")).pet).toContain("Katze");
+  });
+
   it("preserves placeholders byte-identical", async () => {
     const src = writeSrc("en.json", '{\n  "g": "Hello {{name}}, you have {{count}} items"\n}\n');
     const out = join(dir, "ar.json");

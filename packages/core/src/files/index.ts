@@ -364,7 +364,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
   // materializations. We hand the entries through PipelineOptions and let the
   // pipeline match them in-process. Same lang-fallback lookup as findMatches uses.
-  const glossaryEntries = glossary.lookup(sourceLang, targetLang);
+  // With --from auto, the filename's locale (sourceLocale) narrows the lookup
+  // to that source language instead of every source language.
+  const glossaryEntries = glossary.lookup(sourceLocale ?? sourceLang, targetLang);
 
   const summary: FileTranslateSummary = {
     contentFormat: detected.content,

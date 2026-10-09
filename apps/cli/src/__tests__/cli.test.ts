@@ -48,6 +48,10 @@ describe("tl CLI", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // For commands that write glossary entries: the shared TEST_HOME db is read by
+  // the translate tests, and auto-source lookup would apply these entries there.
+  const ownHome = () => ({ HOME: tmpDir, USERPROFILE: tmpDir });
+
   describe("--help", () => {
     it("shows help", () => {
       const r = run(["--help"]);
@@ -127,7 +131,7 @@ describe("tl CLI", () => {
     it("imports CSV and skips header row (BUG-001/002)", () => {
       const csvFile = join(tmpDir, "terms.csv");
       writeFileSync(csvFile, "source,target,from,to,domain,note\nhello,مرحبا,en,ar,,\n");
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       // Must report 1, not 2
       expect(r.stdout).toContain("Imported 1");
@@ -136,7 +140,7 @@ describe("tl CLI", () => {
     it("imports CSV with source_lang header variant and skips it (BUG-001)", () => {
       const csvFile = join(tmpDir, "terms2.csv");
       writeFileSync(csvFile, "source,target,source_lang,target_lang,domain,notes\nhello,مرحبا,en,ar,,\n");
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("Imported 1");
     });
@@ -157,7 +161,7 @@ describe("tl CLI", () => {
     it("imports CSV with quoted fields containing commas", () => {
       const csvFile = join(tmpDir, "quoted.csv");
       writeFileSync(csvFile, '"machine learning, deep","تعلم الآلة، العميق",en,ar,,\n');
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("Imported 1");
     });
@@ -165,7 +169,7 @@ describe("tl CLI", () => {
     it("imports CSV skipping empty lines and comments", () => {
       const csvFile = join(tmpDir, "gaps.csv");
       writeFileSync(csvFile, "# comment line\n\nhello,مرحبا,en,ar,,\n\nworld,عالم,en,ar,,\n");
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("Imported 2");
     });
@@ -173,7 +177,7 @@ describe("tl CLI", () => {
     it("imports CSV with special characters in terms", () => {
       const csvFile = join(tmpDir, "special.csv");
       writeFileSync(csvFile, 'C++,سي بلس بلس,en,ar,,\n"C#",سي شارب,en,ar,,\n');
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("Imported 2");
     });
@@ -181,7 +185,7 @@ describe("tl CLI", () => {
     it("imports CSV skipping rows with missing required fields", () => {
       const csvFile = join(tmpDir, "incomplete.csv");
       writeFileSync(csvFile, "hello,مرحبا,en,ar,,\n,missing_source,en,ar,,\nworld,,en,ar,,\n");
-      const r = run(["glossary", "import", csvFile]);
+      const r = run(["glossary", "import", csvFile], ownHome());
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("Imported 1");
     });
@@ -252,6 +256,14 @@ describe("tl CLI", () => {
       const r = run(["translate", "hello world", "--to", "ar"], { TL_ADAPTER: "mock", TL_FORCE_TTY: "1" });
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("[ar] hello world");
+    });
+
+    it("applies glossary entries when the source language is auto (the default)", () => {
+      const env = { TL_ADAPTER: "mock", ...ownHome() };
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
+      const r = run(["translate", "clear the cache", "--to", "ar"], env);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("[ar] clear the ذاكرة");
     });
 
     it("accepts flag-first invocation: tl --to ar <text>", () => {
