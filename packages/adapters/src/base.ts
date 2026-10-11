@@ -10,6 +10,7 @@ import {
 const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`;
 const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
 const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
+const TERM_ATTR_RE = /translation="[^"]*"/g;
 
 // "auto" is our CLI default, not a language: TranslateGemma's template has no
 // auto mode, so the prompt leaves the source language out instead of naming "auto".
@@ -67,7 +68,10 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
 
   // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
   if (!isImageMode && SENTINEL_TEST_RE.test(request.source)) {
-    const tokens = (request.source.match(SENTINEL_MATCH_RE) ?? []);
+    // Tagged sentinels (<term translation="__TLPH_0__">__TLPH_0__</term>) would
+    // count twice; drop the attribute values so only the text content counts.
+    const visible = request.source.replace(TERM_ATTR_RE, "");
+    const tokens = visible.match(SENTINEL_MATCH_RE) ?? [];
     const uniqueTokens = [...new Set(tokens)];
     lines.push(
       `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
