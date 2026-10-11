@@ -956,6 +956,96 @@ describe("translateFile", () => {
     expect(strictMiss.failed.find((f) => f.pointer === "/a")?.tag).toBe("GLOSSARY_STRICT_MISS");
   });
 
+  // ── Strict glossary mode + placeholders ───────────────────────────
+
+  // Defers to MockAdapter (which applies glossary hits) but drops every
+  // sentinel on calls listed in `dropOn`, and the real term "مرحبا" on calls
+  // listed in `missOn` (1-based). Records each request.
+  function flakyAdapter(opts: { dropOn?: number[]; missOn?: number[]; onCall?: (n: number) => void }) {
+    const requests: TranslationRequest[] = [];
+    return {
+      requests,
+      async translate(req: TranslationRequest) {
+        requests.push(req);
+        const n = requests.length;
+        opts.onCall?.(n);
+        const res = await adapter.translate(req);
+        let translated = res.translated;
+        if (opts.dropOn?.includes(n)) translated = translated.replace(/__TLPH_\d+__/g, "");
+        if (opts.missOn?.includes(n)) translated = translated.split("مرحبا").join("Hello");
+        return { ...res, translated };
+      },
+      async dispose() {},
+    };
+  }
+
+  it("strict mode retries a dropped placeholder through the placeholder loop", async () => {
+    glossary.add({ sourceTerm: "Hello", targetTerm: "مرحبا", sourceLang: "en", targetLang: "ar" });
+    const src = writeSrc("en.json", JSON.stringify({ g: "Hello {{name}}" }));
+    const out = join(dir, "ar.json");
+    const flaky = flakyAdapter({ dropOn: [1] });
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: flaky, glossary, context, glossaryMode: "strict",
+    });
+    expect(summary.failed).toEqual([]);
+    expect(summary.translated).toBe(1);
+    expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("[ar] مرحبا {{name}}");
+    expect(flaky.requests).toHaveLength(2);
+    // Sentinels are still tagged for the model, but never sent as a reminder.
+    expect(flaky.requests[0].source).toContain('<term translation="__TLPH_0__">__TLPH_0__</term>');
+    for (const req of flaky.requests) expect(req.glossaryReminder).toBeUndefined();
+  });
+
+  it("strict mode reminds only real glossary terms, never sentinels", async () => {
+    glossary.add({ sourceTerm: "Hello", targetTerm: "مرحبا", sourceLang: "en", targetLang: "ar" });
+    const src = writeSrc("en.json", JSON.stringify({ g: "Hello {{name}}" }));
+    const out = join(dir, "ar.json");
+    const flaky = flakyAdapter({ dropOn: [1], missOn: [1] });
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: flaky, glossary, context, glossaryMode: "strict",
+    });
+    expect(summary.failed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("[ar] مرحبا {{name}}");
+    expect(flaky.requests).toHaveLength(2);
+    expect(flaky.requests[1].glossaryReminder).toEqual([{ source: "Hello", target: "مرحبا" }]);
+  });
+
+  it("strict mode still fails the leaf with GLOSSARY_STRICT_MISS when a real term stays missing", async () => {
+    glossary.add({ sourceTerm: "Hello", targetTerm: "مرحبا", sourceLang: "en", targetLang: "ar" });
+    const src = writeSrc("en.json", JSON.stringify({ g: "Hello {{name}}" }));
+    const out = join(dir, "ar.json");
+    const flaky = flakyAdapter({ missOn: [1, 2, 3, 4, 5] });
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: flaky, glossary, context, glossaryMode: "strict",
+    });
+    expect(summary.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([{ pointer: "/g", tag: "GLOSSARY_STRICT_MISS" }]);
+    expect(summary.failed[0].reason).not.toContain("__TLPH_");
+    // 1 call + maxRetries (2); the placeholder loop does not retry a pipeline error.
+    expect(flaky.requests).toHaveLength(3);
+  });
+
+  it("strict mode stops on cancellation during a placeholder retry", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ g: "Hello {{name}}", h: "Bye" }));
+    const out = join(dir, "ar.json");
+    const ctl = new AbortController();
+    const flaky = flakyAdapter({ dropOn: [1], onCall: () => ctl.abort() });
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter: flaky, glossary, context, glossaryMode: "strict", signal: ctl.signal,
+    });
+    expect(flaky.requests).toHaveLength(1);
+    expect(summary.aborted).toBe(true);
+    expect(summary.failed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({});
+  });
+
   it("malformed ICU falls back to source by default", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}", ok: "Hello" }));
     const out = join(dir, "ar.json");

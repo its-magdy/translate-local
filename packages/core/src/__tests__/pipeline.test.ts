@@ -194,4 +194,78 @@ describe("runPipeline", () => {
     ).rejects.toMatchObject({ tag: "CANCELLED" });
     expect(calls).toBe(1);
   });
+
+  describe("extraGlossaryHits (tagging only)", () => {
+    const TOK = "__TLPH_0__";
+    const sentinelHit = (text: string) => ({
+      entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "ar" },
+      startIndex: text.indexOf(TOK),
+      endIndex: text.indexOf(TOK) + TOK.length,
+    });
+    // Defers to MockAdapter (which substitutes glossary terms) but drops the
+    // sentinel, and drops the real term too on the first `missFirst` calls.
+    function dropSentinelAdapter(requests: any[], missFirst = 0) {
+      const mock = new MockAdapter();
+      return {
+        name: "drop-sentinel",
+        async translate(req: any) {
+          requests.push(req);
+          const res = await mock.translate(req);
+          let translated = res.translated.split(TOK).join("");
+          if (requests.length <= missFirst) translated = translated.split("واجهة برمجة").join("");
+          return { ...res, translated };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    it("tags extra hits but leaves them out of coverage and missingTerms", async () => {
+      const text = `Hello ${TOK}`;
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests), store, { extraGlossaryHits: [sentinelHit(text)] });
+      expect(requests[0].source).toContain(`<term translation="${TOK}">${TOK}</term>`);
+      expect(requests[0].glossaryHits).toHaveLength(1);
+      expect(result.translated).not.toContain(TOK);
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.missingTerms).toEqual([]);
+    });
+
+    it("strict mode neither retries nor throws for a dropped extra hit", async () => {
+      const text = `Hello ${TOK}`;
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests), store, {
+        glossaryMode: "strict", maxRetries: 2, extraGlossaryHits: [sentinelHit(text)],
+      });
+      expect(requests).toHaveLength(1);
+      expect(result.metadata.retries).toBe(0);
+      expect(result.missingTerms).toEqual([]);
+    });
+
+    it("strict-mode reminders name only real glossary terms", async () => {
+      store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+      const text = `The API ${TOK}`;
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests, 1), store, {
+        glossaryMode: "strict", maxRetries: 2, extraGlossaryHits: [sentinelHit(text)],
+      });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+      expect(result.missingTerms).toEqual([]);
+    });
+
+    it("strict mode still throws GLOSSARY_STRICT_MISS for a missing real term", async () => {
+      store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+      const text = `The API ${TOK}`;
+      const requests: any[] = [];
+      const err = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests, 99), store, {
+        glossaryMode: "strict", maxRetries: 2, extraGlossaryHits: [sentinelHit(text)],
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(TlError);
+      expect(err.tag).toBe("GLOSSARY_STRICT_MISS");
+      expect(err.message).toContain("1 glossary term(s) missing");
+      expect(err.message).not.toContain(TOK);
+      expect(requests).toHaveLength(3);
+      for (const req of requests.slice(1)) expect(req.glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+    });
+  });
 });
