@@ -45,7 +45,12 @@ bun test packages/core/src/__tests__/pipeline.test.ts
 
 # Type-check sources and tests
 bun run typecheck
+
+# Strict glossary + placeholder success rates against real Ollama
+bun run scripts/bench/strict-glossary.ts --runs 10
 ```
+
+Model output is not deterministic, so a single passing run proves little. When you change prompts, glossary tagging, placeholder masking or retry logic, run `scripts/bench/strict-glossary.ts` before and after and compare the per-case success rates. `--only <caseId,...>` limits the run to some cases and `--label <name>` names the results file. Results (every prompt and raw model output) go to `scripts/bench/results/`, which is gitignored. The script uses temp databases and never touches `~/.config/tl`.
 
 ## Pre-Commit Checklist
 
