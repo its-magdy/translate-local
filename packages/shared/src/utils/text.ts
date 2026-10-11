@@ -37,25 +37,32 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
   return result;
 }
 
+function unescapeAttr(s: string): string {
+  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+}
+
 /**
  * Strip all <term ...>...</term> tags from text.
- * - Complete tags: keep inner content (the model should have replaced source with target).
+ * - Complete tags: replace with the translation attribute value (what injectGlossaryTags wrote).
+ *   The model sometimes echoes the whole tag with its own word inside; the glossary requires the
+ *   attribute's term, not that word. Tags without a translation attribute keep their inner content.
  * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
  * - Any remaining bare <term ...> opening tags: remove.
  */
 export function stripGlossaryTags(text: string): string {
-  // Complete tags: <term ...>content</term> → content
+  // Complete tags: <term translation="X">content</term> → X
   let result = removeTermTags(text, true);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1");
+  result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;
 }
 
 /**
- * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with "$1" (withClose)
- * or /<term[^>]*>/g with "" (!withClose), in linear time. Those regexes rescan
+ * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with the opening tag's
+ * translation attribute (else "$1") (withClose) or /<term[^>]*>/g with "" (!withClose),
+ * in linear time. Those regexes rescan
  * to the end of the text from every unclosed "<term", which is quadratic.
  */
 function removeTermTags(text: string, withClose: boolean): string {
@@ -73,6 +80,8 @@ function removeTermTags(text: string, withClose: boolean): string {
       const close = text.indexOf("</term>", next);
       if (close === -1) break;
       inner = text.slice(next, close);
+      const attr = /\btranslation="([^"]*)"/.exec(text.slice(open, openEnd));
+      if (attr) inner = unescapeAttr(attr[1]);
       next = close + "</term>".length;
     }
     result += text.slice(cursor, open) + inner;

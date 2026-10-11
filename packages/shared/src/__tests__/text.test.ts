@@ -62,9 +62,30 @@ describe("injectGlossaryTags", () => {
 });
 
 describe("stripGlossaryTags", () => {
-  test("removes term tags keeping inner content", () => {
+  test("replaces a complete term tag with its translation attribute", () => {
     const input = 'Use the <term translation="واجهة">API</term> here';
-    expect(stripGlossaryTags(input)).toBe("Use the API here");
+    expect(stripGlossaryTags(input)).toBe("Use the واجهة here");
+  });
+
+  test("keeps the required term when the model puts its own word inside the tag", () => {
+    const input = 'Erstellen Sie eine neue <term translation="Zweig">Abteilung</term> für diese Funktion.';
+    expect(stripGlossaryTags(input)).toBe("Erstellen Sie eine neue Zweig für diese Funktion.");
+  });
+
+  test("keeps inner content when the tag has no translation attribute", () => {
+    expect(stripGlossaryTags("a <term>X</term> b")).toBe("a X b");
+  });
+
+  test("leaves sentinel tags (attribute equals content) unchanged in effect", () => {
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">__TLPH_0__</term> items')).toBe("__TLPH_0__ items");
+  });
+
+  test("unescapes entities written by injectGlossaryTags", () => {
+    const entry = { targetTerm: 'say "hi" & <b>' } as never;
+    const tagged = injectGlossaryTags("greet", [{ entry, startIndex: 0, endIndex: 5 } as never]);
+    expect(tagged).toContain("&quot;");
+    expect(stripGlossaryTags(tagged.replace(">greet<", ">wrong<"))).toBe('say "hi" & <b>');
+    expect(stripGlossaryTags('<term translation="a &amp; b">x')).toBe("a & b");
   });
 
   test("handles text without tags", () => {
@@ -73,12 +94,13 @@ describe("stripGlossaryTags", () => {
 
   test("removes multiple tags", () => {
     const input = '<term translation="a">X</term> and <term translation="b">Y</term>';
-    expect(stripGlossaryTags(input)).toBe("X and Y");
+    expect(stripGlossaryTags(input)).toBe("a and b");
   });
 
   test("strips tags when inner content spans a newline", () => {
     const input = '<term translation="a">line one\nline two</term>';
-    expect(stripGlossaryTags(input)).toBe("line one\nline two");
+    expect(stripGlossaryTags(input)).toBe("a");
+    expect(stripGlossaryTags("<term>line one\nline two</term>")).toBe("line one\nline two");
   });
 
   test("uses translation attribute for unclosed tags", () => {
@@ -95,7 +117,7 @@ describe("stripGlossaryTags", () => {
   test("matches the original regex implementation on random tag soup", () => {
     const regexStrip = (text: string) =>
       text
-        .replace(/<term[^>]*>(.*?)<\/term>/gs, "$1")
+        .replace(/<(term[^>]*)>(.*?)<\/term>/gs, (_m, open: string, inner: string) => /\btranslation="([^"]*)"/.exec(open)?.[1] ?? inner)
         .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
         .replace(/<term[^>]*>/g, "");
     const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", " ", "\n", "<b>"];
