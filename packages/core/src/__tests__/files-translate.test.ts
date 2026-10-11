@@ -948,10 +948,17 @@ describe("translateFile", () => {
     ]);
 
     glossary.add({ sourceTerm: "Hello", targetTerm: "XYZ", sourceLang: "en", targetLang: "ar" });
+    // A model that ignores the glossary: it writes the source word with no term tag.
+    class IgnoreGlossaryAdapter extends DropSentinelAdapter {
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        // `[^"<>]` can't run past the next tag, so this stays linear (no ReDoS).
+        return super.translate({ ...req, source: req.source.replace(/<term translation="[^"<>]*">|<\/term>/g, "") });
+      }
+    }
     const strictMiss = await translateFile({
       sourcePath: src, outPath: join(dir, "ar2.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter: new DropSentinelAdapter(), glossary, context, glossaryMode: "strict", mode: "force",
+      adapter: new IgnoreGlossaryAdapter(), glossary, context, glossaryMode: "strict", mode: "force",
     });
     expect(strictMiss.failed.find((f) => f.pointer === "/a")?.tag).toBe("GLOSSARY_STRICT_MISS");
   });
