@@ -11,7 +11,13 @@ export interface PipelineOptions {
   onChunk?: (chunk: string) => void;
   /** Forwarded to every attempt; once aborted, no further attempt starts (throws CANCELLED). */
   signal?: AbortSignal;
-  /** Caller-supplied glossary hits merged with the in-pipeline lookup. */
+  /**
+   * Caller-supplied hits tagged in the source alongside the glossary lookup's
+   * (file mode routes placeholder sentinels through this). They are for tagging
+   * only: strict-mode retries, glossaryReminder, glossaryCoverage and
+   * missingTerms count real glossary hits alone, so the caller must check that
+   * these survived itself.
+   */
   extraGlossaryHits?: GlossaryHit[];
   /**
    * Pre-fetched glossary entries to match against. When provided, the pipeline
@@ -62,7 +68,7 @@ export async function runPipeline(
     const raw = await adapter.translate(request);
 
     const translated = normalizeWhitespace(stripGlossaryTags(raw.translated));
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(hits, translated);
+    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, translated);
     const result: TranslationResult = {
       ...raw,
       translated,
@@ -77,7 +83,7 @@ export async function runPipeline(
       // missingTerms are source terms; the model needs their target translations.
       glossaryReminder = missingTerms.map((term) => ({
         source: term,
-        target: hits.find((h) => h.entry.sourceTerm === term)!.entry.targetTerm,
+        target: realHits.find((h) => h.entry.sourceTerm === term)!.entry.targetTerm,
       }));
       retries++;
       continue;
