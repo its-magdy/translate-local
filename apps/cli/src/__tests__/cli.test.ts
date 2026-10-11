@@ -298,9 +298,9 @@ describe("tl CLI", () => {
       const env = { TL_ADAPTER: "mock", ...ownHome() };
       mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
       writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), JSON.stringify({ glossary: { mode: "strict" } }));
-      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
-      // The glossary matches "Cache" case-insensitively, but MockAdapter's
-      // substitution is case-sensitive, so the term is always missing.
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة  مؤقتة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
+      // The pipeline emits the target as written, but normalizeWhitespace
+      // collapses its double space in the output, so the term is always missing.
       const strict = run(["translate", "clear the Cache", "--to", "ar"], env);
       expect(strict.exitCode).toBe(1);
       expect(strict.stderr).toContain("GLOSSARY_STRICT_MISS");

@@ -72,6 +72,31 @@ describe("runPipeline", () => {
     expect(result.missingTerms).toContain("API");
   });
 
+  it("strict mode accepts an echoed term tag with the model's own word inside, without retrying", async () => {
+    store.add({ sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de" });
+    let calls = 0;
+    const echoAdapter = {
+      name: "echo-wrong-inner",
+      async translate(req: any) {
+        calls++;
+        return {
+          translated: 'Erstellen Sie eine neue <term translation="Zweig">Abteilung</term> für diese Funktion.',
+          sourceLang: req.sourceLang,
+          targetLang: req.targetLang,
+          glossaryCoverage: 1,
+          missingTerms: [],
+          metadata: { adapter: "echo-wrong-inner", durationMs: 0, retries: 0 },
+        };
+      },
+      async dispose() {},
+    };
+    const result = await runPipeline("Create a new branch for this feature.", "en", "de", echoAdapter as any, store, { glossaryMode: "strict" });
+    expect(calls).toBe(1);
+    expect(result.metadata.retries).toBe(0);
+    expect(result.translated).toBe("Erstellen Sie eine neue Zweig für diese Funktion.");
+    expect(result.missingTerms).toHaveLength(0);
+  });
+
   it("image mode: skips glossary tag injection and passes imageBase64 to adapter", async () => {
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
     let capturedRequest: any;
