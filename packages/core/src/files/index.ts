@@ -203,6 +203,8 @@ function failureTag(err: UnitFailed): ErrorTag {
 
 // translategemma reliably honors <term> tags from the glossary path; routing
 // sentinels through that channel preserves them better than naked-token instructions.
+// The pipeline only tags them (no strict-mode enforcement or coverage), so a
+// dropped sentinel reaches translateLeaf's placeholder check and retry loop.
 function sentinelHits(text: string, indices: number[], sourceLang: string, targetLang: string): GlossaryHit[] {
   const hits: GlossaryHit[] = [];
   for (const index of indices) {

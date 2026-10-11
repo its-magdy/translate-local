@@ -164,3 +164,46 @@ describe("buildNaturalPrompt", () => {
     expect(text).toBe("\nThe API is ready.");
   });
 });
+
+describe("buildStructuredPrompt placeholder count", () => {
+  const tag = (n: number) => `<term translation="__TLPH_${n}__">__TLPH_${n}__</term>`;
+  const countText = (source: string) => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, source });
+    return prompt.match(/exactly (\d+) placeholder occurrence\(s\)[^.]*\. Specifically: ([^.]*?)\. Your/);
+  };
+
+  test("one tagged sentinel counts once", () => {
+    const m = countText(`Hello ${tag(0)}`);
+    expect(m?.[1]).toBe("1");
+    expect(m?.[2]).toBe("__TLPH_0__");
+  });
+
+  test("two tagged sentinels count 2", () => {
+    const m = countText(`${tag(0)} and ${tag(1)}`);
+    expect(m?.[1]).toBe("2");
+    expect(m?.[2]).toBe("__TLPH_0__, __TLPH_1__");
+  });
+
+  test("three tagged sentinels count 3", () => {
+    const m = countText(`${tag(0)} ${tag(1)} ${tag(2)}`);
+    expect(m?.[1]).toBe("3");
+    expect(m?.[2]).toBe("__TLPH_0__, __TLPH_1__, __TLPH_2__");
+  });
+
+  test("a repeated tagged sentinel counts each occurrence, lists it once", () => {
+    const m = countText(`${tag(0)} then ${tag(0)}`);
+    expect(m?.[1]).toBe("2");
+    expect(m?.[2]).toBe("__TLPH_0__");
+  });
+
+  test("an untagged sentinel counts once", () => {
+    const m = countText("Hello __TLPH_0__");
+    expect(m?.[1]).toBe("1");
+  });
+
+  test("mix of tagged, untagged and real glossary tags", () => {
+    const m = countText(`${tag(0)} __TLPH_1__ <term translation="واجهة">API</term>`);
+    expect(m?.[1]).toBe("2");
+    expect(m?.[2]).toBe("__TLPH_0__, __TLPH_1__");
+  });
+});
