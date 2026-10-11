@@ -84,7 +84,7 @@ Translates a JSON or YAML i18n catalog. By default, only **missing**, **empty**,
 | `--prune` | flag | off | Remove keys and array elements present in the target but absent from the source. Prints `Pruned: N`. Target-only plural forms are kept (`cart_few` next to a source `cart_one`, `few:` inside a nested `{one, other}` map, v3 `item_0`…`item_5`). Refuses with `PRUNE_REFUSED` when it would remove more than half of the target, or when source and target share no top-level keys. |
 | `--allow-large-prune` | flag | off | Confirm a `--prune` that the safety guard would refuse. |
 | `--format <fmt>` | `auto\|json\|yaml\|raw-json\|raw-yaml` | `auto` | Format override. `raw-*` bypasses content-shape refusal — use at your own risk. |
-| `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. |
+| `--strict` | flag | off | Abort the run on first validation failure (e.g. placeholder mismatch). Default behavior is to record failed keys, fall back to source, and continue — exit code is non-zero (`2`) if any keys failed. The next missing-only run retries them. |
 | `--translate-all` | flag | off | Bypass URL / email / semver / ALL-CAPS skip heuristics. |
 | `--max-size <mb>` | number | `20` | Source file size cap. |
 

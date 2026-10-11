@@ -57,7 +57,16 @@ describe("lockPathFor / readLock / writeLock", () => {
   test("writeLock creates parent directories and round-trips", () => {
     const p = join(dir, ".tl/locks/public/ar.json.lock");
     writeLock(p, { "/b": "2", "/a": "1" });
-    expect(readLock(p)).toEqual({ "/a": "1", "/b": "2" });
+    expect(readLock(p)).toEqual({ checksums: { "/a": "1", "/b": "2" }, failed: {} });
+  });
+
+  test("failed keys round-trip and are written only when there are any", () => {
+    const p = join(dir, "ar.json.lock");
+    writeLock(p, { "/a": "1" }, { "/z": "9", "/b": "8" });
+    expect(readLock(p)).toEqual({ checksums: { "/a": "1" }, failed: { "/b": "8", "/z": "9" } });
+    expect(Object.keys(JSON.parse(readFileSync(p, "utf8")).failed)).toEqual(["/b", "/z"]);
+    writeLock(p, { "/a": "1" }, {});
+    expect(JSON.parse(readFileSync(p, "utf8"))).not.toHaveProperty("failed");
   });
 
   test("writes sorted keys, 2-space indent, trailing newline (deterministic for git)", () => {
@@ -93,6 +102,8 @@ describe("lockPathFor / readLock / writeLock", () => {
     writeFileSync(p, JSON.stringify({ version: 1, checksums: { "/a": 1 } }));
     expect(() => readLock(p)).toThrow(TlError);
     writeFileSync(p, JSON.stringify({ version: 1, files: {} }));
+    expect(() => readLock(p)).toThrow(TlError);
+    writeFileSync(p, JSON.stringify({ version: 1, checksums: {}, failed: ["/a"] }));
     expect(() => readLock(p)).toThrow(TlError);
   });
 });

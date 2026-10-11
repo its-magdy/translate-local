@@ -525,6 +525,8 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   // The lock records the source hash each key was last synced from. No lock
   // (first run) means no change detection: existing target values are trusted.
+  // Keys that failed last time are retried while the target still holds the
+  // source copied in as their fallback; a value edited since then is kept.
   const lockPath = lockPathFor(outPath);
   const lock = readLock(lockPath);
   const pending = diffForSync(
@@ -532,9 +534,10 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     targetData,
     mode,
     lock ? (path, src) => {
-      const prev = lock[lockKey(path)];
+      const prev = lock.checksums[lockKey(path)];
       return prev !== undefined && prev !== hashSource(src);
     } : undefined,
+    lock ? (path, existing) => lock.failed[lockKey(path)] === hashSource(existing) : undefined,
   );
   let pruned: (string | number)[][] = [];
   if (prune) {
@@ -596,11 +599,16 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // ICU plural/select values in an i18next catalog, kept as source.
   let icuInI18next = 0;
 
+  // Keys that fell back to their source this run, with the hash of the copied value.
+  const failedKeys: Checksums = {};
+
   // Records a key that could not be translated and falls back to its source.
-  // Its lock hash is not refreshed, so a later run still sees a changed source.
+  // Its lock hash is not refreshed, so a later run still sees a changed source,
+  // and it is listed as failed in the lock so the next run retries it.
   const fail = (p: PendingTranslation, pathStr: string, reason: string, tag: ErrorTag): void => {
     summary.failed.push({ path: pathStr, pointer: lockKey(p.path), tag, reason });
     unsyncedKeys.add(lockKey(p.path));
+    failedKeys[lockKey(p.path)] = hashSource(p.source);
     if (!dryRun) p.set(p.source);
   };
   const leafCtx: LeafContext = {
@@ -731,7 +739,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   if (icuInI18next > 0) {
     summary.warnings.push(
-      `${icuInI18next} value(s) use ICU plural/select syntax, which i18next does not evaluate; kept as source and reported as failed. Later missing-only runs leave the copied source in place; rewrite them as i18next plural keys, then re-run.`,
+      `${icuInI18next} value(s) use ICU plural/select syntax, which i18next does not evaluate; kept as source and reported as failed. Later runs report them again until they are rewritten as i18next plural keys.`,
     );
   }
 
@@ -757,17 +765,23 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   // current source, so keys removed from the source drop out. A failed key (or
   // one an abort never reached) keeps its previous hash (if any): when that was
   // a source change, the next run sees the mismatch again and retries it.
+  // A key failed this run is recorded as failed; one an abort never reached
+  // keeps its previous failed entry. Every other key drops out of `failed`:
+  // it was translated, or its target value was edited since it failed.
   const checksums: Checksums = {};
+  const failed: Checksums = {};
   for (const leaf of walkLeaves(diffSource)) {
     const key = lockKey(leaf.path);
     if (unsyncedKeys.has(key)) {
-      if (lock?.[key] !== undefined) checksums[key] = lock[key];
+      if (lock?.checksums[key] !== undefined) checksums[key] = lock.checksums[key];
+      const failedHash = failedKeys[key] ?? lock?.failed[key];
+      if (failedHash !== undefined) failed[key] = failedHash;
     } else {
       checksums[key] = hashSource(leaf.value);
     }
   }
   try {
-    writeLock(lockPath, checksums);
+    writeLock(lockPath, checksums, failed);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_WRITE_FAILED", `Failed to write ${lockPath}: ${msg}`, "Check that the lock directory is writable.", err);
