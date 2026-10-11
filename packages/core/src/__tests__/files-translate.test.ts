@@ -818,20 +818,26 @@ describe("translateFile", () => {
     expect(after.item_other).toBe("[ar] {{count}} items");
     expect(summary.failed.map((f) => f.path)).toEqual(["files"]);
     expect(summary.warnings.filter((w) => /ICU plural\/select/.test(w))).toHaveLength(1);
-    // A failed key gets no lock hash (it keeps its previous one, here none).
-    const lock = JSON.parse(readFileSync(join(dir, ".tl", "locks", "ar.json.lock"), "utf8"));
+    // A failed key gets no lock hash (it keeps its previous one, here none)
+    // and is listed as failed.
+    const lockPath = join(dir, ".tl", "locks", "ar.json.lock");
+    const lock = JSON.parse(readFileSync(lockPath, "utf8"));
     expect(lock.checksums["/files"]).toBeUndefined();
+    expect(Object.keys(lock.failed)).toEqual(["/files"]);
 
-    // The target now holds the copied source string and there is no hash to
-    // compare, so a missing-only re-run does not re-queue the key.
-    const rerun = await translateFile({
-      sourcePath: src, outPath: out,
-      sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
-    });
-    expect(rerun.totalLeaves).toBe(0);
-    expect(rerun.failed).toEqual([]);
-    expect(JSON.parse(readFileSync(out, "utf8")).files).toBe(icu);
+    // A missing-only re-run retries the failed key (and reports it again)
+    // instead of trusting the copied source string.
+    for (let run = 0; run < 2; run++) {
+      const rerun = await translateFile({
+        sourcePath: src, outPath: out,
+        sourceLang: "en", targetLang: "ar",
+        adapter, glossary, context,
+      });
+      expect(rerun.totalLeaves).toBe(1);
+      expect(rerun.failed.map((f) => f.pointer)).toEqual(["/files"]);
+      expect(JSON.parse(readFileSync(out, "utf8")).files).toBe(icu);
+      expect(Object.keys(JSON.parse(readFileSync(lockPath, "utf8")).failed)).toEqual(["/files"]);
+    }
 
     // --force re-queues it (and it fails the same way).
     const forced = await translateFile({
@@ -1549,6 +1555,52 @@ describe("translateFile", () => {
 
     const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
     expect(retry.changed).toEqual(["/g"]);
+  });
+
+  it("a failed key is retried by the next missing-only run and leaves the failed list once translated", async () => {
+    class DropSentinelAdapter extends MockAdapter {
+      async translate(req: { source: string; sourceLang: string; targetLang: string }) {
+        return {
+          translated: `[${req.targetLang}] ${req.source.replace(/__TLPH_\d+__/g, "")}`,
+          sourceLang: req.sourceLang, targetLang: req.targetLang,
+          glossaryCoverage: 1, missingTerms: [],
+          metadata: { adapter: "drop", durationMs: 0, retries: 0 },
+        };
+      }
+    }
+    const src = writeSrc("en.json", '{\n  "a": "Hi",\n  "g": "Hello {{name}}"\n}\n');
+    const out = join(dir, "ar.json");
+    const first = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter: new DropSentinelAdapter(), glossary, context });
+    expect(first.failed.map((f) => f.pointer)).toEqual(["/g"]);
+    expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("Hello {{name}}");
+
+    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(retry.totalLeaves).toBe(1);
+    expect(retry.changed).toEqual([]);
+    expect(retry.failed).toEqual([]);
+    expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("[ar] Hello {{name}}");
+    const lock = JSON.parse(readFileSync(lockFile(), "utf8"));
+    expect(lock).not.toHaveProperty("failed");
+    expect(Object.keys(lock.checksums)).toEqual(["/a", "/g"]);
+
+    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(again.totalLeaves).toBe(0);
+  });
+
+  it("a failed key whose target value was edited by hand is kept, not retried", async () => {
+    const src = writeSrc("en.json", '{\n  "g": "Hello {{name}}"\n}\n');
+    const out = join(dir, "ar.json");
+    writeFileSync(out, '{\n  "g": "مرحبا {{name}}"\n}\n');
+    mkdirSync(join(dir, ".tl", "locks"), { recursive: true });
+    // The lock says /g failed with the source copied in; the target has since been edited.
+    writeFileSync(lockFile(), JSON.stringify({ version: 1, checksums: {}, failed: { "/g": "0123456789abcdef" } }));
+
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    expect(summary.totalLeaves).toBe(0);
+    expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("مرحبا {{name}}");
+    const lock = JSON.parse(readFileSync(lockFile(), "utf8"));
+    expect(lock).not.toHaveProperty("failed");
+    expect(Object.keys(lock.checksums)).toEqual(["/g"]);
   });
 
   it("in a git project the lock lives at the root, not in the locale dir (--out elsewhere)", async () => {

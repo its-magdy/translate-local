@@ -15,6 +15,8 @@ export function diffForSync(
   targetRoot: JsonValue,
   mode: SyncMode,
   isChanged?: (path: (string | number)[], source: string) => boolean,
+  // A key whose earlier run failed and still holds the source copied in as fallback.
+  isFailedFallback?: (path: (string | number)[], existing: string) => boolean,
 ): PendingTranslation[] {
   const out: PendingTranslation[] = [];
 
@@ -28,6 +30,8 @@ export function diffForSync(
       // Only a string can be re-translated in place; a target of another shape
       // (e.g. a plural map under a source string) is kept, as in missing-only.
       queue(true);
+    } else if (typeof existing === "string" && isFailedFallback?.(leaf.path, existing)) {
+      queue(false);
     }
   }
 
