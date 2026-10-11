@@ -951,7 +951,8 @@ describe("translateFile", () => {
     // A model that ignores the glossary: it writes the source word with no term tag.
     class IgnoreGlossaryAdapter extends DropSentinelAdapter {
       async translate(req: { source: string; sourceLang: string; targetLang: string }) {
-        return super.translate({ ...req, source: req.source.replace(/<term[^>]*>(.*?)<\/term>/g, "$1") });
+        // `[^"<>]` can't run past the next tag, so this stays linear (no ReDoS).
+        return super.translate({ ...req, source: req.source.replace(/<term translation="[^"<>]*">|<\/term>/g, "") });
       }
     }
     const strictMiss = await translateFile({
