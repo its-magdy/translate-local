@@ -11,11 +11,31 @@ const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTIN
 const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
 const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
 const TERM_ATTR_RE = /translation="[^"]*"/g;
-// How the prompt names the token shape, and two example tokens that can never
-// equal a real one (real tokens end in digits).
+// How the prompt names the token shape.
 const SENTINEL_FORM = `${PLACEHOLDER_SENTINEL_PREFIX}N${PLACEHOLDER_SENTINEL_SUFFIX}`;
-const EXAMPLE_TOKEN_A = `${PLACEHOLDER_SENTINEL_PREFIX}A${PLACEHOLDER_SENTINEL_SUFFIX}`;
-const EXAMPLE_TOKEN_B = `${PLACEHOLDER_SENTINEL_PREFIX}B${PLACEHOLDER_SENTINEL_SUFFIX}`;
+
+/**
+ * Preservation examples built from the source's own tokens, so the prompt never
+ * names a token the source lacks (the model would add it). Fixed example
+ * tokens measurably hurt placeholder survival (P5 en→fr: 10/10 → ~4/10).
+ */
+function placeholderExamples(unique: string[]): string[] {
+  const [a, b] = unique;
+  if (b === undefined) {
+    return [
+      `  Source: "Hello ${a}, welcome back"`,
+      `  → Spanish: "Hola ${a}, bienvenido de nuevo"`,
+      `  → Arabic: "مرحبًا ${a}، أهلاً بعودتك"`,
+      `  → Japanese: "こんにちは ${a} さん、おかえりなさい"`,
+    ];
+  }
+  return [
+    `  Source: "Hello ${a}, you have ${b} messages"`,
+    `  → Spanish: "Hola ${a}, tienes ${b} mensajes"`,
+    `  → Arabic: "مرحبًا ${a}، لديك ${b} رسالة"`,
+    `  → Japanese: "こんにちは ${a} さん、${b} 件のメッセージがあります"`,
+  ];
+}
 
 /** Placeholder sentinels in a source: total occurrences and each distinct token once. */
 function sentinelTokens(source: string): { count: number; unique: string[] } | undefined {
@@ -85,11 +105,8 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   if (sentinels) {
     lines.push(
       `CRITICAL PLACEHOLDER RULE: this source contains exactly ${sentinels.count} placeholder occurrence(s) of the form ${SENTINEL_FORM}. Specifically: ${sentinels.unique.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, each as many times as it appears in the source. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
-      `EXAMPLES of correct placeholder preservation across languages (the tokens here are only illustrations; use the tokens from the source):`,
-      `  Source: "Hello ${EXAMPLE_TOKEN_A}, you have ${EXAMPLE_TOKEN_B} messages"`,
-      `  → Spanish: "Hola ${EXAMPLE_TOKEN_A}, tienes ${EXAMPLE_TOKEN_B} mensajes"`,
-      `  → Arabic: "مرحبًا ${EXAMPLE_TOKEN_A}، لديك ${EXAMPLE_TOKEN_B} رسالة"`,
-      `  → Japanese: "こんにちは ${EXAMPLE_TOKEN_A} さん、${EXAMPLE_TOKEN_B} 件のメッセージがあります"`,
+      `EXAMPLES of correct placeholder preservation across languages:`,
+      ...placeholderExamples(sentinels.unique),
       `Notice that every token from the source appears in each translation as many times as in the source, in a natural position. Apply the same discipline to your translation below.`,
     );
   }

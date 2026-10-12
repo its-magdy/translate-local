@@ -210,17 +210,20 @@ describe("buildStructuredPrompt placeholder count", () => {
 
 describe("placeholder rule wording", () => {
   const tag = (n: number) => `<term translation="__TLPH_${n}__">__TLPH_${n}__</term>`;
-  const realTokens = (text: string) => text.match(/__TLPH_\d+__/g) ?? [];
+  const tokensIn = (text: string) => [...new Set(text.match(/__TLPH_\d+__/g) ?? [])].sort();
+  const examplesOf = (prompt: string) =>
+    prompt.split("EXAMPLES of correct placeholder preservation")[1].split("Please translate")[0];
 
-  test("structured: examples never use a real-looking token", () => {
+  test("structured: examples reuse the source's own tokens and name no other", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, source: `${tag(3)} and ${tag(5)} and ${tag(9)}` });
+    expect(tokensIn(examplesOf(prompt))).toEqual(["__TLPH_3__", "__TLPH_5__"]);
+    expect(tokensIn(prompt)).toEqual(["__TLPH_3__", "__TLPH_5__", "__TLPH_9__"]);
+  });
+
+  test("structured: a one-token source gets a one-token example", () => {
     const { prompt } = buildStructuredPrompt({ ...baseRequest, source: `Hi ${tag(7)}` });
-    const [rule, afterRule] = prompt.split("EXAMPLES of correct placeholder preservation");
-    const examples = afterRule.split("Please translate")[0];
-    expect(examples).toContain("__TLPH_A__");
-    expect(examples).toContain("__TLPH_B__");
-    expect(realTokens(examples)).toEqual([]);
-    // Only the rule's own listing carries the real token.
-    expect(realTokens(rule)).toEqual(["__TLPH_7__"]);
+    expect(tokensIn(prompt)).toEqual(["__TLPH_7__"]);
+    expect(tokensIn(examplesOf(prompt))).toEqual(["__TLPH_7__"]);
   });
 
   test("structured: asks for each token as many times as in the source, never 'exactly once'", () => {
