@@ -19,7 +19,7 @@ Set via `--glossary <mode>` flag or `glossary.mode` in config.
 
 ### `prefer` (default)
 
-The model is guided toward using the specified translations. If a term is missing from the first translation, the pipeline retries once with a reminder listing the missing terms (the same mechanism as `strict`), then returns whichever attempt used more of the terms (the first one on a tie). The result is returned even if some terms are still missing; prefer mode never fails because of the glossary. The retry is fixed at one: `glossary.maxRetries` only applies to `strict`.
+The model is guided toward using the specified translations. If a term is missing from the first translation, the pipeline retries with a reminder listing the missing terms (the same mechanism as `strict`). If a term is still missing, it makes one last, code-switched retry (see below). It then returns whichever attempt used the most terms (the earliest one on a tie). The result is returned even if some terms are still missing; prefer mode never fails because of the glossary. The retries are fixed at two: `glossary.maxRetries` only applies to `strict`. A translation that uses every term on the first try costs no extra model call.
 
 ```bash
 tl "machine learning model" --from en --to ar --glossary prefer
@@ -27,7 +27,20 @@ tl "machine learning model" --from en --to ar --glossary prefer
 
 ### `strict`
 
-If any glossary terms are missing from the translation, the pipeline retries (up to `glossary.maxRetries` times, default 2). Each retry appends a hint to the prompt listing the missing terms. If they are still missing after all retries, the command exits with error code 1.
+If any glossary terms are missing from the translation, the pipeline retries (up to `glossary.maxRetries` times, default 2). Each retry adds a hint to the prompt listing the missing terms, except the last one, which is code-switched. If they are still missing after all retries, the command exits with error code 1.
+
+### Code-switched last retry
+
+In both modes, the last retry sends the source with each glossary term already replaced by its target term (`Restart the hôte.`, tagged as `<term translation="hôte">hôte</term>`) and no reminder. The model then writes the sentence around the term itself, which also tends to get the article and agreement right. Placeholders are sent unchanged.
+
+### Articles and quotes around terms
+
+After every attempt, `tl` fixes a few deterministic mistakes right around a glossary target term:
+
+- quotes or em dashes wrapped directly around the term are dropped (`« hôte »` → `hôte`);
+- French and Italian articles and contractions are elided before a term that starts with a vowel or a mute h: `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` → `cet hôte`, `il host` → `l'host`. French words with an aspirated h (`héros`, `hasard`, `haut`, …) keep their article.
+
+Gender and case agreement (`eine neue Zweig`, `l'antémémoire est plein`) are not fixed.
 
 ```bash
 tl "machine learning model" --from en --to ar --glossary strict
@@ -116,7 +129,7 @@ Override the database path in config:
 
 ## Glossary in file mode
 
-`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. A key missing a term is retried once with a reminder in prefer mode (keeping the better attempt) and up to `glossary.maxRetries` times in strict mode; if all strict retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
+`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. A key missing a term is retried twice in prefer mode (keeping the best attempt) and up to `glossary.maxRetries` times in strict mode; if all strict retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
 
 In a typical file translation of N keys, glossary matching runs N times. Each match is fast (indexed SQLite query in-process), but for very large catalogs you may notice the cumulative cost. This is acceptable for v1; revisit if it becomes a bottleneck.
 
