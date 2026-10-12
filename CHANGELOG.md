@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.8] - 2026-10-12
+
+### Changed
+- **The last glossary retry hands the model the target term.** When a term is still missing after the reminder retry, the final attempt puts the required translation directly in the text to translate instead of the source word, so the model only has to keep it. Prefer mode (the default) now retries up to twice (reminder, then this attempt) and keeps the translation that covers the most terms; it still never fails over a missed term. Strict mode uses it for its last allowed retry. On our benchmark with TranslateGemma 4b, glossary runs went from 92% to 100% passing in both strict and prefer mode, including a three-term Arabic case that never passed before.
+
+### Fixed
+- **Grammar around glossary terms.** After translation, French and Italian articles are elided or contracted before a term that starts with a vowel or mute h (`le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `il host` → `l'host`; aspirated-h and y-initial words keep their article), quotes the model wraps around a term are removed (`« hôte »` → `hôte`), and a doubled Arabic article is dropped (`الـ الكاش` → `الكاش`). Grammatical-agreement cases on our benchmark went from 27% to about 77% passing. Gender and case agreement (German `eine neue Zweig`) is not fixed yet.
+
 ## [0.5.7] - 2026-10-12
 
 ### Changed
