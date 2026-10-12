@@ -124,7 +124,7 @@ export function stripGlossaryTags(text: string): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
   let result = removeTermTags(text, true);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(/<term\s+translation="([^"]*)"[^>]*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
+  result = result.replace(/<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;

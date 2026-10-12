@@ -213,6 +213,7 @@ describe("stripGlossaryTags", () => {
     const start = performance.now();
     stripGlossaryTags("<term>".repeat(100_000));
     stripGlossaryTags("<term".repeat(100_000));
+    stripGlossaryTags('<term translation=""'.repeat(100_000));
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
