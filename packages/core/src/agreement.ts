@@ -114,9 +114,25 @@ export function dropDoubledArabicArticle(text: string, targetLang: string, terms
   return text;
 }
 
+/**
+ * Arabic: attach a detached article (`الـ`, after an optional proclitic) to an
+ * Arabic-script term without one: `ادفع الـ كوميت` → `ادفع الكوميت`,
+ * `قم بالـ نشر` → `قم بالنشر`, `للـ كوميت` → `للكوميت`. The detached form is
+ * for foreign-script words, so a Latin-script term (`الـ API`) keeps it.
+ */
+export function attachArabicArticle(text: string, targetLang: string, terms: string[]): string {
+  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
+  for (const term of terms) {
+    if (term.startsWith("ال") || !/^\p{Script=Arabic}/u.test(term)) continue;
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{M}])([وف]?[بك]?ال|[وف]?لل)ـ+[^\\S\\n]+(?=${escapeRegExp(term)})`, "gu"), "$1");
+  }
+  return text;
+}
+
 /** Apply every fix-up around the given glossary target terms. */
 export function fixTermAgreement(text: string, targetLang: string, terms: string[]): string {
   if (terms.length === 0) return text;
   const unquoted = unquoteTerms(text, terms);
-  return dropDoubledArabicArticle(elideBeforeTerms(unquoted, targetLang, terms), targetLang, terms);
+  const elided = elideBeforeTerms(unquoted, targetLang, terms);
+  return attachArabicArticle(dropDoubledArabicArticle(elided, targetLang, terms), targetLang, terms);
 }

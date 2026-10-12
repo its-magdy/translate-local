@@ -87,9 +87,12 @@ describe("MockAdapter ignoreGlossary hook", () => {
   });
 
   test("emits the source term for a code-switched tag holding the target", async () => {
-    const source = 'Hello <term translation="عالم">عالم</term>';
+    const source = 'Hello <term translation="عالم" source="World &amp; co">عالم</term>';
     const result = await new MockAdapter({ ignoreGlossary: true }).translate({ ...request, source });
-    expect(result.translated).toBe("[ar] Hello world");
+    expect(result.translated).toBe("[ar] Hello World & co");
+    // A same-script code-switched tag has no source attribute: the entry's sourceTerm comes back.
+    const plain = 'Hello <term translation="عالم">عالم</term>';
+    expect((await new MockAdapter({ ignoreGlossary: true }).translate({ ...request, source: plain })).translated).toBe("[ar] Hello world");
   });
 
   test("does not touch tags whose inner text is a sentinel", async () => {

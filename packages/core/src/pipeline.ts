@@ -16,6 +16,7 @@ const REPAIR_MAX_LENGTH_RATIO = 1.3;
 
 const SENTINEL_RE = new RegExp(`${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`, "g");
 // A term tag in model output, closed or not: [, translation attribute, inner text].
+// Doesn't match code-switched tags with a source attribute; that attempt counts as forced anyway.
 const OUTPUT_TAG_RE = /<term\s+translation="([^"]*)">([^<]*)/g;
 
 export interface PipelineOptions {
@@ -61,7 +62,7 @@ export async function runPipeline(
       : glossaryStore.findMatches(text, sourceLang, targetLang);
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
-  const codeSwitchedSource = realHits.length > 0 ? codeSwitch(text, hits, realHits) : taggedSource;
+  const codeSwitchedSource = realHits.length > 0 ? injectGlossaryTags(text, hits, realHits) : taggedSource;
   // Real hits only: placeholder sentinels need no agreement fix-up.
   const targetTerms = [...new Set(realHits.map((h) => h.entry.targetTerm))];
 
@@ -75,8 +76,10 @@ export async function runPipeline(
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
-    // The final retry sends the target terms in place of the source terms and
-    // no reminder: the model then writes the sentence around the term itself.
+    // The final retry sends the target terms in place of the source terms (a
+    // term in another script than its source word keeps the word as a tag
+    // attribute, so it keeps its meaning) and no reminder: the model then
+    // writes the sentence around the term itself.
     const codeSwitched = retries > 0 && retries === retryLimit;
     const request: TranslationRequest = {
       source: isImageMode ? "" : codeSwitched ? codeSwitchedSource : taggedSource,
@@ -191,23 +194,4 @@ function substitutesTerm(raw: string, targetTerms: string[]): boolean {
 /** The placeholder sentinels in `text`, sorted, as one comparable string. */
 function sentinels(text: string): string {
   return (text.match(SENTINEL_RE) ?? []).sort().join(" ");
-}
-
-/**
- * The source with each real glossary hit replaced by its target term, tagged
- * as `<term translation="T">T</term>`. Extra hits (placeholder sentinels) keep
- * their usual tag around the original text.
- */
-function codeSwitch(text: string, hits: GlossaryHit[], realHits: GlossaryHit[]): string {
-  let out = "";
-  let cursor = 0;
-  const shifted: GlossaryHit[] = [];
-  for (const hit of hits) {
-    out += text.slice(cursor, hit.startIndex);
-    const piece = realHits.includes(hit) ? hit.entry.targetTerm : text.slice(hit.startIndex, hit.endIndex);
-    shifted.push({ ...hit, startIndex: out.length, endIndex: out.length + piece.length });
-    out += piece;
-    cursor = hit.endIndex;
-  }
-  return injectGlossaryTags(out + text.slice(cursor), shifted);
 }

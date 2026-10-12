@@ -10,12 +10,47 @@ function escapeContent(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+const scriptRe = (names: string): RegExp => new RegExp(`[${names.split(" ").map((n) => `\\p{Script=${n}}`).join("")}]`, "u");
+// Han and kana count as one writing system (Japanese mixes them).
+const CJK_SCRIPT_RES = [scriptRe("Han Hiragana Katakana"), scriptRe("Hangul")];
+// One class per writing system.
+const SCRIPT_RES = [
+  ...[
+    "Latin", "Greek", "Cyrillic", "Armenian", "Georgian", "Hebrew", "Arabic", "Syriac", "Thaana", "Devanagari",
+    "Bengali", "Gurmukhi", "Gujarati", "Oriya", "Tamil", "Telugu", "Kannada", "Malayalam", "Sinhala", "Thai",
+    "Lao", "Tibetan", "Myanmar", "Khmer", "Ethiopic",
+  ].map(scriptRe),
+  ...CJK_SCRIPT_RES,
+];
+
+/** Whether `a` and `b` have letters of a common writing system. */
+function sharesScript(a: string, b: string): boolean {
+  return SCRIPT_RES.some((re) => re.test(a) && re.test(b));
+}
+
+/**
+ * Whether a code-switched tag gets the source word as an attribute: only for a
+ * term in another writing system than the word, and not a CJK one.
+ */
+function keepsSourceWord(word: string, term: string): boolean {
+  return !sharesScript(word, term) && !CJK_SCRIPT_RES.some((re) => re.test(term));
+}
+
 /**
  * Inject glossary XML tags into source text for matched terms.
  * Hits must be sorted by startIndex ascending and non-overlapping.
  * Throws if hits are out-of-order or overlapping.
+ *
+ * Hits in `codeSwitch` are code-switched (the pipeline's last glossary retry):
+ * the tag holds the target term instead of the source word. When the two share
+ * no writing system, the source word goes in a `source` attribute,
+ * `<term translation="الكاش" source="cache">الكاش</term>`, so the term keeps
+ * its meaning (#116: a bare الكاش also reads as "cash"). A same-script source
+ * word is left out: the model would copy it (it `server` for `host`). So is
+ * one for a Han, kana or Hangul term: there the attribute bought no term
+ * coverage and cost placeholders (ja `キャッシュ`: kept 29/60 vs 42/60).
  */
-export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
+export function injectGlossaryTags(text: string, hits: GlossaryHit[], codeSwitch: readonly GlossaryHit[] = []): string {
   if (hits.length === 0) return text;
 
   for (let i = 1; i < hits.length; i++) {
@@ -30,7 +65,13 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[]): string {
   for (const hit of hits) {
     result += text.slice(cursor, hit.startIndex);
     const sourcePart = text.slice(hit.startIndex, hit.endIndex);
-    result += `<term translation="${escapeAttr(hit.entry.targetTerm)}">${escapeContent(sourcePart)}</term>`;
+    const translation = escapeAttr(hit.entry.targetTerm);
+    if (!codeSwitch.includes(hit)) {
+      result += `<term translation="${translation}">${escapeContent(sourcePart)}</term>`;
+    } else {
+      const source = keepsSourceWord(sourcePart, hit.entry.targetTerm) ? ` source="${escapeAttr(sourcePart)}"` : "";
+      result += `<term translation="${translation}"${source}>${escapeContent(hit.entry.targetTerm)}</term>`;
+    }
     cursor = hit.endIndex;
   }
 
@@ -83,7 +124,7 @@ export function stripGlossaryTags(text: string): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
   let result = removeTermTags(text, true);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
+  result = result.replace(/<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;

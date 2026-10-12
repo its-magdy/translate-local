@@ -59,6 +59,36 @@ describe("injectGlossaryTags", () => {
     const hits = [makeHit("Cloud", "سحابة", 8), makeHit("API", "واجهة", 4)];
     expect(() => injectGlossaryTags("The API and Cloud", hits)).toThrow();
   });
+
+  test("code-switches the listed hits: target term inside, source word as an attribute", () => {
+    const api = makeHit("API", "واجهة", 4);
+    const cloud = makeHit("Cloud", "سحابة", 12);
+    expect(injectGlossaryTags("The API and Cloud", [api, cloud], [api])).toBe(
+      'The <term translation="واجهة" source="API">واجهة</term> and <term translation="سحابة">Cloud</term>',
+    );
+  });
+
+  test("leaves out the source attribute when the source word and the term share a writing system", () => {
+    const host = makeHit("server", "host", 12);
+    expect(injectGlossaryTags("Restart the server.", [host], [host])).toBe('Restart the <term translation="host">host</term>.');
+    const cyrillic = makeHit("commit", "коммит", 9);
+    expect(injectGlossaryTags("Push the commit.", [cyrillic], [cyrillic])).toBe('Push the <term translation="коммит" source="commit">коммит</term>.');
+    // Any shared script counts, so a mixed-script term gets no attribute.
+    const mixed = makeHit("API", "واجهة API", 4);
+    expect(injectGlossaryTags("The API", [mixed], [mixed])).toBe('The <term translation="واجهة API">واجهة API</term>');
+  });
+
+  test("leaves out the source attribute for a Han, kana or Hangul term", () => {
+    for (const [word, term] of [["commit", "提交"], ["branch", "ブランチ"], ["cache", "キャッシュ"], ["server", "서버"], ["Arabic", "日本語API"]]) {
+      const hit = makeHit(word, term, 4);
+      expect(injectGlossaryTags(`Use ${word}`, [hit], [hit])).toBe(`Use <term translation="${term}">${term}</term>`);
+    }
+  });
+
+  test("escapes the source attribute and the target term of a code-switched tag", () => {
+    const hit = makeHit('A&"B', "س<ص", 4);
+    expect(injectGlossaryTags('Use A&"B', [hit], [hit])).toBe('Use <term translation="س&lt;ص" source="A&amp;&quot;B">س&lt;ص</term>');
+  });
 });
 
 describe("stripGlossaryTags", () => {
@@ -146,6 +176,11 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags(input)).toBe("prefix مرحبا");
   });
 
+  test("uses the translation attribute for a code-switched tag, closed or not", () => {
+    expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">الكاش</term>.')).toBe("مسح الكاش.");
+    expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">ذاكرة')).toBe("مسح الكاش");
+  });
+
   test("handles multiple unclosed tags", () => {
     // Space after "machine learning" is consumed as part of the source content — normalizeWhitespace handles the rest
     const input = '<term translation="تعلم الآلة">machine learning<term translation="شبكة عصبية">neural network';
@@ -178,6 +213,7 @@ describe("stripGlossaryTags", () => {
     const start = performance.now();
     stripGlossaryTags("<term>".repeat(100_000));
     stripGlossaryTags("<term".repeat(100_000));
+    stripGlossaryTags('<term translation=""'.repeat(100_000));
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
