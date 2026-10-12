@@ -71,14 +71,18 @@ describe("injectGlossaryTags", () => {
   test("leaves out the source attribute when the source word and the term share a writing system", () => {
     const host = makeHit("server", "host", 12);
     expect(injectGlossaryTags("Restart the server.", [host], [host])).toBe('Restart the <term translation="host">host</term>.');
-    // Han and kana count as one writing system; Latin vs kana does not share one.
-    const kana = makeHit("サーバ", "サーバー", 0);
-    expect(injectGlossaryTags("サーバ", [kana], [kana])).toBe('<term translation="サーバー">サーバー</term>');
-    const ja = makeHit("server", "サーバー", 12);
-    expect(injectGlossaryTags("Restart the server.", [ja], [ja])).toBe('Restart the <term translation="サーバー" source="server">サーバー</term>.');
+    const cyrillic = makeHit("commit", "коммит", 9);
+    expect(injectGlossaryTags("Push the commit.", [cyrillic], [cyrillic])).toBe('Push the <term translation="коммит" source="commit">коммит</term>.');
     // Any shared script counts, so a mixed-script term gets no attribute.
     const mixed = makeHit("API", "واجهة API", 4);
     expect(injectGlossaryTags("The API", [mixed], [mixed])).toBe('The <term translation="واجهة API">واجهة API</term>');
+  });
+
+  test("leaves out the source attribute for a Han, kana or Hangul term", () => {
+    for (const [word, term] of [["commit", "提交"], ["branch", "ブランチ"], ["cache", "キャッシュ"], ["server", "서버"], ["Arabic", "日本語API"]]) {
+      const hit = makeHit(word, term, 4);
+      expect(injectGlossaryTags(`Use ${word}`, [hit], [hit])).toBe(`Use <term translation="${term}">${term}</term>`);
+    }
   });
 
   test("escapes the source attribute and the target term of a code-switched tag", () => {

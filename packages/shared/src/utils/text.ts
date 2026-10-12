@@ -10,16 +10,30 @@ function escapeContent(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// One class per writing system; Han and kana count as one (Japanese mixes them).
+const scriptRe = (names: string): RegExp => new RegExp(`[${names.split(" ").map((n) => `\\p{Script=${n}}`).join("")}]`, "u");
+// Han and kana count as one writing system (Japanese mixes them).
+const CJK_SCRIPT_RES = [scriptRe("Han Hiragana Katakana"), scriptRe("Hangul")];
+// One class per writing system.
 const SCRIPT_RES = [
-  "Latin", "Greek", "Cyrillic", "Armenian", "Georgian", "Hebrew", "Arabic", "Syriac", "Thaana", "Devanagari",
-  "Bengali", "Gurmukhi", "Gujarati", "Oriya", "Tamil", "Telugu", "Kannada", "Malayalam", "Sinhala", "Thai",
-  "Lao", "Tibetan", "Myanmar", "Khmer", "Ethiopic", "Hangul", "Han Hiragana Katakana",
-].map((names) => new RegExp(`[${names.split(" ").map((n) => `\\p{Script=${n}}`).join("")}]`, "u"));
+  ...[
+    "Latin", "Greek", "Cyrillic", "Armenian", "Georgian", "Hebrew", "Arabic", "Syriac", "Thaana", "Devanagari",
+    "Bengali", "Gurmukhi", "Gujarati", "Oriya", "Tamil", "Telugu", "Kannada", "Malayalam", "Sinhala", "Thai",
+    "Lao", "Tibetan", "Myanmar", "Khmer", "Ethiopic",
+  ].map(scriptRe),
+  ...CJK_SCRIPT_RES,
+];
 
 /** Whether `a` and `b` have letters of a common writing system. */
 function sharesScript(a: string, b: string): boolean {
   return SCRIPT_RES.some((re) => re.test(a) && re.test(b));
+}
+
+/**
+ * Whether a code-switched tag gets the source word as an attribute: only for a
+ * term in another writing system than the word, and not a CJK one.
+ */
+function keepsSourceWord(word: string, term: string): boolean {
+  return !sharesScript(word, term) && !CJK_SCRIPT_RES.some((re) => re.test(term));
 }
 
 /**
@@ -32,7 +46,9 @@ function sharesScript(a: string, b: string): boolean {
  * no writing system, the source word goes in a `source` attribute,
  * `<term translation="الكاش" source="cache">الكاش</term>`, so the term keeps
  * its meaning (#116: a bare الكاش also reads as "cash"). A same-script source
- * word is left out: the model would copy it (it `server` for `host`).
+ * word is left out: the model would copy it (it `server` for `host`). So is
+ * one for a Han, kana or Hangul term: there the attribute bought no term
+ * coverage and cost placeholders (ja `キャッシュ`: kept 29/60 vs 42/60).
  */
 export function injectGlossaryTags(text: string, hits: GlossaryHit[], codeSwitch: readonly GlossaryHit[] = []): string {
   if (hits.length === 0) return text;
@@ -53,7 +69,7 @@ export function injectGlossaryTags(text: string, hits: GlossaryHit[], codeSwitch
     if (!codeSwitch.includes(hit)) {
       result += `<term translation="${translation}">${escapeContent(sourcePart)}</term>`;
     } else {
-      const source = sharesScript(sourcePart, hit.entry.targetTerm) ? "" : ` source="${escapeAttr(sourcePart)}"`;
+      const source = keepsSourceWord(sourcePart, hit.entry.targetTerm) ? ` source="${escapeAttr(sourcePart)}"` : "";
       result += `<term translation="${translation}"${source}>${escapeContent(hit.entry.targetTerm)}</term>`;
     }
     cursor = hit.endIndex;
