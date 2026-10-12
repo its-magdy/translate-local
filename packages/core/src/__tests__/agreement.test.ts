@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { unquoteTerms, elideBeforeTerms, fixTermAgreement } from "../agreement";
+import { unquoteTerms, elideBeforeTerms, dropDoubledArabicArticle, fixTermAgreement } from "../agreement";
 
 describe("unquoteTerms", () => {
   it("drops quote pairs and em dashes wrapped around a term", () => {
@@ -61,6 +61,19 @@ describe("elideBeforeTerms", () => {
   it("leaves other languages alone", () => {
     expect(elideBeforeTerms("le hôte", "en", ["hôte"])).toBe("le hôte");
     expect(elideBeforeTerms("Erstellen Sie eine neue Zweig.", "de", ["Zweig"])).toBe("Erstellen Sie eine neue Zweig.");
+  });
+});
+
+describe("dropDoubledArabicArticle", () => {
+  it("drops a detached article before a term that already has one", () => {
+    expect(dropDoubledArabicArticle("تم مسح الـ {name} من الـ الكاش.", "ar", ["الكاش"])).toBe("تم مسح الـ {name} من الكاش.");
+    expect(dropDoubledArabicArticle("امسح ال الكاش", "ar-EG", ["الكاش"])).toBe("امسح الكاش");
+  });
+
+  it("leaves other text, terms and languages alone", () => {
+    expect(dropDoubledArabicArticle("امسح الكاش", "ar", ["الكاش"])).toBe("امسح الكاش");
+    expect(dropDoubledArabicArticle("ادفع الـ كوميت", "ar", ["كوميت"])).toBe("ادفع الـ كوميت");
+    expect(dropDoubledArabicArticle("من الـ الكاش", "fr", ["الكاش"])).toBe("من الـ الكاش");
   });
 });
 

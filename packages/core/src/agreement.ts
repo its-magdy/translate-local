@@ -97,8 +97,22 @@ export function elideBeforeTerms(text: string, targetLang: string, terms: string
   return text;
 }
 
+/**
+ * Arabic: drop a detached article (`الـ` / `ال`) the model puts before a term
+ * that already starts with `ال`: `من الـ الكاش` → `من الكاش`.
+ */
+export function dropDoubledArabicArticle(text: string, targetLang: string, terms: string[]): string {
+  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
+  for (const term of terms) {
+    if (!term.startsWith("ال")) continue;
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{M}])الـ*\\s+(?=${escapeRegExp(term)})`, "gu"), "");
+  }
+  return text;
+}
+
 /** Apply every fix-up around the given glossary target terms. */
 export function fixTermAgreement(text: string, targetLang: string, terms: string[]): string {
   if (terms.length === 0) return text;
-  return elideBeforeTerms(unquoteTerms(text, terms), targetLang, terms);
+  const unquoted = unquoteTerms(text, terms);
+  return dropDoubledArabicArticle(elideBeforeTerms(unquoted, targetLang, terms), targetLang, terms);
 }
