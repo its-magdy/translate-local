@@ -12,13 +12,17 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\
 /** Quote pairs (and em dashes) the model wraps around a substituted term. */
 const QUOTE_PAIRS: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["„", "“"], ["—", "—"]];
 
-/** Drop quotes or em dashes wrapped directly around a term: `« hôte »` → `hôte`. */
+/**
+ * Drop quotes or em dashes wrapped directly around a term (`« hôte »` →
+ * `hôte`), and a lone em dash right before one (`il —host` → `il host`).
+ */
 export function unquoteTerms(text: string, terms: string[]): string {
   for (const term of terms) {
     const t = escapeRegExp(term);
     for (const [open, close] of QUOTE_PAIRS) {
       text = text.replace(new RegExp(`${escapeRegExp(open)}\\s*(${t})\\s*${escapeRegExp(close)}`, "gu"), "$1");
     }
+    text = text.replace(new RegExp(`(['’])?\\s*—\\s*(?=${t})`, "gu"), (_m, ap: string | undefined, offset: number) => ap ?? (offset === 0 ? "" : " "));
   }
   return text;
 }

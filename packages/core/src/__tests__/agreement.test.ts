@@ -10,6 +10,14 @@ describe("unquoteTerms", () => {
     expect(unquoteTerms("Redémarrez le — hôte — maintenant.", ["hôte"])).toBe("Redémarrez le hôte maintenant.");
   });
 
+  it("drops a lone em dash right before a term", () => {
+    expect(unquoteTerms("Riavvia il —host.", ["host"])).toBe("Riavvia il host.");
+    expect(unquoteTerms("Riavvia il — host.", ["host"])).toBe("Riavvia il host.");
+    expect(unquoteTerms("Redémarrez l'—hôte.", ["hôte"])).toBe("Redémarrez l'hôte.");
+    expect(unquoteTerms("—hôte", ["hôte"])).toBe("hôte");
+    expect(fixTermAgreement("Riavviare il —host.", "it", ["host"])).toBe("Riavviare l'host.");
+  });
+
   it("leaves quotes around other text alone", () => {
     expect(unquoteTerms("Il a dit « bonjour » à l'hôte.", ["hôte"])).toBe("Il a dit « bonjour » à l'hôte.");
     expect(unquoteTerms("« hôte principal »", ["hôte"])).toBe("« hôte principal »");
