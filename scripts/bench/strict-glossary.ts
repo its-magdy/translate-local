@@ -10,6 +10,11 @@
  * a case succeeds only when the output contains every required target term
  * (and, for P cases, every placeholder).
  *
+ * A case's `drift` regex flags a meaning change the glossary check can't see
+ * (P4: الكاش also reads as "cash", so the model can write a payment sentence
+ * that still has the term). A run whose final output matches it fails as
+ * DRIFT and is counted in the `drift` column, in either mode.
+ *
  * Uses the core/adapters sources directly with temp SQLite dbs under a mkdtemp
  * dir (never ~/.config/tl). Model settings are exactly the app defaults: the
  * adapter sends no options, so Ollama uses the Modelfile's sampling params.
@@ -67,7 +72,7 @@ const GLOSSARY: Record<string, [string, string][]> = {
   ],
 };
 
-type Case = { id: string; kind: "glossary" | "placeholder"; src: string; tgt: string; text: string; note: string };
+type Case = { id: string; kind: "glossary" | "placeholder"; src: string; tgt: string; text: string; note: string; drift?: RegExp };
 
 const CASES: Case[] = [
   // Glossary (--mode, runPipeline exactly as TranslationSession.translate does, no context)
@@ -88,7 +93,7 @@ const CASES: Case[] = [
   { id: "P1-ar-one", kind: "placeholder", src: "en", tgt: "ar", text: "Hello {name}, welcome back!", note: "1 placeholder" },
   { id: "P2-ar-two", kind: "placeholder", src: "en", tgt: "ar", text: "You have {{count}} new messages from {sender}.", note: "2 placeholders" },
   { id: "P3-ar-three", kind: "placeholder", src: "en", tgt: "ar", text: "%s uploaded {{count}} files to {folder}.", note: "3 placeholders" },
-  { id: "P4-ar-glossary", kind: "placeholder", src: "en", tgt: "ar", text: "Cleared the {name} cache.", note: "placeholder adjacent to glossary term" },
+  { id: "P4-ar-glossary", kind: "placeholder", src: "en", tgt: "ar", text: "Cleared the {name} cache.", note: "placeholder adjacent to glossary term", drift: /سداد|دفع|المبلغ|نقد/ },
   { id: "P5-fr-three", kind: "placeholder", src: "en", tgt: "fr", text: "%s uploaded {{count}} files to {folder}.", note: "fr, 3 placeholders" },
   { id: "P6-de-three", kind: "placeholder", src: "en", tgt: "de", text: "%s uploaded {{count}} files to {folder}.", note: "de, 3 placeholders" },
 ];
@@ -143,6 +148,7 @@ type RunResult = {
   success: boolean;
   attempts: number; // every model call, agreement repairs included
   repairs: number; // agreement repair calls (#115)
+  drift: boolean; // the final output matches the case's drift regex
   errorTag?: string;
   errorMessage?: string;
   missingTerms: string[];
@@ -178,7 +184,7 @@ async function main(): Promise<void> {
       for (let run = 0; run < RUNS; run++) {
         rec.calls = [];
         const t0 = performance.now();
-        const r: RunResult = { run, success: false, attempts: 0, repairs: 0, missingTerms: [], durationMs: 0, firstOutput: "" };
+        const r: RunResult = { run, success: false, attempts: 0, repairs: 0, drift: false, missingTerms: [], durationMs: 0, firstOutput: "" };
         if (c.kind === "glossary") {
           try {
             const res = await runPipeline(c.text, c.src, c.tgt, rec, glossary, { glossaryMode: MODE, maxRetries: MAX_RETRIES });
@@ -218,6 +224,11 @@ async function main(): Promise<void> {
             r.errorTag = "GLOSSARY_MISS";
           }
         }
+        r.drift = !!c.drift && r.output !== undefined && c.drift.test(r.output);
+        if (r.drift && r.success) {
+          r.success = false;
+          r.errorTag = "DRIFT";
+        }
         r.attempts = rec.calls.length;
         r.repairs = rec.calls.filter((call) => call.repair).length;
         r.durationMs = Math.round(performance.now() - t0);
@@ -245,6 +256,7 @@ async function main(): Promise<void> {
       rate: ok / rs.length,
       meanAttempts: +(rs.reduce((a, r) => a + r.attempts, 0) / rs.length).toFixed(2),
       repairs: rs.reduce((a, r) => a + r.repairs, 0),
+      drift: c.drift ? rs.filter((r) => r.drift).length : "-",
       firstTryOk: rs.filter((r) => r.success && r.attempts - r.repairs === 1).length,
       distinctFirstOutputs: new Set(rs.map((r) => r.firstOutput)).size,
       meanMs: Math.round(rs.reduce((a, r) => a + r.durationMs, 0) / rs.length),
@@ -260,6 +272,9 @@ async function main(): Promise<void> {
   const totalMin = ((Date.now() - started) / 60000).toFixed(1);
   console.log(`\nOverall glossary success:    ${overall("glossary")}`);
   console.log(`Overall placeholder success: ${overall("placeholder")}`);
+  const driftRuns = cases.filter((c) => c.drift).flatMap((c) => results[c.id]);
+  const drift = driftRuns.length ? `${driftRuns.filter((r) => r.drift).length}/${driftRuns.length}` : "n/a";
+  console.log(`Meaning drift:               ${drift}`);
   console.log(`Total time: ${totalMin} min`);
 
   const outDir = join(import.meta.dir, "results");
@@ -267,7 +282,7 @@ async function main(): Promise<void> {
   const outFile = join(outDir, `${LABEL}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(
     outFile,
-    JSON.stringify({ model: DEFAULT_MODEL, mode: MODE, runs: RUNS, maxRetries: MAX_RETRIES, glossary: GLOSSARY, summary: rows, overall: { glossary: overall("glossary"), placeholder: overall("placeholder") }, cases, results }, null, 2),
+    JSON.stringify({ model: DEFAULT_MODEL, mode: MODE, runs: RUNS, maxRetries: MAX_RETRIES, glossary: GLOSSARY, summary: rows, overall: { glossary: overall("glossary"), placeholder: overall("placeholder"), drift }, cases, results }, null, 2),
   );
   console.log(`Results: ${outFile}`);
 }
