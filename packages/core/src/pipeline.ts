@@ -3,8 +3,12 @@ import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlos
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { matchTerms, type GlossaryStore } from "./glossary";
 
+/** Reminder retries prefer mode makes for a missed glossary term (strict uses maxRetries). */
+const PREFER_RETRIES = 1;
+
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
+  /** Strict mode only: prefer mode always makes PREFER_RETRIES retries. */
   maxRetries?: number;
   contextSnippets?: string[];
   imageBase64?: string;
@@ -14,7 +18,7 @@ export interface PipelineOptions {
   /**
    * Caller-supplied hits tagged in the source alongside the glossary lookup's
    * (file mode routes placeholder sentinels through this). They are for tagging
-   * only: strict-mode retries, glossaryReminder, glossaryCoverage and
+   * only: glossary retries (both modes), glossaryReminder, glossaryCoverage and
    * missingTerms count real glossary hits alone, so the caller must check that
    * these survived itself.
    */
@@ -46,8 +50,11 @@ export async function runPipeline(
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
 
+  const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
   let glossaryReminder: TranslationRequest["glossaryReminder"];
+  // Prefer mode returns the attempt with the highest coverage; ties keep the earlier one.
+  let best: TranslationResult | undefined;
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
@@ -78,8 +85,9 @@ export async function runPipeline(
     };
 
     if (missingTerms.length === 0) return result;
+    if (!best || glossaryCoverage > best.glossaryCoverage) best = result;
 
-    if (glossaryMode === "strict" && retries < maxRetries) {
+    if (retries < retryLimit) {
       // missingTerms are source terms; the model needs their target translations.
       glossaryReminder = missingTerms.map((term) => ({
         source: term,
@@ -97,6 +105,6 @@ export async function runPipeline(
       );
     }
 
-    return result;
+    return { ...best, metadata: { ...best.metadata, retries } };
   }
 }

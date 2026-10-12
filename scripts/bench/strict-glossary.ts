@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 /**
- * Benchmark: strict glossary mode + placeholder preservation against
+ * Benchmark: glossary enforcement + placeholder preservation against
  * the real TranslateGemma model via Ollama.
  *
- *   bun run scripts/bench/strict-glossary.ts [--runs N] [--only <caseId,...>] [--label name]
+ *   bun run scripts/bench/strict-glossary.ts [--runs N] [--only <caseId,...>] [--label name] [--mode strict|prefer]
+ *
+ * --mode (default strict) is the glossary mode every case runs in. Strict mode
+ * succeeds when nothing throws; prefer mode never throws for a miss, so there
+ * a case succeeds only when the output contains every required target term
+ * (and, for P cases, every placeholder).
  *
  * Uses the core/adapters sources directly with temp SQLite dbs under a mkdtemp
  * dir (never ~/.config/tl). Model settings are exactly the app defaults: the
@@ -34,6 +39,8 @@ const argVal = (name: string): string | undefined => {
 const RUNS = Number(argVal("--runs") ?? 3);
 const ONLY = argVal("--only")?.split(",");
 const LABEL = argVal("--label") ?? "run";
+const MODE = argVal("--mode") ?? "strict";
+if (MODE !== "strict" && MODE !== "prefer") throw new Error(`--mode must be strict or prefer, got ${MODE}`);
 // Same default as config.ts `glossary.maxRetries`.
 const MAX_RETRIES = 2;
 
@@ -63,7 +70,7 @@ const GLOSSARY: Record<string, [string, string][]> = {
 type Case = { id: string; kind: "glossary" | "placeholder"; src: string; tgt: string; text: string; note: string };
 
 const CASES: Case[] = [
-  // Glossary (strict mode, runPipeline exactly as TranslationSession.translate does, no context)
+  // Glossary (--mode, runPipeline exactly as TranslationSession.translate does, no context)
   { id: "G1-ar-cache", kind: "glossary", src: "en", tgt: "ar", text: "Clear the cache before restarting the server.", note: "short term, transliteration" },
   { id: "G2-ar-token", kind: "glossary", src: "en", tgt: "ar", text: "Your session token has expired.", note: "short term, transliteration" },
   { id: "G3-ar-commit", kind: "glossary", src: "en", tgt: "ar", text: "Every commit must be signed.", note: "short term, transliteration" },
@@ -77,7 +84,7 @@ const CASES: Case[] = [
   { id: "G11-fr-two", kind: "glossary", src: "en", tgt: "fr", text: "Push the commit to the remote branch.", note: "fr, 2 terms" },
   { id: "G12-de-cache", kind: "glossary", src: "en", tgt: "de", text: "Clear the cache before restarting the server.", note: "de, compound noun" },
   { id: "G13-de-branch", kind: "glossary", src: "en", tgt: "de", text: "Create a new branch for this feature.", note: "de, real word" },
-  // Placeholders (file mode: translateFile on a one-key JSON, strict glossary mode)
+  // Placeholders (file mode: translateFile on a one-key JSON, --mode glossary mode)
   { id: "P1-ar-one", kind: "placeholder", src: "en", tgt: "ar", text: "Hello {name}, welcome back!", note: "1 placeholder" },
   { id: "P2-ar-two", kind: "placeholder", src: "en", tgt: "ar", text: "You have {{count}} new messages from {sender}.", note: "2 placeholders" },
   { id: "P3-ar-three", kind: "placeholder", src: "en", tgt: "ar", text: "%s uploaded {{count}} files to {folder}.", note: "3 placeholders" },
@@ -160,7 +167,7 @@ async function main(): Promise<void> {
   const cases = ONLY ? CASES.filter((c) => ONLY.includes(c.id)) : CASES;
   const results: Record<string, RunResult[]> = {};
   const started = Date.now();
-  console.log(`tmp dir: ${dir}\nmodel: ${DEFAULT_MODEL}  runs: ${RUNS}  cases: ${cases.length}\n`);
+  console.log(`tmp dir: ${dir}\nmodel: ${DEFAULT_MODEL}  mode: ${MODE}  runs: ${RUNS}  cases: ${cases.length}\n`);
 
   try {
     for (const c of cases) {
@@ -171,7 +178,7 @@ async function main(): Promise<void> {
         const r: RunResult = { run, success: false, attempts: 0, missingTerms: [], durationMs: 0, firstOutput: "" };
         if (c.kind === "glossary") {
           try {
-            const res = await runPipeline(c.text, c.src, c.tgt, rec, glossary, { glossaryMode: "strict", maxRetries: MAX_RETRIES });
+            const res = await runPipeline(c.text, c.src, c.tgt, rec, glossary, { glossaryMode: MODE, maxRetries: MAX_RETRIES });
             r.success = true;
             r.output = res.translated;
           } catch (err) {
@@ -188,7 +195,7 @@ async function main(): Promise<void> {
           try {
             const summary = await translateFile({
               sourcePath, outPath, sourceLang: c.src, targetLang: c.tgt,
-              adapter: rec, glossary, context, glossaryMode: "strict",
+              adapter: rec, glossary, context, glossaryMode: MODE,
             });
             const f = summary.failed[0];
             r.success = summary.translated === 1 && !f;
@@ -199,6 +206,14 @@ async function main(): Promise<void> {
             r.errorMessage = err instanceof Error ? err.message : String(err);
           }
           r.missingTerms = (rec.calls.at(-1)?.missingTerms ?? []).filter((t) => !t.startsWith("__TLPH_"));
+        }
+        if (MODE === "prefer" && r.success) {
+          // Nothing throws for a miss in prefer mode: check the final output.
+          r.missingTerms = computeGlossaryCoverage(glossary.findMatches(c.text, c.src, c.tgt), r.output ?? "").missingTerms;
+          if (r.missingTerms.length > 0) {
+            r.success = false;
+            r.errorTag = "GLOSSARY_MISS";
+          }
         }
         r.attempts = rec.calls.length;
         r.durationMs = Math.round(performance.now() - t0);
@@ -247,7 +262,7 @@ async function main(): Promise<void> {
   const outFile = join(outDir, `${LABEL}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(
     outFile,
-    JSON.stringify({ model: DEFAULT_MODEL, runs: RUNS, maxRetries: MAX_RETRIES, glossary: GLOSSARY, summary: rows, overall: { glossary: overall("glossary"), placeholder: overall("placeholder") }, cases, results }, null, 2),
+    JSON.stringify({ model: DEFAULT_MODEL, mode: MODE, runs: RUNS, maxRetries: MAX_RETRIES, glossary: GLOSSARY, summary: rows, overall: { glossary: overall("glossary"), placeholder: overall("placeholder") }, cases, results }, null, 2),
   );
   console.log(`Results: ${outFile}`);
 }

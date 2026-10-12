@@ -19,7 +19,7 @@ Set via `--glossary <mode>` flag or `glossary.mode` in config.
 
 ### `prefer` (default)
 
-The model is guided toward using the specified translations, but the result is returned even if some terms are missing. No retries.
+The model is guided toward using the specified translations. If a term is missing from the first translation, the pipeline retries once with a reminder listing the missing terms (the same mechanism as `strict`), then returns whichever attempt used more of the terms (the first one on a tie). The result is returned even if some terms are still missing; prefer mode never fails because of the glossary. The retry is fixed at one: `glossary.maxRetries` only applies to `strict`.
 
 ```bash
 tl "machine learning model" --from en --to ar --glossary prefer
@@ -116,7 +116,7 @@ Override the database path in config:
 
 ## Glossary in file mode
 
-`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. Strict mode causes per-key retries when terms are missing; if all retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
+`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. A key missing a term is retried once with a reminder in prefer mode (keeping the better attempt) and up to `glossary.maxRetries` times in strict mode; if all strict retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
 
 In a typical file translation of N keys, glossary matching runs N times. Each match is fast (indexed SQLite query in-process), but for very large catalogs you may notice the cumulative cost. This is acceptable for v1; revisit if it becomes a bottleneck.
 

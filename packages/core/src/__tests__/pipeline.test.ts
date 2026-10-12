@@ -220,6 +220,87 @@ describe("runPipeline", () => {
     expect(calls).toBe(1);
   });
 
+  describe("prefer-mode reminder retry", () => {
+    // Returns outputs[i] for the i-th call (the last one repeats) and records every request.
+    function scriptedAdapter(outputs: string[], requests: any[], onCall?: () => void) {
+      return {
+        name: "scripted",
+        async translate(req: any) {
+          requests.push(req);
+          onCall?.();
+          return {
+            translated: outputs[Math.min(requests.length, outputs.length) - 1],
+            sourceLang: req.sourceLang,
+            targetLang: req.targetLang,
+            glossaryCoverage: 1,
+            missingTerms: [],
+            metadata: { adapter: "scripted", durationMs: 0, retries: 0 },
+          };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    beforeEach(() => {
+      store.add({ sourceTerm: "API", targetTerm: "واجهة", sourceLang: "en", targetLang: "ar" });
+      store.add({ sourceTerm: "server", targetTerm: "خادم", sourceLang: "en", targetLang: "ar" });
+    });
+
+    it("retries a miss once with a reminder and returns the better result", async () => {
+      const requests: any[] = [];
+      const onChunk = () => {};
+      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second واجهة"], requests), store, {
+        glossaryMode: "prefer", maxRetries: 5, onChunk,
+      });
+      expect(requests).toHaveLength(2);
+      expect(requests[0].glossaryReminder).toBeUndefined();
+      expect(requests[0].onChunk).toBe(onChunk);
+      expect(requests[1].source).toBe(requests[0].source);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة" }]);
+      expect(requests[1].onChunk).toBeUndefined();
+      expect(result.translated).toBe("second واجهة");
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.retries).toBe(1);
+    });
+
+    it("makes no retry when the first attempt covers every term", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["ok واجهة"], requests), store, { glossaryMode: "prefer" });
+      expect(requests).toHaveLength(1);
+      expect(result.metadata.retries).toBe(0);
+    });
+
+    it("keeps the first result on a tie and never throws", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss"], requests), store, {
+        glossaryMode: "prefer", maxRetries: 5,
+      });
+      expect(requests).toHaveLength(2);
+      expect(result.translated).toBe("first miss");
+      expect(result.missingTerms).toEqual(["API"]);
+      expect(result.metadata.retries).toBe(1);
+    });
+
+    it("keeps the first result when the retry covers fewer terms", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("The API server", "en", "ar", scriptedAdapter(["first واجهة", "second miss"], requests), store, { glossaryMode: "prefer" });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "server", target: "خادم" }]);
+      expect(result.translated).toBe("first واجهة");
+      expect(result.glossaryCoverage).toBe(0.5);
+    });
+
+    it("starts no retry once the signal is aborted", async () => {
+      const controller = new AbortController();
+      const requests: any[] = [];
+      const adapter = scriptedAdapter(["miss"], requests, () => controller.abort());
+      await expect(
+        runPipeline("The API is ready", "en", "ar", adapter, store, { glossaryMode: "prefer", signal: controller.signal }),
+      ).rejects.toMatchObject({ tag: "CANCELLED" });
+      expect(requests).toHaveLength(1);
+    });
+  });
+
   describe("extraGlossaryHits (tagging only)", () => {
     const TOK = "__TLPH_0__";
     const sentinelHit = (text: string) => ({
@@ -263,6 +344,29 @@ describe("runPipeline", () => {
       });
       expect(requests).toHaveLength(1);
       expect(result.metadata.retries).toBe(0);
+      expect(result.missingTerms).toEqual([]);
+    });
+
+    it("prefer mode does not retry for a dropped extra hit", async () => {
+      const text = `Hello ${TOK}`;
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests), store, {
+        glossaryMode: "prefer", extraGlossaryHits: [sentinelHit(text)],
+      });
+      expect(requests).toHaveLength(1);
+      expect(result.metadata.retries).toBe(0);
+      expect(result.glossaryCoverage).toBe(1);
+    });
+
+    it("prefer-mode reminders name only real glossary terms", async () => {
+      store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+      const text = `The API ${TOK}`;
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "ar", dropSentinelAdapter(requests, 1), store, {
+        glossaryMode: "prefer", extraGlossaryHits: [sentinelHit(text)],
+      });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
       expect(result.missingTerms).toEqual([]);
     });
 
