@@ -108,6 +108,10 @@ describe("attachArabicArticle", () => {
     expect(attachArabicArticle("ادفع ال كوميت", "ar", ["كوميت"])).toBe("ادفع ال كوميت");
     expect(attachArabicArticle("ادفع الـ كوميت", "fr", ["كوميت"])).toBe("ادفع الـ كوميت");
   });
+
+  it("does not join across a line break", () => {
+    expect(attachArabicArticle("ادفع الـ\nكوميت", "ar", ["كوميت"])).toBe("ادفع الـ\nكوميت");
+  });
 });
 
 describe("fixTermAgreement", () => {

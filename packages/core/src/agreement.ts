@@ -124,7 +124,7 @@ export function attachArabicArticle(text: string, targetLang: string, terms: str
   if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
   for (const term of terms) {
     if (term.startsWith("ال") || !/^\p{Script=Arabic}/u.test(term)) continue;
-    text = text.replace(new RegExp(`(?<![\\p{L}\\p{M}])([وف]?[بك]?ال|[وف]?لل)ـ+\\s+(?=${escapeRegExp(term)})`, "gu"), "$1");
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{M}])([وف]?[بك]?ال|[وف]?لل)ـ+[^\\S\\n]+(?=${escapeRegExp(term)})`, "gu"), "$1");
   }
   return text;
 }
