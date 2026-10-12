@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.9] - 2026-10-12
+
+### Added
+- **Grammar repair around forced glossary terms.** When a glossary term replaces the model's own word, the words around it often keep agreeing with the model's word (German `eine neue Zweig` instead of `einen neuen Zweig`). After translating, `tl` now makes one extra model call that fixes only the grammar around the term, and keeps the result only if every term and placeholder survives. It runs only when a term was forced into the output, so text without glossary terms is unaffected; when it runs, the translation takes one extra model call. On our benchmark with TranslateGemma 4b, grammatical agreement went from 84 to 91 of 110 cases in prefer mode and from 89 to 98 in strict mode; the German case went from 0/10 to 9–10/10.
+
+### Fixed
+- **The model's own form of a glossary term is kept.** When the model wrote an inflected form of a term inside its glossary tag (Arabic `الكوميت` for `كوميت`, imperative `انشر` for `نشر`, French plural `hôtes` for `hôte`), `tl` replaced it with the bare glossary entry, which could break the sentence. It now keeps the model's form when it contains the term and has no more words than it. In our Arabic benchmark case, broken output (`ثم قم بنشر.`) went from 6/10 to 1/10 runs.
+
 ## [0.5.8] - 2026-10-12
 
 ### Changed
