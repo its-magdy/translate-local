@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
 import { matchTerms, type GlossaryStore } from "./glossary";
@@ -95,7 +95,8 @@ export async function runPipeline(
     const raw = await adapter.translate(request);
     // A target term the model did not choose itself: the code-switched source
     // put it there, or the model echoed a term tag around its own word and the
-    // tag strip below swaps in the term. The words around it may still agree
+    // tag strip below swaps in the term (a tag around the model's own form of
+    // the term keeps that form, so it is not forced). The words around it may still agree
     // with the model's word, so such a result gets an agreement repair.
     const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms);
 
@@ -171,13 +172,18 @@ export async function runPipeline(
 
 /**
  * Whether the raw output has a term tag for one of `targetTerms` around a
- * different word, which stripGlossaryTags then replaces with the term.
+ * different word, which stripGlossaryTags then replaces with the term. A
+ * complete tag around the model's own form of the term (keptTermForm) keeps
+ * that form, so it is no substitution.
  */
 function substitutesTerm(raw: string, targetTerms: string[]): boolean {
-  for (const [, attr, inner] of raw.matchAll(OUTPUT_TAG_RE)) {
+  for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
+    const [tag, attr, inner] = match;
     // The term exactly as the strip writes it (attribute unescaped).
     const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
-    if (targetTerms.includes(term) && inner.trim() !== term) return true;
+    if (!targetTerms.includes(term)) continue;
+    const closed = raw.startsWith("</term>", match.index + tag.length);
+    if (closed ? keptTermForm(inner, term) === undefined : inner.trim() !== term) return true;
   }
   return false;
 }

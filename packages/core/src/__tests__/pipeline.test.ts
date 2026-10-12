@@ -270,6 +270,23 @@ describe("runPipeline", () => {
       expect(result.missingTerms).toHaveLength(0);
     });
 
+    it("leaves a kept inflected form intact (no elision or article drop inside it)", async () => {
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const fr = await runPipeline("Restart the servers.", "en", "fr", fixedAdapter('Redémarrez les <term translation="hôte">hôtes</term>.'), store);
+      expect(fr.translated).toBe("Redémarrez les hôtes.");
+      expect(fr.missingTerms).toHaveLength(0);
+
+      store.add({ sourceTerm: "commit", targetTerm: "كوميت", sourceLang: "en", targetLang: "ar" });
+      store.add({ sourceTerm: "cache", targetTerm: "الكاش", sourceLang: "en", targetLang: "ar" });
+      const raw = 'ادفع <term translation="كوميت">الكوميت</term> بعد مسح <term translation="الكاش">والكاش</term>';
+      const ar = await runPipeline("Push the commit after clearing the cache.", "en", "ar", fixedAdapter(raw), store);
+      expect(ar.translated).toBe("ادفع الكوميت بعد مسح والكاش");
+      expect(ar.missingTerms).toHaveLength(0);
+      // The doubled-article drop still fires on the bare term.
+      const doubled = await runPipeline("Clear the cache.", "en", "ar", fixedAdapter('امسح الـ <term translation="الكاش">الكاش</term>'), store);
+      expect(doubled.translated).toBe("امسح الكاش");
+    });
+
     it("leaves placeholder sentinels (extra hits) alone", async () => {
       const TOK = "__TLPH_0__";
       const text = `Open ${TOK}`;
@@ -457,6 +474,27 @@ describe("runPipeline", () => {
       const spy = { async translate(req: any) { calls.push(req); return mock.translate(req); }, async dispose() {} } as any;
       await runPipeline(TEXT, "en", "de", spy, store);
       expect(calls).toHaveLength(1);
+    });
+
+    it("does not repair when the model wrote its own inflected form of the term in the tag", async () => {
+      store.add({ sourceTerm: "commit", targetTerm: "كوميت", sourceLang: "en", targetLang: "ar" });
+      store.add({ sourceTerm: "deploy", targetTerm: "نشر", sourceLang: "en", targetLang: "ar" });
+      const text = "Push the commit, then deploy.";
+      const requests: any[] = [];
+      const kept = 'ادفع <term translation="كوميت">الكوميت</term>، ثم <term translation="نشر">"انشر"</term>.';
+      const result = await runPipeline(text, "en", "ar", repairAdapter([kept], "unused", requests), store);
+      expect(requests).toHaveLength(1);
+      expect(result.translated).toBe("ادفع الكوميت، ثم انشر.");
+      expect(result.missingTerms).toEqual([]);
+      expect(result.metadata.repaired).toBeUndefined();
+
+      // One substituted tag next to a kept one still gets the repair.
+      const mixedRequests: any[] = [];
+      const mixed = 'ادفع <term translation="كوميت">الالتزام</term>، ثم <term translation="نشر">انشر</term>.';
+      const repaired = await runPipeline(text, "en", "ar", repairAdapter([mixed], "ادفع الكوميت، ثم انشر.", mixedRequests), store);
+      expect(mixedRequests).toHaveLength(2);
+      expect(mixedRequests[1].source).toBe("ادفع كوميت، ثم انشر.");
+      expect(repaired.translated).toBe("ادفع الكوميت، ثم انشر.");
     });
 
     it("does not repair without a real glossary term (no glossary, sentinels only, image mode)", async () => {

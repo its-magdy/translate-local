@@ -1,5 +1,6 @@
 import type { GlossaryHit } from "../types";
 import { TlError } from "../errors";
+import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "../constants";
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -41,16 +42,45 @@ function unescapeAttr(s: string): string {
   return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 }
 
+const OPEN_QUOTES = `"'«“„‘‹`;
+const CLOSE_QUOTES = `"'»”“’›`;
+const SENTINEL_TERM_RE = new RegExp(`^${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}$`);
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const wordCount = (s: string): number => s.split(/\s+/).length;
+
+/**
+ * The model's own inflected form of glossary term `term` written inside a
+ * complete term tag, or undefined when the tag is to be replaced by the term.
+ * The inner text (trimmed, one pair of surrounding quotes dropped) is kept when
+ * it contains the term case-insensitively and has no more words than the term:
+ * ar `الكوميت` / `انشر` for `كوميت` / `نشر`, fr `hôtes` for `hôte`. The matched
+ * part is written as the term itself, so the output always contains it exactly.
+ * Placeholder sentinel tags always become the attribute.
+ */
+export function keptTermForm(inner: string, term: string): string | undefined {
+  if (!term.trim() || SENTINEL_TERM_RE.test(term)) return undefined;
+  let word = inner.trim();
+  if (word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1])) {
+    word = word.slice(1, -1).trim();
+  }
+  if (/[<>]/.test(word) || wordCount(word) > wordCount(term.trim())) return undefined;
+  const match = new RegExp(escapeRegExp(term), "iu").exec(word);
+  if (!match) return undefined;
+  return word.slice(0, match.index) + term + word.slice(match.index + match[0].length);
+}
+
 /**
  * Strip all <term ...>...</term> tags from text.
- * - Complete tags: replace with the translation attribute value (what injectGlossaryTags wrote).
- *   The model sometimes echoes the whole tag with its own word inside; the glossary requires the
- *   attribute's term, not that word. Tags without a translation attribute keep their inner content.
+ * - Complete tags: replace with the translation attribute value (what injectGlossaryTags wrote),
+ *   unless the inner text is the model's own inflected form of that term (see keptTermForm),
+ *   which is kept. Otherwise the model echoed the tag with its own word inside; the glossary
+ *   requires the attribute's term, not that word. Tags without a translation attribute keep
+ *   their inner content.
  * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
  * - Any remaining bare <term ...> opening tags: remove.
  */
 export function stripGlossaryTags(text: string): string {
-  // Complete tags: <term translation="X">content</term> → X
+  // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
   let result = removeTermTags(text, true);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
   result = result.replace(/<term\s+translation="([^"]*)">[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
@@ -60,9 +90,9 @@ export function stripGlossaryTags(text: string): string {
 }
 
 /**
- * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with the opening tag's
- * translation attribute (else "$1") (withClose) or /<term[^>]*>/g with "" (!withClose),
- * in linear time. Those regexes rescan
+ * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with keptTermForm("$1", attribute)
+ * or else the opening tag's translation attribute (else "$1") (withClose) or /<term[^>]*>/g
+ * with "" (!withClose), in linear time. Those regexes rescan
  * to the end of the text from every unclosed "<term", which is quadratic.
  */
 function removeTermTags(text: string, withClose: boolean): string {
@@ -81,7 +111,10 @@ function removeTermTags(text: string, withClose: boolean): string {
       if (close === -1) break;
       inner = text.slice(next, close);
       const attr = /\btranslation="([^"]*)"/.exec(text.slice(open, openEnd));
-      if (attr) inner = unescapeAttr(attr[1]);
+      if (attr) {
+        const term = unescapeAttr(attr[1]);
+        inner = keptTermForm(inner, term) ?? term;
+      }
       next = close + "</term>".length;
     }
     result += text.slice(cursor, open) + inner;

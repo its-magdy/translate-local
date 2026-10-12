@@ -11,7 +11,7 @@ When translating, the pipeline:
 3. Injects XML tags: `<term translation="target">source</term>`
 4. Sends the tagged text to the adapter
 5. Validates that target terms appear in the output (substring check, see [Coverage check](#coverage-check))
-6. Strips the XML tags from the final result
+6. Strips the XML tags from the final result (see [Term tags in the output](#term-tags-in-the-output))
 
 ## Enforcement Modes
 
@@ -33,6 +33,10 @@ If any glossary terms are missing from the translation, the pipeline retries (up
 
 In both modes, the last retry sends the source with each glossary term already replaced by its target term (`Restart the hôte.`, tagged as `<term translation="hôte">hôte</term>`) and no reminder. The model then writes the sentence around the term itself, which also tends to get the article and agreement right. Placeholders are sent unchanged.
 
+### Term tags in the output
+
+The model often copies the `<term>` tag into its output with a word of its own inside. `tl` replaces each such tag with the glossary term, unless the word inside is the model's own form of the term, which it keeps: one that contains the term (case-insensitive) and has no more words than it, after trimming and dropping surrounding quotes. So `<term translation="كوميت">الكوميت</term>` keeps the article (`الكوميت`), `<term translation="نشر">انشر</term>` keeps the imperative (`انشر`), and `<term translation="hôte">hôtes</term>` keeps the plural, while `<term translation="Zweig">Abteilung</term>` becomes `Zweig`. The part matching the term is written exactly as the glossary has it (`Hôtes` → `hôtes`), so the coverage check always finds it. A tag the model never closed is always replaced by the term.
+
 ### Articles and quotes around terms
 
 After every attempt, `tl` fixes a few deterministic mistakes right around a glossary target term:
@@ -45,7 +49,7 @@ After every attempt, `tl` fixes a few deterministic mistakes right around a glos
 
 Gender and case agreement can't be fixed by rules: the right form depends on the term's gender and the word's role in the sentence. So when the final translation holds a term the model did not choose itself, `tl` makes one extra model call that asks it to proofread the text: fix only the articles, adjectives, pronouns and participles around the terms (`Erstellen Sie eine neue Zweig` → `Erstellen Sie einen neuen Zweig`) and change nothing else. A term counts as not chosen by the model when:
 
-- the model echoed the term tag around its own word (`eine neue <term translation="Zweig">Abteilung</term>`) and `tl` swapped in the term, or
+- the model echoed the term tag around its own word (`eine neue <term translation="Zweig">Abteilung</term>`) and `tl` swapped in the term (a tag around the model's own form of the term, such as `الكوميت`, is kept as written and doesn't count), or
 - the result came from the code-switched last retry, where `tl` put the term into the source.
 
 A translation where the model wrote the term itself, one without glossary terms, an image translation, and placeholders alone never trigger it. TranslateGemma usually echoes the tag, so expect this extra call on most translations that contain a glossary term; translations without one never pay for it. The repaired text is kept only if it still contains every glossary term the draft had and exactly the same placeholders, and its length is within 1.3× of the draft's; otherwise, or if the call fails, the unrepaired translation is returned. The repair only reaches what the model knows: it fixed `eine neue Zweig` and `Chaque validation doit être signé` in the agreement benchmark, but not `l'antémémoire est plein` (the 4B model doesn't know the rare word is feminine). With `--json`, a repaired result has `"repaired": true` in its `metadata`.
