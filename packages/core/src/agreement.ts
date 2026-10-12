@@ -12,17 +12,13 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\
 /** Quote pairs (and em dashes) the model wraps around a substituted term. */
 const QUOTE_PAIRS: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["„", "“"], ["—", "—"]];
 
-/**
- * Drop quotes or em dashes wrapped directly around a term (`« hôte »` →
- * `hôte`), and a lone em dash right before one (`il —host` → `il host`).
- */
+/** Drop quotes or em dashes wrapped directly around a term (`« hôte »` → `hôte`). */
 export function unquoteTerms(text: string, terms: string[]): string {
   for (const term of terms) {
     const t = escapeRegExp(term);
     for (const [open, close] of QUOTE_PAIRS) {
       text = text.replace(new RegExp(`${escapeRegExp(open)}\\s*(${t})\\s*${escapeRegExp(close)}`, "gu"), "$1");
     }
-    text = text.replace(new RegExp(`(['’])?\\s*—\\s*(?=${t})`, "gu"), (_m, ap: string | undefined, offset: number) => ap ?? (offset === 0 ? "" : " "));
   }
   return text;
 }
@@ -67,7 +63,8 @@ const IT_RULES: Rule[] = [
   ["bello|bella", "bell", true],
 ];
 
-const VOWEL_OR_H_RE = /^[aeiouyàâäáéèêëíìîïóòôöúùûüœæh]/i;
+// No y: "le yaourt", "lo yogurt".
+const VOWEL_OR_H_RE = /^[aeiouàâäáéèêëíìîïóòôöúùûüœæh]/i;
 
 function takesElision(term: string, lang: "fr" | "it"): boolean {
   if (!VOWEL_OR_H_RE.test(term)) return false;
@@ -81,7 +78,8 @@ function takesElision(term: string, lang: "fr" | "it"): boolean {
 /**
  * French/Italian elision and contraction before a term starting with a vowel
  * or mute h: fr `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` →
- * `cet hôte`; it `il host` → `l'host`. Other target languages are returned as is.
+ * `cet hôte`; it `il host` → `l'host`. A lone em dash right before the term
+ * is dropped first (`il —host` → `l'host`). Other target languages are returned as is.
  */
 export function elideBeforeTerms(text: string, targetLang: string, terms: string[]): string {
   const base = langFallbackChain(targetLang).at(-1);
@@ -90,8 +88,10 @@ export function elideBeforeTerms(text: string, targetLang: string, terms: string
   const ap = text.includes("’") ? "’" : "'";
   const matchCase = (orig: string, rep: string): string => (orig[0] !== orig[0].toLowerCase() ? rep[0].toUpperCase() + rep.slice(1) : rep);
   for (const term of terms) {
-    if (!takesElision(term, base)) continue;
     const t = escapeRegExp(term);
+    // A lone em dash before the term (`il —host`) would block the rules below.
+    text = text.replace(new RegExp(`(['’])?\\s*—\\s*(?=${t})`, "gu"), (_m, a: string | undefined, offset: number) => a ?? (offset === 0 ? "" : " "));
+    if (!takesElision(term, base)) continue;
     for (const [words, replacement, apostrophe] of rules) {
       // No letter or hyphen before the word ("dis-le hôte" stays); an apostrophe is fine ("jusqu'au").
       const re = new RegExp(`(?<![\\p{L}\\p{M}-])(${words})\\s+(?=${t})`, "giu");

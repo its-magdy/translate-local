@@ -10,12 +10,15 @@ describe("unquoteTerms", () => {
     expect(unquoteTerms("Redémarrez le — hôte — maintenant.", ["hôte"])).toBe("Redémarrez le hôte maintenant.");
   });
 
-  it("drops a lone em dash right before a term", () => {
-    expect(unquoteTerms("Riavvia il —host.", ["host"])).toBe("Riavvia il host.");
-    expect(unquoteTerms("Riavvia il — host.", ["host"])).toBe("Riavvia il host.");
-    expect(unquoteTerms("Redémarrez l'—hôte.", ["hôte"])).toBe("Redémarrez l'hôte.");
-    expect(unquoteTerms("—hôte", ["hôte"])).toBe("hôte");
+  it("drops a lone em dash before a term only in French and Italian", () => {
+    expect(elideBeforeTerms("Riavvia il —host.", "it", ["host"])).toBe("Riavvia l'host.");
+    expect(elideBeforeTerms("Riavvia il — host.", "it", ["host"])).toBe("Riavvia l'host.");
+    expect(elideBeforeTerms("Redémarrez l'—hôte.", "fr", ["hôte"])).toBe("Redémarrez l'hôte.");
+    expect(elideBeforeTerms("—hôte", "fr", ["hôte"])).toBe("hôte");
+    expect(elideBeforeTerms("Redémarrez le —serveur.", "fr", ["serveur"])).toBe("Redémarrez le serveur.");
     expect(fixTermAgreement("Riavviare il —host.", "it", ["host"])).toBe("Riavviare l'host.");
+    expect(fixTermAgreement("Status — Cleared", "en", ["Cleared"])).toBe("Status — Cleared");
+    expect(unquoteTerms("Riavvia il —host.", ["host"])).toBe("Riavvia il —host.");
   });
 
   it("leaves quotes around other text alone", () => {
@@ -49,6 +52,11 @@ describe("elideBeforeTerms", () => {
     expect(elideBeforeTerms("Le héros arrive.", "fr", ["héros"])).toBe("Le héros arrive.");
     expect(elideBeforeTerms("Le hasard décide.", "fr", ["hasard"])).toBe("Le hasard décide.");
     expect(elideBeforeTerms("Le serveur est en panne.", "fr", ["serveur"])).toBe("Le serveur est en panne.");
+  });
+
+  it("keeps the article before a y-initial term", () => {
+    expect(elideBeforeTerms("Mangez le yaourt.", "fr", ["yaourt"])).toBe("Mangez le yaourt.");
+    expect(elideBeforeTerms("Mangia lo yogurt.", "it", ["yogurt"])).toBe("Mangia lo yogurt.");
   });
 
   it("only touches the word directly before the term", () => {
