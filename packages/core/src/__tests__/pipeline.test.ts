@@ -184,6 +184,38 @@ describe("runPipeline", () => {
     expect(result.translated).toContain("واجهة برمجة");
   });
 
+  it("strict mode code-switches only its last allowed retry", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    const codeSwitched = '<term translation="واجهة برمجة">واجهة برمجة</term>';
+    for (const maxRetries of [1, 2, 3]) {
+      const requests: any[] = [];
+      const missAdapter = {
+        async translate(req: any) {
+          requests.push(req);
+          return { ...(await new MockAdapter().translate(req)), translated: "[ar] untranslated" };
+        },
+        async dispose() {},
+      };
+      await expect(runPipeline("The API", "en", "ar", missAdapter as any, store, { glossaryMode: "strict", maxRetries })).rejects.toMatchObject({
+        tag: "GLOSSARY_STRICT_MISS",
+      });
+      expect(requests).toHaveLength(maxRetries + 1);
+      const last = requests.at(-1);
+      expect(last.source).toBe(`The ${codeSwitched}`);
+      expect(last.glossaryReminder).toBeUndefined();
+      for (const req of requests.slice(0, -1)) expect(req.source).toBe('The <term translation="واجهة برمجة">API</term>');
+      for (const req of requests.slice(1, -1)) expect(req.glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+    }
+  });
+
+  it("MockAdapter ignoreGlossary misses on every attempt, the code-switched one included", async () => {
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    const result = await runPipeline("The API is ready", "en", "ar", new MockAdapter({ ignoreGlossary: true }), store, { glossaryMode: "prefer" });
+    expect(result.translated).toBe("[ar] The API is ready");
+    expect(result.missingTerms).toEqual(["API"]);
+    expect(result.metadata.retries).toBe(2);
+  });
+
   it("forwards the signal to every attempt", async () => {
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
     const signals: (AbortSignal | undefined)[] = [];
@@ -246,7 +278,7 @@ describe("runPipeline", () => {
     });
   });
 
-  describe("prefer-mode reminder retry", () => {
+  describe("prefer-mode retries", () => {
     // Returns outputs[i] for the i-th call (the last one repeats) and records every request.
     function scriptedAdapter(outputs: string[], requests: any[], onCall?: () => void) {
       return {
@@ -296,24 +328,48 @@ describe("runPipeline", () => {
       expect(result.metadata.retries).toBe(0);
     });
 
-    it("keeps the first result on a tie and never throws", async () => {
+    it("makes exactly two retries, keeps the first result on a tie and never throws", async () => {
       const requests: any[] = [];
-      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss"], requests), store, {
+      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss", "third miss"], requests), store, {
         glossaryMode: "prefer", maxRetries: 5,
       });
-      expect(requests).toHaveLength(2);
+      expect(requests).toHaveLength(3);
       expect(result.translated).toBe("first miss");
       expect(result.missingTerms).toEqual(["API"]);
-      expect(result.metadata.retries).toBe(1);
+      expect(result.metadata.retries).toBe(2);
     });
 
-    it("keeps the first result when the retry covers fewer terms", async () => {
+    it("keeps the first result when the retries cover fewer terms", async () => {
       const requests: any[] = [];
       const result = await runPipeline("The API server", "en", "ar", scriptedAdapter(["first واجهة", "second miss"], requests), store, { glossaryMode: "prefer" });
-      expect(requests).toHaveLength(2);
+      expect(requests).toHaveLength(3);
       expect(requests[1].glossaryReminder).toEqual([{ source: "server", target: "خادم" }]);
       expect(result.translated).toBe("first واجهة");
       expect(result.glossaryCoverage).toBe(0.5);
+    });
+
+    it("returns the highest-coverage attempt", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("The API server", "en", "ar", scriptedAdapter(["first miss", "second واجهة", "third miss"], requests), store, { glossaryMode: "prefer" });
+      expect(requests).toHaveLength(3);
+      expect(result.translated).toBe("second واجهة");
+      expect(result.metadata.retries).toBe(2);
+    });
+
+    it("code-switches the final retry: target terms in the source, no reminder", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss", "third واجهة"], requests), store, {
+        glossaryMode: "prefer",
+      });
+      expect(requests).toHaveLength(3);
+      expect(requests[1].source).toBe(requests[0].source);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة" }]);
+      expect(requests[2].source).toBe('The <term translation="واجهة">واجهة</term> is ready');
+      expect(requests[2].glossaryReminder).toBeUndefined();
+      expect(requests[2].onChunk).toBeUndefined();
+      expect(result.translated).toBe("third واجهة");
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.retries).toBe(2);
     });
 
     it("starts no retry once the signal is aborted", async () => {
@@ -420,7 +476,19 @@ describe("runPipeline", () => {
       expect(err.message).toContain("1 glossary term(s) missing");
       expect(err.message).not.toContain(TOK);
       expect(requests).toHaveLength(3);
-      for (const req of requests.slice(1)) expect(req.glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+      expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة برمجة" }]);
+      expect(requests[2].glossaryReminder).toBeUndefined();
+    });
+
+    it("the code-switched final retry keeps sentinel tags unchanged", async () => {
+      store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+      const text = `The API ${TOK}`;
+      const requests: any[] = [];
+      await runPipeline(text, "en", "ar", dropSentinelAdapter(requests, 99), store, {
+        glossaryMode: "prefer", extraGlossaryHits: [sentinelHit(text)],
+      });
+      expect(requests).toHaveLength(3);
+      expect(requests[2].source).toBe(`The <term translation="واجهة برمجة">واجهة برمجة</term> <term translation="${TOK}">${TOK}</term>`);
     });
   });
 });

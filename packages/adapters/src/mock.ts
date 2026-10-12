@@ -1,5 +1,6 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
 import { cancelledError } from "@translate-local/shared/errors";
+import { injectGlossaryTags } from "@translate-local/shared/utils/text";
 
 const TERM_TAG_RE = /<term translation="[^"]*">([^<]*)<\/term>/g;
 
@@ -10,7 +11,9 @@ const TERM_TAG_RE = /<term translation="[^"]*">([^<]*)<\/term>/g;
  *
  * Test hook for a glossary miss: with `ignoreGlossary` (or the env var
  * TL_MOCK_IGNORE_GLOSSARY=1, read once at construction) the mock behaves like a
- * model that disregards every glossary tag, so each attempt misses.
+ * model that disregards every glossary tag, so each attempt misses: it emits
+ * the source term even when the pipeline's code-switched retry puts the
+ * target term inside the tag. Placeholder sentinels survive.
  */
 export class MockAdapter implements Adapter {
   readonly name = "mock";
@@ -29,8 +32,13 @@ export class MockAdapter implements Adapter {
       : `[${request.targetLang}] ${request.source}`;
 
     if (this.ignoreGlossary) {
-      // Keep the source word inside each <term> tag. The pipeline would
-      // otherwise turn an echoed tag into its translation attribute.
+      // A code-switched tag (<term translation="T">T</term>) holds the target
+      // term: put the source term back. Then keep the inner text of every
+      // other tag; the pipeline would turn an echoed tag into its translation.
+      for (const { entry } of request.glossaryHits ?? []) {
+        const t = entry.targetTerm;
+        translated = translated.split(injectGlossaryTags(t, [{ entry, startIndex: 0, endIndex: t.length }])).join(entry.sourceTerm);
+      }
       translated = translated.replace(TERM_TAG_RE, "$1");
     } else {
       // Substitute glossary terms so tests can verify glossary enforcement
