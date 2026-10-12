@@ -45,7 +45,7 @@ After every attempt, `tl` fixes a few deterministic mistakes right around a glos
 
 - quotes or em dashes wrapped directly around the term are dropped (`« hôte »` → `hôte`); in French and Italian a lone em dash right before it is dropped too (`il —host` → `l'host`);
 - French and Italian articles and contractions are elided before a term that starts with a vowel or a mute h: `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` → `cet hôte`, `il host` → `l'host`. French words with an aspirated h (`héros`, `hasard`, `haut`, …) keep their article;
-- in Arabic, a detached article before a term that already starts with `ال` is dropped (`الـ الكاش` → `الكاش`).
+- in Arabic, a detached article before a term that already starts with `ال` is dropped (`الـ الكاش` → `الكاش`);
 - in Arabic, a detached article before any other term written in Arabic script is attached to it (`الـ كوميت` → `الكوميت`, `بالـ نشر` → `بالنشر`). A Latin-script term keeps the detached form (`الـ API`).
 
 ### Agreement repair

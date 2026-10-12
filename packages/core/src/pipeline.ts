@@ -16,6 +16,7 @@ const REPAIR_MAX_LENGTH_RATIO = 1.3;
 
 const SENTINEL_RE = new RegExp(`${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`, "g");
 // A term tag in model output, closed or not: [, translation attribute, inner text].
+// Doesn't match code-switched tags with a source attribute; that attempt counts as forced anyway.
 const OUTPUT_TAG_RE = /<term\s+translation="([^"]*)">([^<]*)/g;
 
 export interface PipelineOptions {
