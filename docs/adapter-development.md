@@ -75,7 +75,7 @@ buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: s
 buildNaturalPrompt(request: TranslationRequest): string
 ```
 
-`buildNaturalPrompt` injects glossary terms as bullet points and appends context snippets. Use it as a starting point for non-TranslateGemma adapters.
+`buildNaturalPrompt` injects glossary terms as bullet points, adds a placeholder rule when the source holds file-mode sentinels (`__TLPH_N__`), and appends context snippets. Use it as a starting point for non-TranslateGemma adapters.
 
 ---
 
@@ -103,7 +103,7 @@ export function createAdapter(config: AdapterConfig): Adapter {
 }
 ```
 
-`mock` returns the deterministic `MockAdapter` (also available as `createMockAdapter()`); use it in tests so they don't need Ollama. To add a new backend type, add a case to this switch. The `never` check makes the build fail until every `AdapterBackend` member is handled.
+`mock` returns the deterministic `MockAdapter` (also available as `createMockAdapter()`); use it in tests so they don't need Ollama. `new MockAdapter({ ignoreGlossary: true })`, or `TL_MOCK_IGNORE_GLOSSARY=1` in the environment (read once at construction), makes it disregard every glossary tag so each attempt misses its terms: use that to test strict-mode failures. To add a new backend type, add a case to this switch. The `never` check makes the build fail until every `AdapterBackend` member is handled.
 
 ---
 
