@@ -33,6 +33,8 @@ If any glossary terms are missing from the translation, the pipeline retries (up
 
 In both modes, the last retry sends the source with each glossary term already replaced by its target term (`Restart the hôte.`, tagged as `<term translation="hôte">hôte</term>`) and no reminder. The model then writes the sentence around the term itself, which also tends to get the article and agreement right. Placeholders are sent unchanged.
 
+When the term is written in a different script from the source word (`cache → الكاش`), the tag also carries the source word, `<term translation="الكاش" source="cache">الكاش</term>`. This keeps the word's meaning: `الكاش` also reads as "cash", and without the source word `Cleared the {name} الكاش.` came back as a payment sentence. Terms in the same script as the source word (`server → host` in Italian) don't get it, because the model would copy the source word instead of the term. So a same-script term that is also another word can still change the sentence's meaning on this retry; check translations of such terms.
+
 ### Term tags in the output
 
 The model often copies the `<term>` tag into its output with a word of its own inside. `tl` replaces each such tag with the glossary term, unless the word inside is the model's own form of the term, which it keeps: one that contains the term (case-insensitive) and has no more words than it, after trimming and dropping surrounding quotes. So `<term translation="كوميت">الكوميت</term>` keeps the article (`الكوميت`), `<term translation="نشر">انشر</term>` keeps the imperative (`انشر`), and `<term translation="hôte">hôtes</term>` keeps the plural, while `<term translation="Zweig">Abteilung</term>` becomes `Zweig`. The part matching the term is written exactly as the glossary has it (`Hôtes` → `hôtes`), so the coverage check always finds it. A tag the model never closed is always replaced by the term.
@@ -44,6 +46,7 @@ After every attempt, `tl` fixes a few deterministic mistakes right around a glos
 - quotes or em dashes wrapped directly around the term are dropped (`« hôte »` → `hôte`); in French and Italian a lone em dash right before it is dropped too (`il —host` → `l'host`);
 - French and Italian articles and contractions are elided before a term that starts with a vowel or a mute h: `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` → `cet hôte`, `il host` → `l'host`. French words with an aspirated h (`héros`, `hasard`, `haut`, …) keep their article;
 - in Arabic, a detached article before a term that already starts with `ال` is dropped (`الـ الكاش` → `الكاش`).
+- in Arabic, a detached article before any other term written in Arabic script is attached to it (`الـ كوميت` → `الكوميت`, `بالـ نشر` → `بالنشر`). A Latin-script term keeps the detached form (`الـ API`).
 
 ### Agreement repair
 
