@@ -23,6 +23,7 @@ export interface TranslationRequest {
   imageBase64?: string;     // Base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
+  repairTerms?: string[];            // Agreement repair instead of a translation (see below)
   onChunk?: (chunk: string) => void; // Streaming callback, one call per token
   signal?: AbortSignal;              // Caller cancellation
   options?: {
@@ -44,6 +45,7 @@ export interface TranslationResult {
     adapter: string;        // Identifier string for this adapter
     durationMs: number;     // Wall-clock time of the translate() call
     retries: number;        // Set by the pipeline, not the adapter
+    repaired?: boolean;     // Set by the pipeline when its agreement repair changed the text
   };
 }
 ```
@@ -55,6 +57,10 @@ When `request.onChunk` is set, the pipeline wants tokens as they arrive. Streami
 ### Cancellation (`signal`)
 
 When `request.signal` aborts (a superseded TUI translation, Ctrl+C in the CLI), stop the backend request (pass the signal to `fetch`) and throw `cancelledError()` from `@translate-local/shared/errors` (tag `CANCELLED`), so callers can tell a cancel from a timeout or backend failure. At minimum, throw it when the signal is already aborted on entry. The pipeline starts no further attempt once the signal is aborted.
+
+### Agreement repair (`repairTerms`)
+
+When `request.repairTerms` is set, the request is not a translation: `source` is a finished `targetLang` translation in which these glossary target terms were inserted verbatim, and the adapter must return it with only the grammar around them corrected (articles, adjectives, pronouns, participles agreeing in gender, number and case), the terms and everything else unchanged. `sourceLang` is still the original text's language. The pipeline sends at most one such request per translation, only when a term was forced into the output, without `onChunk`, `glossaryHits` or context, and keeps the answer only if every term and placeholder survived (see the glossary guide's "Agreement repair"). Both prompt builders below switch to `buildRepairPrompt()` for these requests. An adapter that can't do this should return `source` unchanged (as `MockAdapter` does): the pipeline then keeps the draft. Never translate it as if it were source text.
 
 ### `dispose()`
 
@@ -74,6 +80,8 @@ buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: s
 // For generic LLMs (natural language instructions) — returns a string
 buildNaturalPrompt(request: TranslationRequest): string
 ```
+
+Both return the agreement repair prompt (`buildRepairPrompt(request)`, also exported) when `request.repairTerms` is set.
 
 `buildNaturalPrompt` injects glossary terms as bullet points, adds a placeholder rule when the source holds file-mode sentinels (`__TLPH_N__`), and appends context snippets. Use it as a starting point for non-TranslateGemma adapters.
 
