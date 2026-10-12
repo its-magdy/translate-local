@@ -41,7 +41,14 @@ After every attempt, `tl` fixes a few deterministic mistakes right around a glos
 - French and Italian articles and contractions are elided before a term that starts with a vowel or a mute h: `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` → `cet hôte`, `il host` → `l'host`. French words with an aspirated h (`héros`, `hasard`, `haut`, …) keep their article;
 - in Arabic, a detached article before a term that already starts with `ال` is dropped (`الـ الكاش` → `الكاش`).
 
-Gender and case agreement (`eine neue Zweig`, `l'antémémoire est plein`) are not fixed.
+### Agreement repair
+
+Gender and case agreement can't be fixed by rules: the right form depends on the term's gender and the word's role in the sentence. So when the final translation holds a term the model did not choose itself, `tl` makes one extra model call that asks it to proofread the text: fix only the articles, adjectives, pronouns and participles around the terms (`Erstellen Sie eine neue Zweig` → `Erstellen Sie einen neuen Zweig`) and change nothing else. A term counts as not chosen by the model when:
+
+- the model echoed the term tag around its own word (`eine neue <term translation="Zweig">Abteilung</term>`) and `tl` swapped in the term, or
+- the result came from the code-switched last retry, where `tl` put the term into the source.
+
+A translation where the model wrote the term itself, one without glossary terms, an image translation, and placeholders alone never trigger it. TranslateGemma usually echoes the tag, so expect this extra call on most translations that contain a glossary term; translations without one never pay for it. The repaired text is kept only if it still contains every glossary term the draft had and exactly the same placeholders, and its length is within 1.3× of the draft's; otherwise, or if the call fails, the unrepaired translation is returned. The repair only reaches what the model knows: it fixed `eine neue Zweig` and `Chaque validation doit être signé` in the agreement benchmark, but not `l'antémémoire est plein` (the 4B model doesn't know the rare word is feminine). With `--json`, a repaired result has `"repaired": true` in its `metadata`.
 
 ```bash
 tl "machine learning model" --from en --to ar --glossary strict
@@ -130,7 +137,7 @@ Override the database path in config:
 
 ## Glossary in file mode
 
-`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. A key missing a term is retried twice in prefer mode (keeping the best attempt) and up to `glossary.maxRetries` times in strict mode; if all strict retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead).
+`tl translate --file <path>` applies the glossary per leaf, exactly like single-string translation. The same `--glossary prefer|strict` flag governs both modes. A key missing a term is retried twice in prefer mode (keeping the best attempt) and up to `glossary.maxRetries` times in strict mode; if all strict retries fail on a key, the default behavior records the failure and falls back to the source value (pass `--strict` to abort the whole run instead). The [agreement repair](#agreement-repair) also runs per key, under the same conditions.
 
 In a typical file translation of N keys, glossary matching runs N times. Each match is fast (indexed SQLite query in-process), but for very large catalogs you may notice the cumulative cost. This is acceptable for v1; revisit if it becomes a bottleneck.
 

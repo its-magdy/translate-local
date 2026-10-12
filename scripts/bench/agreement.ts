@@ -9,7 +9,9 @@
  * A run is "term ok" when every target term is in the final output, and
  * "agree ok" when, in addition, the case's `expect` regex matches and its
  * `reject` regex (if any) does not. A strict-mode GLOSSARY_STRICT_MISS counts
- * as neither.
+ * as neither. `repairs` counts the pipeline's agreement repair calls (also
+ * included in the calls count) and `applied` the runs whose final text is the
+ * repaired one.
  *
  * Uses the core/adapters sources directly with a temp SQLite glossary under a
  * mkdtemp dir (never ~/.config/tl). Model settings are the app defaults.
@@ -67,8 +69,10 @@ const CASES: Case[] = [
 // ---------- instrumented adapter ----------
 class CountingAdapter implements Adapter {
   raws: string[] = [];
+  repairs = 0; // agreement repair calls (#115), also counted in raws
   constructor(private readonly inner: Adapter) {}
   async translate(request: TranslationRequest): Promise<TranslationResult> {
+    if (request.repairTerms) this.repairs++;
     const res = await this.inner.translate(request);
     this.raws.push(res.translated);
     return res;
@@ -92,20 +96,24 @@ async function main(): Promise<void> {
   const cases = ONLY ? CASES.filter((c) => ONLY.includes(c.id)) : CASES;
   const rows: Record<string, unknown>[] = [];
   const all: Record<string, unknown[]> = {};
-  let tTerm = 0, tAgree = 0, tCalls = 0, tMs = 0, tN = 0;
+  let tTerm = 0, tAgree = 0, tCalls = 0, tMs = 0, tN = 0, tRepairs = 0, tRepaired = 0;
   console.log(`tmp dir: ${dir}\nmodel: ${DEFAULT_MODEL}  mode: ${MODE}  runs: ${RUNS}  cases: ${cases.length}\n`);
 
   try {
     for (const c of cases) {
-      let term = 0, agree = 0, calls = 0, ms = 0;
+      let term = 0, agree = 0, calls = 0, ms = 0, repairs = 0, repaired = 0;
       const outs: unknown[] = [];
       for (let i = 0; i < RUNS; i++) {
         rec.raws = [];
+        rec.repairs = 0;
         const t0 = performance.now();
         let out = "";
         let failed = false;
+        let wasRepaired = false;
         try {
-          out = (await runPipeline(c.text, "en", c.tgt, rec, glossary, { glossaryMode: MODE, maxRetries: MAX_RETRIES })).translated;
+          const res = await runPipeline(c.text, "en", c.tgt, rec, glossary, { glossaryMode: MODE, maxRetries: MAX_RETRIES });
+          out = res.translated;
+          wasRepaired = !!res.metadata.repaired;
         } catch (err) {
           failed = true;
           out = `ERROR ${err instanceof Error ? err.message : String(err)}`;
@@ -114,13 +122,13 @@ async function main(): Promise<void> {
         const hits = glossary.findMatches(c.text, "en", c.tgt);
         const termOk = !failed && computeGlossaryCoverage(hits, out).missingTerms.length === 0;
         const agreeOk = termOk && c.expect.test(out.trim()) && !(c.reject?.test(out) ?? false);
-        term += +termOk; agree += +agreeOk; calls += rec.raws.length; ms += dt;
-        outs.push({ out, termOk, agreeOk, calls: rec.raws.length, raws: rec.raws });
-        console.log(`${c.id} ${i + 1}/${RUNS}: term=${termOk ? "ok" : "MISS"} agree=${agreeOk ? "ok" : "BAD"} calls=${rec.raws.length} ${Math.round(dt)}ms  ${JSON.stringify(out)}`);
+        term += +termOk; agree += +agreeOk; calls += rec.raws.length; ms += dt; repairs += rec.repairs; repaired += +wasRepaired;
+        outs.push({ out, termOk, agreeOk, calls: rec.raws.length, repairs: rec.repairs, repaired: wasRepaired, raws: rec.raws });
+        console.log(`${c.id} ${i + 1}/${RUNS}: term=${termOk ? "ok" : "MISS"} agree=${agreeOk ? "ok" : "BAD"} calls=${rec.raws.length} repair=${rec.repairs ? (wasRepaired ? "applied" : "unchanged") : "-"} ${Math.round(dt)}ms  ${JSON.stringify(out)}`);
       }
-      tTerm += term; tAgree += agree; tCalls += calls; tMs += ms; tN += RUNS;
+      tTerm += term; tAgree += agree; tCalls += calls; tMs += ms; tN += RUNS; tRepairs += repairs; tRepaired += repaired;
       all[c.id] = outs;
-      rows.push({ id: c.id, term: `${term}/${RUNS}`, agree: `${agree}/${RUNS}`, meanCalls: +(calls / RUNS).toFixed(2), meanMs: Math.round(ms / RUNS) });
+      rows.push({ id: c.id, term: `${term}/${RUNS}`, agree: `${agree}/${RUNS}`, repairs, applied: repaired, meanCalls: +(calls / RUNS).toFixed(2), meanMs: Math.round(ms / RUNS) });
     }
   } finally {
     await rec.dispose();
@@ -130,7 +138,7 @@ async function main(): Promise<void> {
 
   console.log();
   console.table(rows);
-  const total = `term ${tTerm}/${tN}  agree ${tAgree}/${tN}  meanCalls ${(tCalls / tN).toFixed(2)}  meanMs ${Math.round(tMs / tN)}`;
+  const total = `term ${tTerm}/${tN}  agree ${tAgree}/${tN}  repairs ${tRepairs} (applied ${tRepaired})  meanCalls ${(tCalls / tN).toFixed(2)}  meanMs ${Math.round(tMs / tN)}`;
   console.log(`\nTOTAL ${total}`);
 
   const outDir = join(import.meta.dir, "results");

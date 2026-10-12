@@ -60,6 +60,13 @@ describe("MockAdapter", () => {
     await expect(adapter.translate(makeRequest({ signal: AbortSignal.abort() }))).rejects.toMatchObject({ tag: "CANCELLED" });
   });
 
+  test("returns an agreement repair request's text unchanged", async () => {
+    for (const adapter of [new MockAdapter(), new MockAdapter({ ignoreGlossary: true })]) {
+      const result = await adapter.translate(makeRequest({ source: "مرحبا عالم", repairTerms: ["عالم"] }));
+      expect(result.translated).toBe("مرحبا عالم");
+    }
+  });
+
   test("dispose resolves without error", async () => {
     const adapter = new MockAdapter();
     await expect(adapter.dispose()).resolves.toBeUndefined();

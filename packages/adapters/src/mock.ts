@@ -27,11 +27,15 @@ export class MockAdapter implements Adapter {
     if (request.signal?.aborted) throw cancelledError();
     const start = Date.now();
 
-    let translated = request.imageBase64
-      ? `[image] ${request.source}`
-      : `[${request.targetLang}] ${request.source}`;
+    let translated = request.repairTerms
+      ? request.source
+      : request.imageBase64
+        ? `[image] ${request.source}`
+        : `[${request.targetLang}] ${request.source}`;
 
-    if (this.ignoreGlossary) {
+    if (request.repairTerms) {
+      // Agreement repair: the draft is returned unchanged (nothing to fix).
+    } else if (this.ignoreGlossary) {
       // A code-switched tag (<term translation="T">T</term>) holds the target
       // term: put the source term back. Then keep the inner text of every
       // other tag; the pipeline would turn an echoed tag into its translation.

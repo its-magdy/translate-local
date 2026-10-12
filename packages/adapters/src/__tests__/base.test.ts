@@ -256,3 +256,33 @@ describe("placeholder rule wording", () => {
     expect(buildNaturalPrompt({ ...baseRequest, source: "__TLPH_0__", imageBase64: "abc" })).not.toContain("placeholder token");
   });
 });
+
+describe("agreement repair prompt", () => {
+  const repair: TranslationRequest = { source: "Erstellen Sie eine neue Zweig.", sourceLang: "en", targetLang: "de", repairTerms: ["Zweig"] };
+
+  test("asks to proofread the target text around the terms, not to translate it", () => {
+    const { prompt } = buildStructuredPrompt(repair);
+    expect(prompt).toContain("German (de) proofreader");
+    expect(prompt).toContain('"Zweig"');
+    expect(prompt).not.toContain("English");
+    expect(prompt).not.toContain("<term");
+    expect(prompt.endsWith("Please correct the following German text:\n\n\nErstellen Sie eine neue Zweig.")).toBe(true);
+    expect(buildNaturalPrompt(repair)).toBe(prompt);
+  });
+
+  test("ignores glossary hits, reminders and context", () => {
+    const { prompt } = buildStructuredPrompt({
+      ...repair,
+      glossaryHits: [makeHit("branch", "Zweig")],
+      glossaryReminder: [{ source: "branch", target: "Zweig" }],
+      contextSnippets: ["SNIPPET"],
+    });
+    expect(prompt).toBe(buildStructuredPrompt(repair).prompt);
+  });
+
+  test("adds a placeholder rule only when the text has sentinels", () => {
+    expect(buildStructuredPrompt(repair).prompt).not.toContain("placeholder");
+    const { prompt } = buildStructuredPrompt({ ...repair, source: "Öffnen Sie __TLPH_0__ und __TLPH_1__ und __TLPH_0__." });
+    expect(prompt).toContain("Copy the placeholder tokens (__TLPH_0__, __TLPH_1__) unchanged");
+  });
+});

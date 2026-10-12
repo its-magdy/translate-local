@@ -9,6 +9,14 @@ export interface TranslationRequest {
   contextSnippets?: string[];
   /** Glossary retries (both modes): terms the previous attempt left out, rendered as instructions (never appended to `source`). */
   glossaryReminder?: { source: string; target: string }[];
+  /**
+   * Agreement repair (#115) instead of a translation: `source` is a finished
+   * `targetLang` translation containing these glossary target terms verbatim.
+   * Return it with only the grammar around them corrected (gender, case,
+   * number, articles, adjective endings), the terms and everything else
+   * unchanged. `sourceLang` is still the original text's language.
+   */
+  repairTerms?: string[];
   onChunk?: (chunk: string) => void;
   /** Caller cancellation: adapters stop the request and throw `cancelledError()` (tag `CANCELLED`). */
   signal?: AbortSignal;
@@ -27,6 +35,8 @@ export interface TranslationResult {
     adapter: string;
     durationMs: number;
     retries: number;
+    /** Set by the pipeline when its agreement repair pass changed the text. */
+    repaired?: boolean;
   };
 }
 

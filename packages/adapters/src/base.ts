@@ -61,8 +61,38 @@ function langLabel(code: string): string {
   return name ? `${name} (${code})` : code;
 }
 
+/**
+ * Agreement repair (#115, `request.repairTerms` set): `source` is already a
+ * `targetLang` translation, so this is a proofreading prompt, not a translation
+ * one. Giving the model the original text made it re-translate (dropping the
+ * terms), and the translation template with term tags made it echo the tags.
+ * Shared by both builders.
+ */
+export function buildRepairPrompt(request: TranslationRequest): string {
+  const tgt = langLabel(request.targetLang);
+  const tgtName = LANG_NAMES[request.targetLang.toLowerCase()] ?? request.targetLang;
+  const terms = (request.repairTerms ?? []).map((t) => `"${t}"`).join(", ");
+  const lines = [
+    `You are a professional ${tgt} proofreader. The ${tgtName} text below is a translation in which the term(s) ${terms} were inserted word for word, so the words around them may not agree with them.`,
+    `Correct only the grammar around these terms: articles, adjectives, predicate adjectives, pronouns and past participles must agree with each term in gender, number and case. Keep each term exactly as written. Change nothing else: do not rephrase, reorder or translate, and keep the line breaks.`,
+  ];
+  const sentinels = sentinelTokens(request.source);
+  if (sentinels) {
+    lines.push(`Copy the placeholder tokens (${sentinels.unique.join(", ")}) unchanged, each as many times as it appears in the text.`);
+  }
+  lines.push(
+    `Produce only the corrected ${tgtName} text, without any additional explanations or commentary.`,
+    `Please correct the following ${tgtName} text:`,
+    "",
+    "",
+    request.source,
+  );
+  return lines.join("\n");
+}
+
 // translategemma ignores the system field for translation tasks — all instructions go in the prompt.
 export function buildStructuredPrompt(request: TranslationRequest): { prompt: string; system?: string } {
+  if (request.repairTerms) return { prompt: buildRepairPrompt(request) };
   const src = langLabel(request.sourceLang);
   const tgt = langLabel(request.targetLang);
   const srcName = LANG_NAMES[request.sourceLang.toLowerCase()] ?? request.sourceLang;
@@ -135,6 +165,7 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
 }
 
 export function buildNaturalPrompt(request: TranslationRequest): string {
+  if (request.repairTerms) return buildRepairPrompt(request);
   const lines: string[] = [];
 
   lines.push(
