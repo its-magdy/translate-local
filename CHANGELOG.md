@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.6] - 2026-10-12
+
+### Added
+- **Ctrl+C cancels a running translation and unloads the model.** The first Ctrl+C (or SIGTERM) aborts the request, unloads the model from VRAM and exits with code 130 (143 for SIGTERM). Before, the process died at once and the model stayed loaded until Ollama's keep-alive ran out. If unloading hangs, `tl` exits after 3 s anyway, and a second Ctrl+C exits immediately.
+- **An interrupted file translation keeps the work it finished.** `tl translate --file` writes the keys it already translated, plus the lock, and leaves the keys it never reached out of the target, so the next run translates exactly those. The summary has `aborted: true` and an `Interrupted: N of M key(s) not translated` warning. `--strict` stays all-or-nothing.
+- **`failed` entries in the file summary carry `pointer` and `tag`.** `pointer` is the key's JSON Pointer (unambiguous for keys that contain dots) and `tag` is the error `--strict` would have raised. `path` is unchanged.
+
+### Fixed
+- **Glossary terms are applied with the default `--from auto`.** Entries were ignored unless the source language was given explicitly, and the coverage line still said 100%. Entries of every source language now apply; file mode uses the language from the source file's name.
+- **Strict glossary mode succeeds much more often.** When the model echoed a glossary tag with its own word inside, the required term was thrown away; it is now kept. The retry reminder was sent as part of the text to translate (and named the source term, not the target); it is now an instruction. On our benchmark with TranslateGemma 4b, strict mode went from 85% to 94% of glossary runs passing.
+- **File mode keeps placeholders more reliably.** The prompt stated twice the real number of placeholders, and in `--glossary strict` a dropped placeholder failed the key at once instead of being retried. Placeholder runs on the benchmark went from 75% to 100%.
+- **Keys that fell back to source text are retried.** A key that failed (for example a lost placeholder) kept the copied source text, and later missing-only runs skipped it for good. The lock now records failed keys, and missing-only runs retry them while the target still holds the copied value. Keys stuck from earlier versions need one `--force` run.
+- **The prompt no longer names "auto" as a language.** With `--from auto` the model was asked to translate from "auto"; the prompt now leaves the source language out.
+- **Ollama errors are reported instead of returning partial text.** An error sent in the middle of a streamed response, or a stream that ended early, used to come back as a successful (truncated) translation.
+- **Long translations no longer time out while text is still arriving.** The 60 s limit was a total deadline; it is now an idle timeout that restarts on every chunk.
+- **`glossary.mode` in the config is respected.** The `--glossary` flag's built-in default always overrode it.
+- **The `Glossary: N% covered` line is shown only when a term matched.** Text with no glossary terms printed `100% covered`.
+- **`--json` errors are JSON for every command.** `glossary list`, `glossary export` and `context list` printed plain-text errors; all commands now print `{ error, message, hint }`.
+- **Glossary writes wait for a lock instead of failing.** Running the CLI and the TUI at once could fail with "database is locked".
+- **TUI:** starting a new translation cancels the previous one in Ollama (it kept generating), translations use context folders and the config's glossary settings, `TL_ADAPTER` is respected, image errors show their hint, and quitting restores the terminal immediately instead of waiting for the model to unload.
+
+### Removed
+- **The unused `adapter.local.command` and `adapter.local.keepAlive` config fields.** Nothing read them. Configs that still contain them load fine and drop them on the next save.
+
 ## [0.5.5] - 2026-10-09
 
 ### Fixed
