@@ -50,7 +50,7 @@ bun run typecheck
 bun run scripts/bench/strict-glossary.ts --runs 10
 ```
 
-Model output is not deterministic, so a single passing run proves little. When you change prompts, glossary tagging, placeholder masking or retry logic, run `scripts/bench/strict-glossary.ts` before and after and compare the per-case success rates. `--only <caseId,...>` limits the run to some cases and `--label <name>` names the results file. Results (every prompt and raw model output) go to `scripts/bench/results/`, which is gitignored. The script uses temp databases and never touches `~/.config/tl`.
+Model output is not deterministic, so a single passing run proves little. When you change prompts, glossary tagging, placeholder masking or retry logic, run `scripts/bench/strict-glossary.ts` before and after and compare the per-case success rates. `--only <caseId,...>` limits the run to some cases and `--label <name>` names the results file. Results (every prompt and raw model output) go to `scripts/bench/results/`, which is gitignored. The script uses temp databases and never touches `~/.config/tl`. `scripts/bench/agreement.ts` (same flags, plus `--mode prefer|strict`) checks that the words around a glossary term agree with it (articles, elision, gender, case), not only that the term is there.
 
 ## Pre-Commit Checklist
 

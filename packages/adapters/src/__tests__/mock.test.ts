@@ -79,6 +79,12 @@ describe("MockAdapter ignoreGlossary hook", () => {
     expect(result.translated).toBe("[ar] Hello world");
   });
 
+  test("emits the source term for a code-switched tag holding the target", async () => {
+    const source = 'Hello <term translation="عالم">عالم</term>';
+    const result = await new MockAdapter({ ignoreGlossary: true }).translate({ ...request, source });
+    expect(result.translated).toBe("[ar] Hello world");
+  });
+
   test("does not touch tags whose inner text is a sentinel", async () => {
     const source = '<term translation="__TLPH_0__">__TLPH_0__</term> and <term translation="عالم">world</term>';
     const result = await new MockAdapter({ ignoreGlossary: true }).translate(makeRequest({ source }));

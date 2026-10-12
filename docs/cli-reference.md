@@ -27,7 +27,7 @@ Translate a string, image, or JSON/YAML catalog file.
 |------|------|---------|-------------|
 | `--from <lang>` | string | `auto` | Source language (BCP-47 tag, e.g. `en`, `fr`) or `auto` |
 | `--to <lang>` | string | `ar` | Target language (BCP-47 tag) |
-| `--glossary <mode>` | `prefer\|strict` | config `glossary.mode` (`prefer`) | Glossary enforcement mode; overrides `glossary.mode` from the config. `prefer` retries a missed term once and keeps the better attempt; `strict` retries up to `glossary.maxRetries` times, then fails (see [glossary-guide.md](glossary-guide.md#enforcement-modes)) |
+| `--glossary <mode>` | `prefer\|strict` | config `glossary.mode` (`prefer`) | Glossary enforcement mode; overrides `glossary.mode` from the config. `prefer` retries a missed term twice and keeps the best attempt; `strict` retries up to `glossary.maxRetries` times, then fails (see [glossary-guide.md](glossary-guide.md#enforcement-modes)) |
 | `--image <path>` | string | — | Path to an image file; extracts and translates the text in it |
 | `--file <path>` | string | — | Path to a JSON or YAML catalog (see [File mode](#file-mode) below) |
 | `--json` | flag | off | Output result as JSON |

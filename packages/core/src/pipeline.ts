@@ -2,13 +2,17 @@ import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, Glo
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { matchTerms, type GlossaryStore } from "./glossary";
+import { fixTermAgreement } from "./agreement";
 
-/** Reminder retries prefer mode makes for a missed glossary term (strict uses maxRetries). */
-const PREFER_RETRIES = 1;
+/**
+ * Retries prefer mode makes for a missed glossary term (strict uses maxRetries):
+ * one with a reminder, then the code-switched final retry.
+ */
+const PREFER_RETRIES = 2;
 
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
-  /** Strict mode only: prefer mode always makes PREFER_RETRIES retries. */
+  /** Strict mode only: prefer mode always makes PREFER_RETRIES (2) retries. */
   maxRetries?: number;
   contextSnippets?: string[];
   imageBase64?: string;
@@ -49,6 +53,9 @@ export async function runPipeline(
       : glossaryStore.findMatches(text, sourceLang, targetLang);
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
+  const codeSwitchedSource = realHits.length > 0 ? codeSwitch(text, hits, realHits) : taggedSource;
+  // Real hits only: placeholder sentinels need no agreement fix-up.
+  const targetTerms = [...new Set(realHits.map((h) => h.entry.targetTerm))];
 
   const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
@@ -58,14 +65,17 @@ export async function runPipeline(
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
+    // The final retry sends the target terms in place of the source terms and
+    // no reminder: the model then writes the sentence around the term itself.
+    const codeSwitched = retries > 0 && retries === retryLimit;
     const request: TranslationRequest = {
-      source: isImageMode ? "" : taggedSource,
+      source: isImageMode ? "" : codeSwitched ? codeSwitchedSource : taggedSource,
       sourceLang,
       targetLang,
       imageBase64,
       glossaryHits: hits,
       contextSnippets,
-      glossaryReminder,
+      glossaryReminder: codeSwitched ? undefined : glossaryReminder,
       // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
       onChunk: retries === 0 ? onChunk : undefined,
       signal,
@@ -74,7 +84,7 @@ export async function runPipeline(
 
     const raw = await adapter.translate(request);
 
-    const translated = normalizeWhitespace(stripGlossaryTags(raw.translated));
+    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, translated);
     const result: TranslationResult = {
       ...raw,
@@ -107,4 +117,23 @@ export async function runPipeline(
 
     return { ...best, metadata: { ...best.metadata, retries } };
   }
+}
+
+/**
+ * The source with each real glossary hit replaced by its target term, tagged
+ * as `<term translation="T">T</term>`. Extra hits (placeholder sentinels) keep
+ * their usual tag around the original text.
+ */
+function codeSwitch(text: string, hits: GlossaryHit[], realHits: GlossaryHit[]): string {
+  let out = "";
+  let cursor = 0;
+  const shifted: GlossaryHit[] = [];
+  for (const hit of hits) {
+    out += text.slice(cursor, hit.startIndex);
+    const piece = realHits.includes(hit) ? hit.entry.targetTerm : text.slice(hit.startIndex, hit.endIndex);
+    shifted.push({ ...hit, startIndex: out.length, endIndex: out.length + piece.length });
+    out += piece;
+    cursor = hit.endIndex;
+  }
+  return injectGlossaryTags(out + text.slice(cursor), shifted);
 }
