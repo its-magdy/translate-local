@@ -11,6 +11,20 @@ const SENTINEL_PATTERN = `${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTIN
 const SENTINEL_TEST_RE = new RegExp(SENTINEL_PATTERN);
 const SENTINEL_MATCH_RE = new RegExp(SENTINEL_PATTERN, "g");
 const TERM_ATTR_RE = /translation="[^"]*"/g;
+// How the prompt names the token shape, and two example tokens that can never
+// equal a real one (real tokens end in digits).
+const SENTINEL_FORM = `${PLACEHOLDER_SENTINEL_PREFIX}N${PLACEHOLDER_SENTINEL_SUFFIX}`;
+const EXAMPLE_TOKEN_A = `${PLACEHOLDER_SENTINEL_PREFIX}A${PLACEHOLDER_SENTINEL_SUFFIX}`;
+const EXAMPLE_TOKEN_B = `${PLACEHOLDER_SENTINEL_PREFIX}B${PLACEHOLDER_SENTINEL_SUFFIX}`;
+
+/** Placeholder sentinels in a source: total occurrences and each distinct token once. */
+function sentinelTokens(source: string): { count: number; unique: string[] } | undefined {
+  if (!SENTINEL_TEST_RE.test(source)) return undefined;
+  // Tagged sentinels (<term translation="__TLPH_0__">__TLPH_0__</term>) would
+  // count twice; drop the attribute values so only the text content counts.
+  const tokens = source.replace(TERM_ATTR_RE, "").match(SENTINEL_MATCH_RE) ?? [];
+  return { count: tokens.length, unique: [...new Set(tokens)] };
+}
 
 // "auto" is our CLI default, not a language: TranslateGemma's template has no
 // auto mode, so the prompt leaves the source language out instead of naming "auto".
@@ -67,20 +81,16 @@ export function buildStructuredPrompt(request: TranslationRequest): { prompt: st
   }
 
   // Without an explicit instruction the model drops __TLPH_N__ sentinels when fluency suffers.
-  if (!isImageMode && SENTINEL_TEST_RE.test(request.source)) {
-    // Tagged sentinels (<term translation="__TLPH_0__">__TLPH_0__</term>) would
-    // count twice; drop the attribute values so only the text content counts.
-    const visible = request.source.replace(TERM_ATTR_RE, "");
-    const tokens = visible.match(SENTINEL_MATCH_RE) ?? [];
-    const uniqueTokens = [...new Set(tokens)];
+  const sentinels = isImageMode ? undefined : sentinelTokens(request.source);
+  if (sentinels) {
     lines.push(
-      `CRITICAL PLACEHOLDER RULE: this source contains exactly ${tokens.length} placeholder occurrence(s) of the form __TLPH_N__. Specifically: ${uniqueTokens.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, with the same count. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
-      `EXAMPLES of correct placeholder preservation across languages:`,
-      `  Source: "Hello __TLPH_0__, you have __TLPH_1__ messages"`,
-      `  → Spanish: "Hola __TLPH_0__, tienes __TLPH_1__ mensajes"`,
-      `  → Arabic: "مرحبًا __TLPH_0__، لديك __TLPH_1__ رسالة"`,
-      `  → Japanese: "こんにちは __TLPH_0__ さん、__TLPH_1__ 件のメッセージがあります"`,
-      `Notice each token appears exactly once in each translation, in a natural position. Apply the same discipline to your translation below.`,
+      `CRITICAL PLACEHOLDER RULE: this source contains exactly ${sentinels.count} placeholder occurrence(s) of the form ${SENTINEL_FORM}. Specifically: ${sentinels.unique.join(", ")}. Your translation MUST contain EXACTLY THESE SAME TOKENS, each as many times as it appears in the source. Even if the resulting sentence sounds awkward, you must include every placeholder. Do not omit, translate, or alter these tokens. Position them naturally in the target sentence.`,
+      `EXAMPLES of correct placeholder preservation across languages (the tokens here are only illustrations; use the tokens from the source):`,
+      `  Source: "Hello ${EXAMPLE_TOKEN_A}, you have ${EXAMPLE_TOKEN_B} messages"`,
+      `  → Spanish: "Hola ${EXAMPLE_TOKEN_A}, tienes ${EXAMPLE_TOKEN_B} mensajes"`,
+      `  → Arabic: "مرحبًا ${EXAMPLE_TOKEN_A}، لديك ${EXAMPLE_TOKEN_B} رسالة"`,
+      `  → Japanese: "こんにちは ${EXAMPLE_TOKEN_A} さん、${EXAMPLE_TOKEN_B} 件のメッセージがあります"`,
+      `Notice that every token from the source appears in each translation as many times as in the source, in a natural position. Apply the same discipline to your translation below.`,
     );
   }
 
@@ -129,6 +139,13 @@ export function buildNaturalPrompt(request: TranslationRequest): string {
     for (const reminder of request.glossaryReminder) {
       lines.push(`- ${formatReminder(reminder)}`);
     }
+  }
+
+  const sentinels = request.imageBase64 ? undefined : sentinelTokens(request.source);
+  if (sentinels) {
+    lines.push(
+      `\nThe text contains ${sentinels.count} placeholder token(s) of the form ${SENTINEL_FORM}: ${sentinels.unique.join(", ")}. Copy every token into the translation unchanged, as many times as it appears in the text. Do not translate, alter or drop them.`,
+    );
   }
 
   if (request.contextSnippets && request.contextSnippets.length > 0) {
