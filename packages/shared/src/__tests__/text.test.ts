@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -72,6 +72,44 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags(input)).toBe("Erstellen Sie eine neue Zweig für diese Funktion.");
   });
 
+  test("keeps the model's inflected form of the term written inside the tag", () => {
+    // Arabic article, imperative, French plural (#116).
+    expect(stripGlossaryTags('ادفع <term translation="كوميت">الكوميت</term> إلى الفرع')).toBe("ادفع الكوميت إلى الفرع");
+    expect(stripGlossaryTags('ثم <term translation="نشر">انشر</term>.')).toBe("ثم انشر.");
+    expect(stripGlossaryTags('Redémarrez les <term translation="hôte">hôtes</term>.')).toBe("Redémarrez les hôtes.");
+    expect(stripGlossaryTags('<term translation="Zweig">Zweige</term> löschen')).toBe("Zweige löschen");
+  });
+
+  test("replaces an inner word that does not contain the term", () => {
+    expect(stripGlossaryTags('ادفع <term translation="كوميت">الالتزام</term>')).toBe("ادفع كوميت");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term>')).toBe("hôte");
+  });
+
+  test("replaces an inner text with more words than the term", () => {
+    expect(stripGlossaryTags('<term translation="كوميت">هذا الكوميت</term>')).toBe("كوميت");
+    expect(stripGlossaryTags('<term translation="طلب دمج">طلب دمج جديد</term>')).toBe("طلب دمج");
+    // A multi-word term keeps an inner with as many words that contains it.
+    expect(stripGlossaryTags('<term translation="طلب دمج">وطلب دمج</term>')).toBe("وطلب دمج");
+  });
+
+  test("drops quotes around a kept inner form", () => {
+    expect(stripGlossaryTags('<term translation="كوميت">"الكوميت"</term>')).toBe("الكوميت");
+    expect(stripGlossaryTags('les <term translation="hôte">« hôtes »</term>')).toBe("les hôtes");
+  });
+
+  test("writes the matched part of a kept form as the term (case-insensitive match)", () => {
+    expect(stripGlossaryTags('<term translation="hôte">Hôtes</term> en ligne')).toBe("hôtes en ligne");
+  });
+
+  test("never keeps an inner form for sentinel tags", () => {
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">__TLPH_0__:</term>')).toBe("__TLPH_0__");
+    expect(stripGlossaryTags('<term translation="__TLPH_1__">__TLPH_0__</term>')).toBe("__TLPH_1__");
+  });
+
+  test("still uses the attribute for an unclosed tag around an inflected form", () => {
+    expect(stripGlossaryTags('ادفع <term translation="كوميت">الكوميت')).toBe("ادفع كوميت");
+  });
+
   test("keeps inner content when the tag has no translation attribute", () => {
     expect(stripGlossaryTags("a <term>X</term> b")).toBe("a X b");
   });
@@ -117,10 +155,13 @@ describe("stripGlossaryTags", () => {
   test("matches the original regex implementation on random tag soup", () => {
     const regexStrip = (text: string) =>
       text
-        .replace(/<(term[^>]*)>(.*?)<\/term>/gs, (_m, open: string, inner: string) => /\btranslation="([^"]*)"/.exec(open)?.[1] ?? inner)
+        .replace(/<(term[^>]*)>(.*?)<\/term>/gs, (_m, open: string, inner: string) => {
+          const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
+          return attr === undefined ? inner : (keptTermForm(inner, attr) ?? attr);
+        })
         .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
         .replace(/<term[^>]*>/g, "");
-    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", " ", "\n", "<b>"];
+    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "T", " ", "\n", "<b>"];
     let seed = 42;
     const rand = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2 ** 31;
