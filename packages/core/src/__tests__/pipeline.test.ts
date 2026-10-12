@@ -220,6 +220,32 @@ describe("runPipeline", () => {
     expect(calls).toBe(1);
   });
 
+  describe("agreement fix-up around glossary terms", () => {
+    const fixedAdapter = (translated: string) =>
+      ({
+        name: "fixed",
+        async translate(req: any) {
+          return { translated, sourceLang: req.sourceLang, targetLang: req.targetLang, glossaryCoverage: 1, missingTerms: [], metadata: { adapter: "fixed", durationMs: 0, retries: 0 } };
+        },
+        async dispose() {},
+      }) as any;
+
+    it("unquotes and elides around a real target term before computing coverage", async () => {
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const result = await runPipeline("Restart the server.", "en", "fr-CA", fixedAdapter('Redémarrez le « <term translation="hôte">serveur</term> ».'), store, { glossaryMode: "strict" });
+      expect(result.translated).toBe("Redémarrez l'hôte.");
+      expect(result.missingTerms).toHaveLength(0);
+    });
+
+    it("leaves placeholder sentinels (extra hits) alone", async () => {
+      const TOK = "__TLPH_0__";
+      const text = `Open ${TOK}`;
+      const hit = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "fr" }, startIndex: 5, endIndex: 5 + TOK.length };
+      const result = await runPipeline(text, "en", "fr", fixedAdapter(`Ouvrez le « ${TOK} »`), store, { extraGlossaryHits: [hit] });
+      expect(result.translated).toBe(`Ouvrez le « ${TOK} »`);
+    });
+  });
+
   describe("prefer-mode reminder retry", () => {
     // Returns outputs[i] for the i-th call (the last one repeats) and records every request.
     function scriptedAdapter(outputs: string[], requests: any[], onCall?: () => void) {

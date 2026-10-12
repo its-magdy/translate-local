@@ -2,6 +2,7 @@ import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, Glo
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { matchTerms, type GlossaryStore } from "./glossary";
+import { fixTermAgreement } from "./agreement";
 
 /** Reminder retries prefer mode makes for a missed glossary term (strict uses maxRetries). */
 const PREFER_RETRIES = 1;
@@ -49,6 +50,8 @@ export async function runPipeline(
       : glossaryStore.findMatches(text, sourceLang, targetLang);
   const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
   const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
+  // Real hits only: placeholder sentinels need no agreement fix-up.
+  const targetTerms = [...new Set(realHits.map((h) => h.entry.targetTerm))];
 
   const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
@@ -74,7 +77,7 @@ export async function runPipeline(
 
     const raw = await adapter.translate(request);
 
-    const translated = normalizeWhitespace(stripGlossaryTags(raw.translated));
+    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, translated);
     const result: TranslationResult = {
       ...raw,
