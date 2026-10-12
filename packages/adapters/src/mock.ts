@@ -1,8 +1,10 @@
 import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
 import { cancelledError } from "@translate-local/shared/errors";
-import { injectGlossaryTags } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags } from "@translate-local/shared/utils/text";
 
 const TERM_TAG_RE = /<term translation="[^"]*">([^<]*)<\/term>/g;
+// A code-switched tag: [, source attribute].
+const CODE_SWITCHED_TAG_RE = /<term translation="[^"]*" source="([^"]*)">[^<]*<\/term>/g;
 
 /**
  * Deterministic mock adapter for testing.
@@ -36,9 +38,12 @@ export class MockAdapter implements Adapter {
     if (request.repairTerms) {
       // Agreement repair: the draft is returned unchanged (nothing to fix).
     } else if (this.ignoreGlossary) {
-      // A code-switched tag (<term translation="T">T</term>) holds the target
-      // term: put the source term back. Then keep the inner text of every
-      // other tag; the pipeline would turn an echoed tag into its translation.
+      // A code-switched tag holds the target term: put the source word back,
+      // from the source attribute when there is one (the strip unescapes it),
+      // else the entry's sourceTerm (<term translation="T">T</term>). Then keep
+      // the inner text of every other tag; the pipeline would turn an echoed
+      // tag into its translation.
+      translated = translated.replace(CODE_SWITCHED_TAG_RE, (_m, source: string) => stripGlossaryTags(`<term translation="${source}"></term>`));
       for (const { entry } of request.glossaryHits ?? []) {
         const t = entry.targetTerm;
         translated = translated.split(injectGlossaryTags(t, [{ entry, startIndex: 0, endIndex: t.length }])).join(entry.sourceTerm);

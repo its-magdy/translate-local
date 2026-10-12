@@ -59,6 +59,32 @@ describe("injectGlossaryTags", () => {
     const hits = [makeHit("Cloud", "سحابة", 8), makeHit("API", "واجهة", 4)];
     expect(() => injectGlossaryTags("The API and Cloud", hits)).toThrow();
   });
+
+  test("code-switches the listed hits: target term inside, source word as an attribute", () => {
+    const api = makeHit("API", "واجهة", 4);
+    const cloud = makeHit("Cloud", "سحابة", 12);
+    expect(injectGlossaryTags("The API and Cloud", [api, cloud], [api])).toBe(
+      'The <term translation="واجهة" source="API">واجهة</term> and <term translation="سحابة">Cloud</term>',
+    );
+  });
+
+  test("leaves out the source attribute when the source word and the term share a writing system", () => {
+    const host = makeHit("server", "host", 12);
+    expect(injectGlossaryTags("Restart the server.", [host], [host])).toBe('Restart the <term translation="host">host</term>.');
+    // Han and kana count as one writing system; Latin vs kana does not share one.
+    const kana = makeHit("サーバ", "サーバー", 0);
+    expect(injectGlossaryTags("サーバ", [kana], [kana])).toBe('<term translation="サーバー">サーバー</term>');
+    const ja = makeHit("server", "サーバー", 12);
+    expect(injectGlossaryTags("Restart the server.", [ja], [ja])).toBe('Restart the <term translation="サーバー" source="server">サーバー</term>.');
+    // Any shared script counts, so a mixed-script term gets no attribute.
+    const mixed = makeHit("API", "واجهة API", 4);
+    expect(injectGlossaryTags("The API", [mixed], [mixed])).toBe('The <term translation="واجهة API">واجهة API</term>');
+  });
+
+  test("escapes the source attribute and the target term of a code-switched tag", () => {
+    const hit = makeHit('A&"B', "س<ص", 4);
+    expect(injectGlossaryTags('Use A&"B', [hit], [hit])).toBe('Use <term translation="س&lt;ص" source="A&amp;&quot;B">س&lt;ص</term>');
+  });
 });
 
 describe("stripGlossaryTags", () => {
@@ -144,6 +170,11 @@ describe("stripGlossaryTags", () => {
   test("uses translation attribute for unclosed tags", () => {
     const input = 'prefix <term translation="مرحبا">hello';
     expect(stripGlossaryTags(input)).toBe("prefix مرحبا");
+  });
+
+  test("uses the translation attribute for a code-switched tag, closed or not", () => {
+    expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">الكاش</term>.')).toBe("مسح الكاش.");
+    expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">ذاكرة')).toBe("مسح الكاش");
   });
 
   test("handles multiple unclosed tags", () => {

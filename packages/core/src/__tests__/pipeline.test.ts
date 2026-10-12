@@ -187,7 +187,7 @@ describe("runPipeline", () => {
 
   it("strict mode code-switches only its last allowed retry", async () => {
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
-    const codeSwitched = '<term translation="واجهة برمجة">واجهة برمجة</term>';
+    const codeSwitched = '<term translation="واجهة برمجة" source="API">واجهة برمجة</term>';
     for (const maxRetries of [1, 2, 3]) {
       const requests: any[] = [];
       const missAdapter = {
@@ -215,6 +215,16 @@ describe("runPipeline", () => {
     expect(result.translated).toBe("[ar] The API is ready");
     expect(result.missingTerms).toEqual(["API"]);
     expect(result.metadata.retries).toBe(2);
+
+    // Same-script term: the code-switched tag has no source attribute.
+    store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+    const requests: any[] = [];
+    const mock = new MockAdapter({ ignoreGlossary: true });
+    const recording = { translate: (req: any) => (requests.push(req), mock.translate(req)), dispose: async () => {} };
+    const fr = await runPipeline("Restart the server", "en", "fr", recording as any, store, { glossaryMode: "prefer" });
+    expect(requests[2].source).toBe('Restart the <term translation="hôte">hôte</term>');
+    expect(fr.translated).toBe("[fr] Restart the server");
+    expect(fr.missingTerms).toEqual(["server"]);
   });
 
   it("forwards the signal to every attempt", async () => {
@@ -374,7 +384,7 @@ describe("runPipeline", () => {
       expect(result.metadata.retries).toBe(2);
     });
 
-    it("code-switches the final retry: target terms in the source, no reminder", async () => {
+    it("code-switches the final retry: target terms in the source, source words as attributes, no reminder", async () => {
       const requests: any[] = [];
       const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss", "third واجهة"], requests), store, {
         glossaryMode: "prefer",
@@ -384,7 +394,7 @@ describe("runPipeline", () => {
       expect(requests[3].repairTerms).toEqual(["واجهة"]);
       expect(requests[1].source).toBe(requests[0].source);
       expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة" }]);
-      expect(requests[2].source).toBe('The <term translation="واجهة">واجهة</term> is ready');
+      expect(requests[2].source).toBe('The <term translation="واجهة" source="API">واجهة</term> is ready');
       expect(requests[2].glossaryReminder).toBeUndefined();
       expect(requests[2].onChunk).toBeUndefined();
       expect(result.translated).toBe("third واجهة");
@@ -704,7 +714,7 @@ describe("runPipeline", () => {
         glossaryMode: "prefer", extraGlossaryHits: [sentinelHit(text)],
       });
       expect(requests).toHaveLength(3);
-      expect(requests[2].source).toBe(`The <term translation="واجهة برمجة">واجهة برمجة</term> <term translation="${TOK}">${TOK}</term>`);
+      expect(requests[2].source).toBe(`The <term translation="واجهة برمجة" source="API">واجهة برمجة</term> <term translation="${TOK}">${TOK}</term>`);
     });
   });
 });
