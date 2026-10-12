@@ -295,12 +295,11 @@ describe("tl CLI", () => {
     });
 
     it("uses glossary.mode from the config unless --glossary is passed", () => {
-      const env = { TL_ADAPTER: "mock", ...ownHome() };
+      // The mock disregards the glossary tags, so every attempt misses the term.
+      const env = { TL_ADAPTER: "mock", TL_MOCK_IGNORE_GLOSSARY: "1", ...ownHome() };
       mkdirSync(join(tmpDir, ".config/tl"), { recursive: true });
       writeFileSync(join(tmpDir, ".config/tl/config.jsonc"), JSON.stringify({ glossary: { mode: "strict" } }));
-      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة  مؤقتة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
-      // The pipeline emits the target as written, but normalizeWhitespace
-      // collapses its double space in the output, so the term is always missing.
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
       const strict = run(["translate", "clear the Cache", "--to", "ar"], env);
       expect(strict.exitCode).toBe(1);
       expect(strict.stderr).toContain("GLOSSARY_STRICT_MISS");

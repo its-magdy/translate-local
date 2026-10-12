@@ -207,3 +207,52 @@ describe("buildStructuredPrompt placeholder count", () => {
     expect(m?.[2]).toBe("__TLPH_0__, __TLPH_1__");
   });
 });
+
+describe("placeholder rule wording", () => {
+  const tag = (n: number) => `<term translation="__TLPH_${n}__">__TLPH_${n}__</term>`;
+  const tokensIn = (text: string) => [...new Set(text.match(/__TLPH_\d+__/g) ?? [])].sort();
+  const examplesOf = (prompt: string) =>
+    prompt.split("EXAMPLES of correct placeholder preservation")[1].split("Please translate")[0];
+
+  test("structured: examples reuse the source's own tokens and name no other", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, source: `${tag(3)} and ${tag(5)} and ${tag(9)}` });
+    expect(tokensIn(examplesOf(prompt))).toEqual(["__TLPH_3__", "__TLPH_5__"]);
+    expect(tokensIn(prompt)).toEqual(["__TLPH_3__", "__TLPH_5__", "__TLPH_9__"]);
+  });
+
+  test("structured: a one-token source gets a one-token example", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, source: `Hi ${tag(7)}` });
+    expect(tokensIn(prompt)).toEqual(["__TLPH_7__"]);
+    expect(tokensIn(examplesOf(prompt))).toEqual(["__TLPH_7__"]);
+  });
+
+  test("structured: asks for each token as many times as in the source, never 'exactly once'", () => {
+    const { prompt } = buildStructuredPrompt({ ...baseRequest, source: `${tag(0)} then ${tag(0)}` });
+    expect(prompt).toContain("exactly 2 placeholder occurrence(s)");
+    expect(prompt).toContain("each as many times as it appears in the source");
+    expect(prompt).not.toContain("exactly once");
+  });
+
+  test("structured: no rule without sentinels", () => {
+    const { prompt } = buildStructuredPrompt(baseRequest);
+    expect(prompt).not.toContain("PLACEHOLDER");
+  });
+
+  test("natural: names the count and the distinct tokens, once each", () => {
+    const prompt = buildNaturalPrompt({ ...baseRequest, source: `${tag(0)} and ${tag(1)} and ${tag(0)}` });
+    expect(prompt).toContain("contains 3 placeholder token(s) of the form __TLPH_N__: __TLPH_0__, __TLPH_1__.");
+    expect(prompt).toContain("as many times as it appears in the text");
+  });
+
+  test("natural: rule comes before the text to translate", () => {
+    const prompt = buildNaturalPrompt({ ...baseRequest, source: "Hello __TLPH_0__" });
+    const [instructions, text] = prompt.split("Text to translate:");
+    expect(instructions).toContain("contains 1 placeholder token(s)");
+    expect(text).toBe("\nHello __TLPH_0__");
+  });
+
+  test("natural: no rule without sentinels or in image mode", () => {
+    expect(buildNaturalPrompt(baseRequest)).not.toContain("placeholder");
+    expect(buildNaturalPrompt({ ...baseRequest, source: "__TLPH_0__", imageBase64: "abc" })).not.toContain("placeholder token");
+  });
+});

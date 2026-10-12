@@ -65,3 +65,42 @@ describe("MockAdapter", () => {
     await expect(adapter.dispose()).resolves.toBeUndefined();
   });
 });
+
+describe("MockAdapter ignoreGlossary hook", () => {
+  const tagged = '<term translation="عالم">world</term>';
+  const entry: GlossaryEntry = { id: "1", sourceTerm: "world", targetTerm: "عالم", sourceLang: "en", targetLang: "ar" };
+  const request = makeRequest({
+    source: `Hello ${tagged}`,
+    glossaryHits: [{ entry, startIndex: 6, endIndex: 11 }],
+  });
+
+  test("keeps the source word inside the term tag instead of the target", async () => {
+    const result = await new MockAdapter({ ignoreGlossary: true }).translate(request);
+    expect(result.translated).toBe("[ar] Hello world");
+  });
+
+  test("does not touch tags whose inner text is a sentinel", async () => {
+    const source = '<term translation="__TLPH_0__">__TLPH_0__</term> and <term translation="عالم">world</term>';
+    const result = await new MockAdapter({ ignoreGlossary: true }).translate(makeRequest({ source }));
+    expect(result.translated).toBe("[ar] __TLPH_0__ and world");
+  });
+
+  test("is off by default", async () => {
+    const result = await new MockAdapter().translate(request);
+    expect(result.translated).toContain("عالم");
+  });
+
+  test("TL_MOCK_IGNORE_GLOSSARY=1 turns it on at construction; the option overrides the env", async () => {
+    const saved = process.env.TL_MOCK_IGNORE_GLOSSARY;
+    process.env.TL_MOCK_IGNORE_GLOSSARY = "1";
+    try {
+      const fromEnv = new MockAdapter();
+      const overridden = new MockAdapter({ ignoreGlossary: false });
+      expect((await fromEnv.translate(request)).translated).toBe("[ar] Hello world");
+      expect((await overridden.translate(request)).translated).toContain("عالم");
+    } finally {
+      if (saved === undefined) delete process.env.TL_MOCK_IGNORE_GLOSSARY;
+      else process.env.TL_MOCK_IGNORE_GLOSSARY = saved;
+    }
+  });
+});
