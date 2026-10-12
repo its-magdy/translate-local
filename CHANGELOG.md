@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.7] - 2026-10-12
+
+### Changed
+- **Prefer mode (the default) retries once when a glossary term is missing.** It used to give the model a single attempt. It now makes one more attempt that reminds the model of the missing terms, and keeps whichever translation covers more of them; it still never fails over a missed term. On our benchmark with TranslateGemma 4b, prefer-mode glossary runs went from 65% to 92% passing. A translation that uses every term on the first try makes no extra call. `glossary.maxRetries` still applies only to strict mode.
+
+### Fixed
+- **File mode keeps placeholders more reliably.** The prompt's placeholder examples showed two tokens even when the text had one, and said each token appears "exactly once" even when one repeats. The examples now use the text's own placeholders and the rule asks for each as many times as in the source. On our benchmark every placeholder case passed (60/60), with fewer retries.
+- **Non-TranslateGemma prompts now tell the model to keep placeholders.** The generic prompt had no placeholder rule.
+
 ## [0.5.6] - 2026-10-12
 
 ### Added
