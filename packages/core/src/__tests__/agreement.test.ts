@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { unquoteTerms, elideBeforeTerms, dropDoubledArabicArticle, fixTermAgreement } from "../agreement";
+import { unquoteTerms, elideBeforeTerms, dropDoubledArabicArticle, attachArabicArticle, fixTermAgreement } from "../agreement";
 
 describe("unquoteTerms", () => {
   it("drops quote pairs and em dashes wrapped around a term", () => {
@@ -90,6 +90,23 @@ describe("dropDoubledArabicArticle", () => {
     expect(dropDoubledArabicArticle("امسح الكاش", "ar", ["الكاش"])).toBe("امسح الكاش");
     expect(dropDoubledArabicArticle("ادفع الـ كوميت", "ar", ["كوميت"])).toBe("ادفع الـ كوميت");
     expect(dropDoubledArabicArticle("من الـ الكاش", "fr", ["الكاش"])).toBe("من الـ الكاش");
+  });
+});
+
+describe("attachArabicArticle", () => {
+  it("attaches a detached article, with or without a proclitic, to an Arabic-script term", () => {
+    expect(attachArabicArticle("ادفع (الـ كوميت) إلى الفرع البعيد، ثم قم بالـ نشر.", "ar", ["كوميت", "نشر"])).toBe(
+      "ادفع (الكوميت) إلى الفرع البعيد، ثم قم بالنشر.",
+    );
+    expect(attachArabicArticle("أرسله للـ كوميت وبالـــ  نشر", "ar-EG", ["كوميت", "نشر"])).toBe("أرسله للكوميت وبالنشر");
+  });
+
+  it("leaves Latin-script terms, ال-initial terms, words ending in ال, bare ال and other languages alone", () => {
+    expect(attachArabicArticle("استدعِ الـ API", "ar", ["API"])).toBe("استدعِ الـ API");
+    expect(attachArabicArticle("من الـ الكاش", "ar", ["الكاش"])).toBe("من الـ الكاش");
+    expect(attachArabicArticle("جمالـ كوميت", "ar", ["كوميت"])).toBe("جمالـ كوميت");
+    expect(attachArabicArticle("ادفع ال كوميت", "ar", ["كوميت"])).toBe("ادفع ال كوميت");
+    expect(attachArabicArticle("ادفع الـ كوميت", "fr", ["كوميت"])).toBe("ادفع الـ كوميت");
   });
 });
 
