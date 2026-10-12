@@ -91,7 +91,8 @@ describe("runPipeline", () => {
       async dispose() {},
     };
     const result = await runPipeline("Create a new branch for this feature.", "en", "de", echoAdapter as any, store, { glossaryMode: "strict" });
-    expect(calls).toBe(1);
+    // The second call is the agreement repair (it echoes the tag again, which changes nothing).
+    expect(calls).toBe(2);
     expect(result.metadata.retries).toBe(0);
     expect(result.translated).toBe("Erstellen Sie eine neue Zweig für diese Funktion.");
     expect(result.missingTerms).toHaveLength(0);
@@ -361,7 +362,9 @@ describe("runPipeline", () => {
       const result = await runPipeline("The API is ready", "en", "ar", scriptedAdapter(["first miss", "second miss", "third واجهة"], requests), store, {
         glossaryMode: "prefer",
       });
-      expect(requests).toHaveLength(3);
+      // The 4th request is the agreement repair of the code-switched result.
+      expect(requests).toHaveLength(4);
+      expect(requests[3].repairTerms).toEqual(["واجهة"]);
       expect(requests[1].source).toBe(requests[0].source);
       expect(requests[1].glossaryReminder).toEqual([{ source: "API", target: "واجهة" }]);
       expect(requests[2].source).toBe('The <term translation="واجهة">واجهة</term> is ready');
@@ -379,6 +382,181 @@ describe("runPipeline", () => {
       await expect(
         runPipeline("The API is ready", "en", "ar", adapter, store, { glossaryMode: "prefer", signal: controller.signal }),
       ).rejects.toMatchObject({ tag: "CANCELLED" });
+      expect(requests).toHaveLength(1);
+    });
+  });
+
+  describe("agreement repair", () => {
+    const TEXT = "Create a new branch for this feature.";
+    const ECHO = 'Erstellen Sie eine neue <term translation="Zweig">Abteilung</term> für diese Funktion.';
+    const DRAFT = "Erstellen Sie eine neue Zweig für diese Funktion.";
+    const REPAIRED = "Erstellen Sie einen neuen Zweig für diese Funktion.";
+
+    // Translation requests get `translations[i]` (the last repeats); repair requests get `repair`.
+    function repairAdapter(translations: string[], repair: string | ((req: any) => string), requests: any[]) {
+      let n = 0;
+      return {
+        name: "repair",
+        async translate(req: any) {
+          requests.push(req);
+          const translated = req.repairTerms ? (typeof repair === "string" ? repair : repair(req)) : translations[Math.min(++n, translations.length) - 1];
+          return { translated, sourceLang: req.sourceLang, targetLang: req.targetLang, glossaryCoverage: 1, missingTerms: [], metadata: { adapter: "repair", durationMs: 0, retries: 0 } };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    beforeEach(() => {
+      store.add({ sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de" });
+    });
+
+    it("repairs a result whose term was substituted into an echoed tag", async () => {
+      const requests: any[] = [];
+      const controller = new AbortController();
+      const onChunk = () => {};
+      const result = await runPipeline(TEXT, "en", "de", repairAdapter([ECHO], REPAIRED, requests), store, { signal: controller.signal, onChunk });
+      expect(requests).toHaveLength(2);
+      const repair = requests[1];
+      expect(repair.source).toBe(DRAFT);
+      expect(repair.repairTerms).toEqual(["Zweig"]);
+      expect(repair.sourceLang).toBe("en");
+      expect(repair.targetLang).toBe("de");
+      expect(repair.signal).toBe(controller.signal);
+      expect(repair.onChunk).toBeUndefined();
+      expect(repair.glossaryHits).toBeUndefined();
+      expect(result.translated).toBe(REPAIRED);
+      expect(result.metadata.repaired).toBe(true);
+      expect(result.metadata.retries).toBe(0);
+      expect(result.missingTerms).toEqual([]);
+    });
+
+    it("repairs in strict mode too", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline(TEXT, "en", "de", repairAdapter([ECHO], REPAIRED, requests), store, { glossaryMode: "strict" });
+      expect(requests).toHaveLength(2);
+      expect(result.translated).toBe(REPAIRED);
+    });
+
+    it("applies the deterministic fix-ups to the repaired text", async () => {
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const requests: any[] = [];
+      const result = await runPipeline("The server is down.", "en", "fr", repairAdapter(['Le <term translation="hôte">serveur</term> est hors service.'], "Le « hôte » est hors services.", requests), store);
+      expect(result.translated).toBe("L'hôte est hors services.");
+      expect(result.metadata.repaired).toBe(true);
+    });
+
+    it("does not repair when the model wrote the term itself", async () => {
+      const requests: any[] = [];
+      const own = 'Erstellen Sie einen neuen <term translation="Zweig">Zweig</term> für diese Funktion.';
+      const result = await runPipeline(TEXT, "en", "de", repairAdapter([own, "Erstellen Sie einen neuen Zweig."], "unused", requests), store);
+      expect(requests).toHaveLength(1);
+      expect(result.metadata.repaired).toBeUndefined();
+      // MockAdapter writes the target term inside the tag: no extra call either.
+      const calls: any[] = [];
+      const mock = new MockAdapter();
+      const spy = { async translate(req: any) { calls.push(req); return mock.translate(req); }, async dispose() {} } as any;
+      await runPipeline(TEXT, "en", "de", spy, store);
+      expect(calls).toHaveLength(1);
+    });
+
+    it("does not repair without a real glossary term (no glossary, sentinels only, image mode)", async () => {
+      const requests: any[] = [];
+      await runPipeline("Hello", "en", "de", repairAdapter(['Hallo <term translation="Zweig">Ast</term>'], "unused", requests), store);
+      expect(requests).toHaveLength(1);
+
+      const TOK = "__TLPH_0__";
+      const text = `Open ${TOK}`;
+      const hit = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "de" }, startIndex: 5, endIndex: 5 + TOK.length };
+      const sentinelRequests: any[] = [];
+      await runPipeline(text, "en", "de", repairAdapter([`Öffnen <term translation="${TOK}">x</term>`], "unused", sentinelRequests), store, { extraGlossaryHits: [hit] });
+      expect(sentinelRequests).toHaveLength(1);
+
+      const imageRequests: any[] = [];
+      await runPipeline("", "en", "de", repairAdapter([ECHO], "unused", imageRequests), store, { imageBase64: "dGVzdA==" });
+      expect(imageRequests).toHaveLength(1);
+    });
+
+    it("repairs a code-switched winner but not an earlier, unforced winner", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline(TEXT, "en", "de", repairAdapter(["miss", "miss", DRAFT], REPAIRED, requests), store);
+      expect(requests).toHaveLength(4);
+      expect(requests[3].repairTerms).toEqual(["Zweig"]);
+      expect(result.translated).toBe(REPAIRED);
+      expect(result.metadata.retries).toBe(2);
+
+      // Two terms: the first attempt covers one by itself, the code-switched retry ties and loses.
+      store.add({ sourceTerm: "feature", targetTerm: "Funktion", sourceLang: "en", targetLang: "de" });
+      const tieRequests: any[] = [];
+      const tie = await runPipeline(TEXT, "en", "de", repairAdapter(["Einen neuen Zweig erstellen.", "miss", "Eine neue Zweig."], "unused", tieRequests), store);
+      expect(tieRequests).toHaveLength(3);
+      expect(tie.translated).toBe("Einen neuen Zweig erstellen.");
+    });
+
+    it("repairs only with the terms the draft contains", async () => {
+      store.add({ sourceTerm: "feature", targetTerm: "Feature", sourceLang: "en", targetLang: "de" });
+      const requests: any[] = [];
+      const result = await runPipeline(TEXT, "en", "de", repairAdapter([ECHO], REPAIRED, requests), store);
+      expect(requests).toHaveLength(4);
+      expect(requests[3].repairTerms).toEqual(["Zweig"]);
+      expect(result.translated).toBe(REPAIRED);
+      expect(result.missingTerms).toEqual(["feature"]);
+    });
+
+    it("keeps the draft when the repair drops a term, changes the sentinels or the length", async () => {
+      const TOK = "__TLPH_0__";
+      const text = `Create a new branch for ${TOK}.`;
+      const hit = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "de" }, startIndex: text.indexOf(TOK), endIndex: text.indexOf(TOK) + TOK.length };
+      const echo = `Erstellen Sie eine neue <term translation="Zweig">Abteilung</term> für ${TOK}.`;
+      const draft = `Erstellen Sie eine neue Zweig für ${TOK}.`;
+      for (const bad of [
+        `Erstellen Sie einen neuen Ast für ${TOK}.`, // term lost
+        "Erstellen Sie einen neuen Zweig für diese.", // sentinel lost
+        `Erstellen Sie einen neuen Zweig für ${TOK} ${TOK}.`, // sentinel duplicated
+        `Erstellen Sie einen neuen Zweig für ${TOK}. Das ist eine längere Erklärung dazu.`, // too long
+        `Zweig ${TOK}.`, // too short
+      ]) {
+        const requests: any[] = [];
+        const result = await runPipeline(text, "en", "de", repairAdapter([echo], bad, requests), store, { extraGlossaryHits: [hit] });
+        expect(requests).toHaveLength(2);
+        expect(result.translated).toBe(draft);
+        expect(result.metadata.repaired).toBeUndefined();
+      }
+    });
+
+    it("keeps the draft when the repair call fails", async () => {
+      const requests: any[] = [];
+      const adapter = repairAdapter([ECHO], () => {
+        throw new TlError("TRANSLATION_FAILED", "boom", "hint");
+      }, requests);
+      const result = await runPipeline(TEXT, "en", "de", adapter, store);
+      expect(requests).toHaveLength(2);
+      expect(result.translated).toBe(DRAFT);
+    });
+
+    it("surfaces a cancellation during the repair as CANCELLED", async () => {
+      const controller = new AbortController();
+      const requests: any[] = [];
+      // Aborts, then fails with a non-cancel error, as a fetch abort could.
+      const adapter = repairAdapter([ECHO], () => {
+        controller.abort();
+        throw new Error("socket closed");
+      }, requests);
+      await expect(runPipeline(TEXT, "en", "de", adapter, store, { signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
+      expect(requests).toHaveLength(2);
+
+      // The adapter's own CANCELLED passes through.
+      const own = repairAdapter([ECHO], () => {
+        throw new TlError("CANCELLED", "Translation cancelled", "hint");
+      }, []);
+      await expect(runPipeline(TEXT, "en", "de", own, store)).rejects.toMatchObject({ tag: "CANCELLED" });
+    });
+
+    it("starts no repair once the signal is aborted", async () => {
+      const controller = new AbortController();
+      const requests: any[] = [];
+      const adapter = repairAdapter([ECHO], "unused", requests);
+      const aborting = { ...adapter, translate: async (req: any) => { const res = await adapter.translate(req); controller.abort(); return res; } };
+      await expect(runPipeline(TEXT, "en", "de", aborting, store, { signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
       expect(requests).toHaveLength(1);
     });
   });

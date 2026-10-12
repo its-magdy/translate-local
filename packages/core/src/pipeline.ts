@@ -1,6 +1,7 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
+import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
 import { matchTerms, type GlossaryStore } from "./glossary";
 import { fixTermAgreement } from "./agreement";
 
@@ -9,6 +10,13 @@ import { fixTermAgreement } from "./agreement";
  * one with a reminder, then the code-switched final retry.
  */
 const PREFER_RETRIES = 2;
+
+/** A repaired text may be at most this many times longer or shorter than the draft. */
+const REPAIR_MAX_LENGTH_RATIO = 1.3;
+
+const SENTINEL_RE = new RegExp(`${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`, "g");
+// A term tag in model output, closed or not: [, translation attribute, inner text].
+const OUTPUT_TAG_RE = /<term\s+translation="([^"]*)">([^<]*)/g;
 
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
@@ -62,6 +70,8 @@ export async function runPipeline(
   let glossaryReminder: TranslationRequest["glossaryReminder"];
   // Prefer mode returns the attempt with the highest coverage; ties keep the earlier one.
   let best: TranslationResult | undefined;
+  // Whether `best` holds a term forced into the output (see `forced` below).
+  let bestForced = false;
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
@@ -83,6 +93,11 @@ export async function runPipeline(
     };
 
     const raw = await adapter.translate(request);
+    // A target term the model did not choose itself: the code-switched source
+    // put it there, or the model echoed a term tag around its own word and the
+    // tag strip below swaps in the term. The words around it may still agree
+    // with the model's word, so such a result gets an agreement repair.
+    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms);
 
     const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, translated);
@@ -94,8 +109,11 @@ export async function runPipeline(
       metadata: { ...raw.metadata, retries },
     };
 
-    if (missingTerms.length === 0) return result;
-    if (!best || glossaryCoverage > best.glossaryCoverage) best = result;
+    if (missingTerms.length === 0) return forced ? repairAgreement(result) : result;
+    if (!best || glossaryCoverage > best.glossaryCoverage) {
+      best = result;
+      bestForced = forced;
+    }
 
     if (retries < retryLimit) {
       // missingTerms are source terms; the model needs their target translations.
@@ -115,8 +133,58 @@ export async function runPipeline(
       );
     }
 
-    return { ...best, metadata: { ...best.metadata, retries } };
+    const final = { ...best, metadata: { ...best.metadata, retries } };
+    return bestForced ? repairAgreement(final) : final;
   }
+
+  /**
+   * One extra model call that fixes only the grammar around the glossary terms
+   * in `draft`. The repair is kept only when every term the draft has and every
+   * placeholder sentinel survive and the length barely changes; otherwise, or
+   * when the call fails, the draft is returned. A cancellation still throws.
+   */
+  async function repairAgreement(draft: TranslationResult): Promise<TranslationResult> {
+    const terms = [...new Set(realHits.filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm)).map((h) => h.entry.targetTerm))];
+    if (terms.length === 0) return draft;
+    if (signal?.aborted) throw cancelledError();
+    let raw: TranslationResult;
+    try {
+      raw = await adapter.translate({ source: draft.translated, sourceLang, targetLang, repairTerms: terms, signal, options: { glossaryMode } });
+    } catch (err) {
+      if (err instanceof TlError && err.tag === "CANCELLED") throw err;
+      if (signal?.aborted) throw cancelledError(err);
+      return draft;
+    }
+    const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
+    const coverage = computeGlossaryCoverage(realHits, repaired);
+    const ratio = repaired.length / draft.translated.length;
+    const accepted =
+      repaired !== draft.translated &&
+      coverage.missingTerms.every((term) => draft.missingTerms.includes(term)) &&
+      sentinels(repaired) === sentinels(draft.translated) &&
+      ratio <= REPAIR_MAX_LENGTH_RATIO &&
+      ratio >= 1 / REPAIR_MAX_LENGTH_RATIO;
+    if (!accepted) return draft;
+    return { ...draft, translated: repaired, ...coverage, metadata: { ...draft.metadata, repaired: true } };
+  }
+}
+
+/**
+ * Whether the raw output has a term tag for one of `targetTerms` around a
+ * different word, which stripGlossaryTags then replaces with the term.
+ */
+function substitutesTerm(raw: string, targetTerms: string[]): boolean {
+  for (const [, attr, inner] of raw.matchAll(OUTPUT_TAG_RE)) {
+    // The term exactly as the strip writes it (attribute unescaped).
+    const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
+    if (targetTerms.includes(term) && inner.trim() !== term) return true;
+  }
+  return false;
+}
+
+/** The placeholder sentinels in `text`, sorted, as one comparable string. */
+function sentinels(text: string): string {
+  return (text.match(SENTINEL_RE) ?? []).sort().join(" ");
 }
 
 /**
