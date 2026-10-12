@@ -103,6 +103,7 @@ type Call = {
   sentinelsOut: string[];
   ms: number;
   error?: string;
+  repair?: boolean; // an agreement repair call, not a translation attempt
 };
 
 const SENT_RE = /__TLPH_\d+__/g;
@@ -124,6 +125,7 @@ class RecordingAdapter implements Adapter {
         sentinelsIn: request.source.match(SENT_RE) ?? [],
         sentinelsOut: res.translated.match(SENT_RE) ?? [],
         ms: Math.round(performance.now() - t0),
+        repair: !!request.repairTerms,
       });
       return res;
     } catch (err) {
@@ -139,7 +141,8 @@ class RecordingAdapter implements Adapter {
 type RunResult = {
   run: number;
   success: boolean;
-  attempts: number;
+  attempts: number; // every model call, agreement repairs included
+  repairs: number; // agreement repair calls (#115)
   errorTag?: string;
   errorMessage?: string;
   missingTerms: string[];
@@ -175,7 +178,7 @@ async function main(): Promise<void> {
       for (let run = 0; run < RUNS; run++) {
         rec.calls = [];
         const t0 = performance.now();
-        const r: RunResult = { run, success: false, attempts: 0, missingTerms: [], durationMs: 0, firstOutput: "" };
+        const r: RunResult = { run, success: false, attempts: 0, repairs: 0, missingTerms: [], durationMs: 0, firstOutput: "" };
         if (c.kind === "glossary") {
           try {
             const res = await runPipeline(c.text, c.src, c.tgt, rec, glossary, { glossaryMode: MODE, maxRetries: MAX_RETRIES });
@@ -216,11 +219,12 @@ async function main(): Promise<void> {
           }
         }
         r.attempts = rec.calls.length;
+        r.repairs = rec.calls.filter((call) => call.repair).length;
         r.durationMs = Math.round(performance.now() - t0);
         r.firstOutput = rec.calls[0]?.rawOutput ?? "";
         if (!r.success || r.attempts > 1) r.calls = rec.calls;
         results[c.id].push(r);
-        process.stdout.write(`${c.id} run ${run + 1}/${RUNS}: ${r.success ? "ok" : "FAIL " + r.errorTag} attempts=${r.attempts} ${r.durationMs}ms\n`);
+        process.stdout.write(`${c.id} run ${run + 1}/${RUNS}: ${r.success ? "ok" : "FAIL " + r.errorTag} attempts=${r.attempts} repairs=${r.repairs} ${r.durationMs}ms\n`);
       }
     }
   } finally {
@@ -240,7 +244,8 @@ async function main(): Promise<void> {
       success: `${ok}/${rs.length}`,
       rate: ok / rs.length,
       meanAttempts: +(rs.reduce((a, r) => a + r.attempts, 0) / rs.length).toFixed(2),
-      firstTryOk: rs.filter((r) => r.success && r.attempts === 1).length,
+      repairs: rs.reduce((a, r) => a + r.repairs, 0),
+      firstTryOk: rs.filter((r) => r.success && r.attempts - r.repairs === 1).length,
       distinctFirstOutputs: new Set(rs.map((r) => r.firstOutput)).size,
       meanMs: Math.round(rs.reduce((a, r) => a + r.durationMs, 0) / rs.length),
       note: c.note,
