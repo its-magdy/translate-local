@@ -472,10 +472,24 @@ describe("runPipeline", () => {
       expect(result.metadata.repaired).toBe(true);
     });
 
+    it("merges a detached ل into an ال-initial term and counts the merge as covered, without a retry", async () => {
+      store.add({ sourceTerm: "cache", targetTerm: "الكاش", sourceLang: "en", targetLang: "ar" });
+      store.add({ sourceTerm: "language", targetTerm: "اللغة", sourceLang: "en", targetLang: "ar" });
+      const requests: any[] = [];
+      const detached = await runPipeline("Choose a name for the cache.", "en", "ar", repairAdapter(["اختر اسماً لـ الكاش."], "unused", requests), store);
+      expect(detached.translated).toBe("اختر اسماً للكاش.");
+      expect(detached.glossaryCoverage).toBe(1);
+      expect(requests).toHaveLength(1);
+      const own = await runPipeline("Support for the language is limited.", "en", "ar", repairAdapter(["الدعم للغة محدود."], "unused", requests), store);
+      expect(own.translated).toBe("الدعم للغة محدود.");
+      expect(own.missingTerms).toEqual([]);
+      expect(own.metadata.retries).toBe(0);
+    });
+
     it("accepts an Arabic repair that merges ل with the term's ال", async () => {
       store.add({ sourceTerm: "token", targetTerm: "التوكن", sourceLang: "en", targetLang: "ar" });
       const requests: any[] = [];
-      const raw = 'يمكن لـ <term translation="التوكن">رمز</term> أن يعمل.';
+      const raw = 'يمكن <term translation="التوكن">رمز</term> أن يعمل.';
       const result = await runPipeline("The token can work.", "en", "ar", repairAdapter([raw], "يمكن للتوكن أن يعمل.", requests), store);
       expect(requests).toHaveLength(2);
       expect(result.translated).toBe("يمكن للتوكن أن يعمل.");
@@ -486,12 +500,12 @@ describe("runPipeline", () => {
 
     it("accepts the ل merge of a term whose stem starts with ل, and rejects the triple lam", async () => {
       store.add({ sourceTerm: "language", targetTerm: "اللغة", sourceLang: "en", targetLang: "ar" });
-      const raw = 'الدعم لـ <term translation="اللغة">لغة</term> محدود.';
+      const raw = 'الدعم <term translation="اللغة">لغة</term> محدود.';
       const merged = await runPipeline("Support for the language is limited.", "en", "ar", repairAdapter([raw], "الدعم للغة محدود.", []), store);
       expect(merged.translated).toBe("الدعم للغة محدود.");
       expect(merged.metadata.repaired).toBe(true);
       const triple = await runPipeline("Support for the language is limited.", "en", "ar", repairAdapter([raw], "الدعم لللغة محدود.", []), store);
-      expect(triple.translated).toBe("الدعم لـ اللغة محدود.");
+      expect(triple.translated).toBe("الدعم اللغة محدود.");
       expect(triple.metadata.repaired).toBeUndefined();
     });
 

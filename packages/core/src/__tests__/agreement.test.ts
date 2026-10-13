@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { unquoteTerms, elideBeforeTerms, dropDoubledArabicArticle, attachArabicArticle, fixTermAgreement } from "../agreement";
+import { unquoteTerms, elideBeforeTerms, dropDoubledArabicArticle, attachArabicArticle, mergeArabicLam, fixTermAgreement } from "../agreement";
 
 describe("unquoteTerms", () => {
   it("drops quote pairs and em dashes wrapped around a term", () => {
@@ -111,6 +111,26 @@ describe("attachArabicArticle", () => {
 
   it("does not join across a line break", () => {
     expect(attachArabicArticle("ادفع الـ\nكوميت", "ar", ["كوميت"])).toBe("ادفع الـ\nكوميت");
+  });
+});
+
+describe("mergeArabicLam", () => {
+  it("merges a detached or doubled ل into an ال-initial term", () => {
+    expect(mergeArabicLam("هذه الميزة مفيدة لـ الكاش.", "ar", ["الكاش"])).toBe("هذه الميزة مفيدة للكاش.");
+    expect(mergeArabicLam("مخصص للـ التوكن وللـــ  الكاش", "ar-EG", ["التوكن", "الكاش"])).toBe("مخصص للتوكن وللكاش");
+    expect(mergeArabicLam("اسم ل الكاش ولالكاش", "ar", ["الكاش"])).toBe("اسم للكاش وللكاش");
+  });
+
+  it("merges the article's lam too when the stem starts with ل", () => {
+    expect(mergeArabicLam("الدعم للاللغة محدود، لـ اللغة", "ar", ["اللغة"])).toBe("الدعم للغة محدود، للغة");
+  });
+
+  it("leaves other words ending in ل, other scripts, line breaks and non-ال terms alone", () => {
+    expect(mergeArabicLam("كل الكاش وصل الكاش", "ar", ["الكاش"])).toBe("كل الكاش وصل الكاش");
+    expect(mergeArabicLam("لا الكاش ولا غيره", "ar", ["الكاش"])).toBe("لا الكاش ولا غيره");
+    expect(mergeArabicLam("لـ\nالكاش", "ar", ["الكاش"])).toBe("لـ\nالكاش");
+    expect(mergeArabicLam("لـ الكاش", "fa", ["الكاش"])).toBe("لـ الكاش");
+    expect(mergeArabicLam("للـ كوميت", "ar", ["كوميت"])).toBe("للـ كوميت");
   });
 });
 
