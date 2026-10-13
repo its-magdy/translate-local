@@ -180,7 +180,8 @@ export function normalizeWhitespace(text: string): string {
     .trim();
 }
 
-function stripCombiningMarks(s: string): string {
+/** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */
+export function stripCombiningMarks(s: string): string {
   return s.normalize("NFD").replace(/\p{Mn}/gu, "").normalize("NFC");
 }
 

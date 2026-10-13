@@ -486,6 +486,18 @@ describe("runPipeline", () => {
       expect(own.metadata.retries).toBe(0);
     });
 
+    it("counts the ل merge as covered when the model writes harakat on it", async () => {
+      store.add({ sourceTerm: "token", targetTerm: "التوكن", sourceLang: "en", targetLang: "ar" });
+      store.add({ sourceTerm: "language", targetTerm: "اللغة", sourceLang: "en", targetLang: "ar" });
+      const requests: any[] = [];
+      for (const [text, out] of [["Support for the language is limited.", "الدعم للّغة محدود."], ["This space is reserved for the token.", "هذه المساحة مخصصة للتّوكن."]]) {
+        const result = await runPipeline(text, "en", "ar", repairAdapter([out], "unused", requests), store);
+        expect(result.translated).toBe(out);
+        expect(result.missingTerms).toEqual([]);
+        expect(result.metadata.retries).toBe(0);
+      }
+    });
+
     it("accepts an Arabic repair that merges ل with the term's ال", async () => {
       store.add({ sourceTerm: "token", targetTerm: "التوكن", sourceLang: "en", targetLang: "ar" });
       const requests: any[] = [];
