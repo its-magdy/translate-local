@@ -145,8 +145,9 @@ export async function runPipeline(
   /**
    * One extra model call that fixes only the grammar around the glossary terms
    * in `draft`. The repair is kept only when every term the draft has and every
-   * placeholder sentinel survive and the length barely changes; otherwise, or
-   * when the call fails, the draft is returned. A cancellation still throws.
+   * placeholder sentinel survive, no `*` is added and the length barely
+   * changes; otherwise, or when the call fails, the draft is returned. A
+   * cancellation still throws.
    */
   async function repairAgreement(draft: TranslationResult): Promise<TranslationResult> {
     const terms = [...new Set(realHits.filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm)).map((h) => h.entry.targetTerm))];
@@ -167,6 +168,8 @@ export async function runPipeline(
       repaired !== draft.translated &&
       coverage.missingTerms.every((term) => draft.missingTerms.includes(term)) &&
       sentinels(repaired) === sentinels(draft.translated) &&
+      // The proofreading prompt sometimes bolds the term (`**الكاش**`).
+      count(repaired, "*") <= count(draft.translated, "*") &&
       ratio <= REPAIR_MAX_LENGTH_RATIO &&
       ratio >= 1 / REPAIR_MAX_LENGTH_RATIO;
     if (!accepted) return draft;
@@ -206,6 +209,11 @@ function splitArabicArticles(text: string, targetLang: string, terms: string[]):
     text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
   }
   return text;
+}
+
+/** How many times `char` occurs in `text`. */
+function count(text: string, char: string): number {
+  return text.split(char).length - 1;
 }
 
 /** The placeholder sentinels in `text`, sorted, as one comparable string. */
