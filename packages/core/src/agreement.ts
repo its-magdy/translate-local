@@ -1,4 +1,5 @@
 import { langFallbackChain } from "@translate-local/shared/utils/language";
+import { capitalizeTerm } from "@translate-local/shared/utils/text";
 
 /**
  * Deterministic fix-ups the pipeline applies around glossary target terms
@@ -156,8 +157,10 @@ export function mergeArabicLam(text: string, targetLang: string, terms: string[]
 /** Apply every fix-up around the given glossary target terms. */
 export function fixTermAgreement(text: string, targetLang: string, terms: string[]): string {
   if (terms.length === 0) return text;
-  const unquoted = unquoteTerms(text, terms);
-  const elided = elideBeforeTerms(unquoted, targetLang, terms);
-  const merged = mergeArabicLam(dropDoubledArabicArticle(elided, targetLang, terms), targetLang, terms);
-  return attachArabicArticle(merged, targetLang, terms);
+  // Also the term as the model capitalized it (keptTermForm, or at a sentence start).
+  const forms = [...new Set(terms.flatMap((t) => [t, capitalizeTerm(t)]))];
+  const unquoted = unquoteTerms(text, forms);
+  const elided = elideBeforeTerms(unquoted, targetLang, forms);
+  const merged = mergeArabicLam(dropDoubledArabicArticle(elided, targetLang, forms), targetLang, forms);
+  return attachArabicArticle(merged, targetLang, forms);
 }

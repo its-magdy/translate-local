@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -134,8 +134,35 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags('les <term translation="hôte">« hôtes »</term>')).toBe("les hôtes");
   });
 
-  test("writes the matched part of a kept form as the term (case-insensitive match)", () => {
-    expect(stripGlossaryTags('<term translation="hôte">Hôtes</term> en ligne')).toBe("hôtes en ligne");
+  test("keeps a kept form's matched part capitalized when the model capitalized the term", () => {
+    expect(stripGlossaryTags('<term translation="hôte">Hôtes</term> en ligne')).toBe("Hôtes en ligne");
+    expect(stripGlossaryTags('<term translation="bereitstellen">Bereitstellen</term>')).toBe("Bereitstellen");
+    expect(stripGlossaryTags('vor dem <term translation="bereitstellen">Bereitstellen</term>')).toBe("vor dem Bereitstellen");
+  });
+
+  test("writes any other case variant of a kept form's matched part as the term", () => {
+    expect(stripGlossaryTags('<term translation="hôte">HÔTE</term> en ligne')).toBe("hôte en ligne");
+    expect(stripGlossaryTags('<term translation="API">api</term> key')).toBe("API key");
+    expect(stripGlossaryTags('<term translation="API">Api</term> key')).toBe("API key");
+    expect(stripGlossaryTags('<term translation="iOS">IOS</term> app')).toBe("iOS app");
+    expect(stripGlossaryTags('<term translation="iOS">Système</term> mis à jour')).toBe("iOS mis à jour");
+  });
+
+  test("capitalizes a replacing term when the model's word is capitalized at a sentence start", () => {
+    expect(stripGlossaryTags('<term translation="hôte">Serveur</term> : détails')).toBe("Hôte : détails");
+    expect(stripGlossaryTags('  <term translation="hôte">« Serveur »</term> prêt')).toBe("  Hôte prêt");
+    expect(stripGlossaryTags('Prêt. <term translation="hôte">Serveur</term> actif')).toBe("Prêt. Hôte actif");
+    expect(stripGlossaryTags('Titre\n<term translation="hôte">Serveur</term>')).toBe("Titre\nHôte");
+    // Sentence end inside an earlier tag, whitespace in between.
+    expect(stripGlossaryTags('<term>Fin.</term> <term translation="hôte">Serveur</term>')).toBe("Fin. Hôte");
+  });
+
+  test("does not capitalize a replacing term mid-sentence or for a lowercase word", () => {
+    expect(stripGlossaryTags('Le <term translation="hôte">Serveur</term> est prêt')).toBe("Le hôte est prêt");
+    expect(stripGlossaryTags('v1.<term translation="hôte">Serveur</term>')).toBe("v1.hôte");
+    expect(stripGlossaryTags('Prêt: <term translation="hôte">Serveur</term>')).toBe("Prêt: hôte");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> prêt')).toBe("hôte prêt");
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">Serveur</term>')).toBe("__TLPH_0__");
   });
 
   test("never keeps an inner form for sentinel tags", () => {
@@ -168,7 +195,7 @@ describe("stripGlossaryTags", () => {
   });
 
   test("removes multiple tags", () => {
-    const input = '<term translation="a">X</term> and <term translation="b">Y</term>';
+    const input = '<term translation="a">x</term> and <term translation="b">Y</term>';
     expect(stripGlossaryTags(input)).toBe("a and b");
   });
 
@@ -195,15 +222,25 @@ describe("stripGlossaryTags", () => {
   });
 
   test("matches the original regex implementation on random tag soup", () => {
+    // The capitalization check looks at the output written so far, so build it match by match.
+    const replaceTags = (text: string) => {
+      let out = "";
+      let last = 0;
+      for (const m of text.matchAll(/<(term[^>]*)>(.*?)<\/term>/gs)) {
+        out += text.slice(last, m.index);
+        const [, open, inner] = m;
+        const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
+        const capitalize = /(?:^\s*|\n\s*|[.!?…]\s+)$/u.test(out) && /^\P{L}*\p{Lu}/u.test(inner);
+        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (capitalize ? capitalizeTerm(attr) : attr));
+        last = m.index + m[0].length;
+      }
+      return out + text.slice(last);
+    };
     const regexStrip = (text: string) =>
-      text
-        .replace(/<(term[^>]*)>(.*?)<\/term>/gs, (_m, open: string, inner: string) => {
-          const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
-          return attr === undefined ? inner : (keptTermForm(inner, attr) ?? attr);
-        })
+      replaceTags(text)
         .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
         .replace(/<term[^>]*>/g, "");
-    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "T", " ", "\n", "<b>"];
+    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "T", "S", ". ", " ", "\n", "<b>"];
     let seed = 42;
     const rand = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2 ** 31;
@@ -239,6 +276,19 @@ describe("normalizeWhitespace", () => {
   });
 });
 
+describe("capitalizeTerm", () => {
+  test("raises the first letter of an all-lowercase term only", () => {
+    expect(capitalizeTerm("hôte")).toBe("Hôte");
+    expect(capitalizeTerm("élément clé")).toBe("Élément clé");
+    expect(capitalizeTerm("Zweig")).toBe("Zweig");
+    expect(capitalizeTerm("iOS")).toBe("iOS");
+    expect(capitalizeTerm("eBay")).toBe("eBay");
+    expect(capitalizeTerm("الكاش")).toBe("الكاش");
+    expect(capitalizeTerm("__TLPH_0__")).toBe("__TLPH_0__");
+    expect(capitalizeTerm("")).toBe("");
+  });
+});
+
 describe("computeGlossaryCoverage", () => {
   test("returns full coverage when no hits", () => {
     expect(computeGlossaryCoverage([], "anything")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
@@ -259,6 +309,16 @@ describe("computeGlossaryCoverage", () => {
     // Glossary stores "resume" (plain), model outputs "résumé" (with accents)
     const hit = makeHit("resume", "résumé", 0);
     expect(computeGlossaryCoverage([hit], "résumé")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("counts the term with its first letter capitalized as present", () => {
+    expect(computeGlossaryCoverage([makeHit("deploy", "bereitstellen", 0)], "Bereitstellen")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+    expect(computeGlossaryCoverage([makeHit("server", "hôte", 0)], "Hôte : détails")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("still reports other case variants of the term as missing", () => {
+    expect(computeGlossaryCoverage([makeHit("server", "hôte", 0)], "HÔTE")).toEqual({ glossaryCoverage: 0, missingTerms: ["server"] });
+    expect(computeGlossaryCoverage([makeHit("key", "API", 0)], "Api")).toEqual({ glossaryCoverage: 0, missingTerms: ["key"] });
   });
 
   test("reports missing term when target is absent", () => {
