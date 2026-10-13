@@ -129,10 +129,35 @@ export function attachArabicArticle(text: string, targetLang: string, terms: str
   return text;
 }
 
+/**
+ * The preposition `ل` merged with an `ال`-initial term, as Arabic writes it:
+ * `للكاش`, and `للغة` when the stem starts with `ل` (the article's lam merges too).
+ */
+export function arabicLamMerge(term: string): string {
+  const stem = term.slice(2);
+  return (stem.startsWith("ل") ? "ل" : "لل") + stem;
+}
+
+/**
+ * Arabic: merge a detached or doubled `ل` (after an optional و/ف) into an
+ * `ال`-initial term: `لـ الكاش` / `للـ الكاش` / `لالكاش` → `للكاش`,
+ * `للاللغة` → `للغة`. Coverage counts the merge as the term (see
+ * `splitArabicArticles()` in pipeline.ts).
+ */
+export function mergeArabicLam(text: string, targetLang: string, terms: string[]): string {
+  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
+  for (const term of terms) {
+    if (!term.startsWith("ال")) continue;
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{M}])([وف]?)لل?ـ*[^\\S\\n]*${escapeRegExp(term)}`, "gu"), `$1${arabicLamMerge(term)}`);
+  }
+  return text;
+}
+
 /** Apply every fix-up around the given glossary target terms. */
 export function fixTermAgreement(text: string, targetLang: string, terms: string[]): string {
   if (terms.length === 0) return text;
   const unquoted = unquoteTerms(text, terms);
   const elided = elideBeforeTerms(unquoted, targetLang, terms);
-  return attachArabicArticle(dropDoubledArabicArticle(elided, targetLang, terms), targetLang, terms);
+  const merged = mergeArabicLam(dropDoubledArabicArticle(elided, targetLang, terms), targetLang, terms);
+  return attachArabicArticle(merged, targetLang, terms);
 }

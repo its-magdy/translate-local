@@ -1,9 +1,10 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
+import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
 import { matchTerms, type GlossaryStore } from "./glossary";
-import { escapeRegExp, fixTermAgreement } from "./agreement";
+import { arabicLamMerge, escapeRegExp, fixTermAgreement } from "./agreement";
 
 /**
  * Retries prefer mode makes for a missed glossary term (strict uses maxRetries):
@@ -104,7 +105,7 @@ export async function runPipeline(
     const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms);
 
     const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, translated);
+    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, targetTerms));
     const result: TranslationResult = {
       ...raw,
       translated,
@@ -160,7 +161,7 @@ export async function runPipeline(
       return draft;
     }
     const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
-    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetTerms));
+    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetLang, targetTerms));
     const ratio = repaired.length / draft.translated.length;
     const accepted =
       repaired !== draft.translated &&
@@ -192,19 +193,17 @@ function substitutesTerm(raw: string, targetTerms: string[]): boolean {
 }
 
 /**
- * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`) so the
- * exact-substring coverage finds an `ال`-initial term. A stem starting with
- * `ل` merges the article's lam too (`للغة` → `لاللغة`). The merge must not
- * follow `ل` or `ا`, so the misspelt `لللغة` stays a miss. Only the repair's
- * acceptance uses it: the merge is correct grammar, and coverage elsewhere
- * (retries, the reported ratio of the first attempt) stays exact.
+ * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`,
+ * `للغة` → `لاللغة`) so the exact-substring coverage finds an `ال`-initial
+ * term. The merge must not follow `ل` or `ا`, so the misspelt `لللغة` stays a
+ * miss. Coverage only: the returned text keeps the merge, which is correct
+ * grammar (and what `fixTermAgreement()` writes).
  */
-function splitArabicArticles(text: string, terms: string[]): string {
+function splitArabicArticles(text: string, targetLang: string, terms: string[]): string {
+  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
   for (const term of terms) {
     if (!term.startsWith("ال")) continue;
-    const stem = term.slice(2);
-    const merged = (stem.startsWith("ل") ? "ل" : "لل") + stem;
-    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(merged)}`, "gu"), "ل" + term);
+    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
   }
   return text;
 }
