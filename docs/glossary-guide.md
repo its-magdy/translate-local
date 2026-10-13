@@ -183,4 +183,14 @@ In file mode with `--from auto`, a locale token in the source filename (`en.json
 
 ## Coverage check
 
-After translation, a glossary term counts as covered if its target term appears anywhere in the output (ignoring combining diacritics). This is a substring check on purpose: models inflect target terms (Arabic `الكتاب` for `كتاب`, Russian `компьютера` for `компьютер`, Japanese terms followed by particles), and a whole-word check would report those as missing and trigger needless retries in `strict` mode. The flip side is that a target term contained in a longer word also counts as covered.
+After translation, a glossary term counts as covered if its target term appears anywhere in the output (ignoring combining diacritics). This is a substring check on purpose: models inflect target terms (Arabic `الكتاب` for `كتاب`, Russian `компьютера` for `компьютер`, Japanese terms followed by particles), and a whole-word check would report those as missing and trigger needless retries in `strict` mode. The flip side is that a target term contained in a longer word also counts as covered. For Arabic targets, the preposition `ل` joined to an `ال`-initial term also counts as the term (`للكاش` for `الكاش`, `للغة` for `اللغة`, with or without harakat).
+
+## Terms inside fixed phrases
+
+The model sometimes keeps its own set phrase for a whole expression and drops the term, even on the retries. Example with TranslateGemma 4B and `cache → الكاش`: "Cleared the browser cache." becomes `تم مسح ذاكرة التخزين المؤقت للمتصفح.` in nearly every run, and stronger prompt wording didn't change that. When a term keeps going missing inside one expression, add the whole expression as its own entry. Longer entries match first, so it takes precedence:
+
+```bash
+tl glossary add --source "browser cache" --target "كاش المتصفح" --from en --to ar
+```
+
+In our tests this raised the term from 1 to 9 out of 20 runs on two "browser cache" sentences. It helps but doesn't guarantee the term; `--glossary=strict` still fails the translation when the term is missing.
