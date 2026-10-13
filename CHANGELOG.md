@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.11] - 2026-10-13
+
+### Fixed
+- **Glossary terms into English from Arabic or Japanese are kept again.** 0.5.10 started telling the model, on the last glossary retry, which source word a term stands for. For a term in the Latin alphabet (English, French, …) translated from a non-Latin source, the model then translated that word itself and wrote its own word instead of the term: with `サーバー → host`, it wrote "server" in 6 of 16 last retries, against 0 of 18 in 0.5.9. Latin-alphabet terms are now sent as in 0.5.9 (term kept in 40/40 runs). Arabic terms keep the hint, so the 0.5.10 fix for `الكاش` being read as "cash" still applies.
+
 ## [0.5.10] - 2026-10-13
 
 ### Fixed
