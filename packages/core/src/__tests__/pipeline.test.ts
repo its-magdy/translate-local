@@ -484,6 +484,17 @@ describe("runPipeline", () => {
       expect(result.glossaryCoverage).toBe(1);
     });
 
+    it("accepts the ل merge of a term whose stem starts with ل, and rejects the triple lam", async () => {
+      store.add({ sourceTerm: "language", targetTerm: "اللغة", sourceLang: "en", targetLang: "ar" });
+      const raw = 'الدعم لـ <term translation="اللغة">لغة</term> محدود.';
+      const merged = await runPipeline("Support for the language is limited.", "en", "ar", repairAdapter([raw], "الدعم للغة محدود.", []), store);
+      expect(merged.translated).toBe("الدعم للغة محدود.");
+      expect(merged.metadata.repaired).toBe(true);
+      const triple = await runPipeline("Support for the language is limited.", "en", "ar", repairAdapter([raw], "الدعم لللغة محدود.", []), store);
+      expect(triple.translated).toBe("الدعم لـ اللغة محدود.");
+      expect(triple.metadata.repaired).toBeUndefined();
+    });
+
     it("does not repair when the model wrote the term itself", async () => {
       const requests: any[] = [];
       const own = 'Erstellen Sie einen neuen <term translation="Zweig">Zweig</term> für diese Funktion.';

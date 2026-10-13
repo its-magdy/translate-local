@@ -3,7 +3,7 @@ import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespac
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
 import { matchTerms, type GlossaryStore } from "./glossary";
-import { fixTermAgreement } from "./agreement";
+import { escapeRegExp, fixTermAgreement } from "./agreement";
 
 /**
  * Retries prefer mode makes for a missed glossary term (strict uses maxRetries):
@@ -193,12 +193,20 @@ function substitutesTerm(raw: string, targetTerms: string[]): boolean {
 
 /**
  * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`) so the
- * exact-substring coverage finds an `ال`-initial term. Only the repair's
+ * exact-substring coverage finds an `ال`-initial term. A stem starting with
+ * `ل` merges the article's lam too (`للغة` → `لاللغة`). The merge must not
+ * follow `ل` or `ا`, so the misspelt `لللغة` stays a miss. Only the repair's
  * acceptance uses it: the merge is correct grammar, and coverage elsewhere
  * (retries, the reported ratio of the first attempt) stays exact.
  */
 function splitArabicArticles(text: string, terms: string[]): string {
-  return terms.reduce((t, term) => (term.startsWith("ال") ? t.split("لل" + term.slice(2)).join("ل" + term) : t), text);
+  for (const term of terms) {
+    if (!term.startsWith("ال")) continue;
+    const stem = term.slice(2);
+    const merged = (stem.startsWith("ل") ? "ل" : "لل") + stem;
+    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(merged)}`, "gu"), "ل" + term);
+  }
+  return text;
 }
 
 /** The placeholder sentinels in `text`, sorted, as one comparable string. */

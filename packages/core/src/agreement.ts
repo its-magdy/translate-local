@@ -7,7 +7,7 @@ import { langFallbackChain } from "@translate-local/shared/utils/language";
  * Only the text directly around a target term is touched.
  */
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Quote pairs (and em dashes) the model wraps around a substituted term. */
 const QUOTE_PAIRS: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["„", "“"], ["—", "—"]];
