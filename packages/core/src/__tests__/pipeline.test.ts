@@ -472,6 +472,18 @@ describe("runPipeline", () => {
       expect(result.metadata.repaired).toBe(true);
     });
 
+    it("accepts an Arabic repair that merges ل with the term's ال", async () => {
+      store.add({ sourceTerm: "token", targetTerm: "التوكن", sourceLang: "en", targetLang: "ar" });
+      const requests: any[] = [];
+      const raw = 'يمكن لـ <term translation="التوكن">رمز</term> أن يعمل.';
+      const result = await runPipeline("The token can work.", "en", "ar", repairAdapter([raw], "يمكن للتوكن أن يعمل.", requests), store);
+      expect(requests).toHaveLength(2);
+      expect(result.translated).toBe("يمكن للتوكن أن يعمل.");
+      expect(result.metadata.repaired).toBe(true);
+      expect(result.missingTerms).toEqual([]);
+      expect(result.glossaryCoverage).toBe(1);
+    });
+
     it("does not repair when the model wrote the term itself", async () => {
       const requests: any[] = [];
       const own = 'Erstellen Sie einen neuen <term translation="Zweig">Zweig</term> für diese Funktion.';
