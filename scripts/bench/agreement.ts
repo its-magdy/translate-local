@@ -38,8 +38,9 @@ const argVal = (name: string): string | undefined => {
 const RUNS = Number(argVal("--runs") ?? 3);
 const ONLY = argVal("--only")?.split(",");
 const LABEL = argVal("--label") ?? "agreement";
-const MODE = argVal("--mode") ?? "prefer";
-if (MODE !== "strict" && MODE !== "prefer") throw new Error(`--mode must be strict or prefer, got ${MODE}`);
+const modeArg = argVal("--mode") ?? "prefer";
+if (modeArg !== "strict" && modeArg !== "prefer") throw new Error(`--mode must be strict or prefer, got ${modeArg}`);
+const MODE: "strict" | "prefer" = modeArg;
 // Same default as config.ts `glossary.maxRetries`.
 const MAX_RETRIES = 2;
 

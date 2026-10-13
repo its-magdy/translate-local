@@ -10,7 +10,7 @@
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
-    "turbo": "^2",
-    "typescript": "^6.0"
+    "turbo": "^2.11.7",
+    "typescript": "^7.0.2"
   }
 }
