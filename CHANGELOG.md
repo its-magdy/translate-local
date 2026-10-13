@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.14] - 2026-10-13
+
+### Fixed
+- **Arabic glossary terms written with a shadda count as present.** When the model wrote the joined `ل` + term with diacritics (`للّغة`, `للتّوكن`), `tl` reported the term as missing and retried twice for nothing. It now recognizes them. On our benchmark case the translation went from 2.5 to 1 model call and from 1.2 s to 0.3 s. The diacritics stay in the output.
+
 ## [0.5.13] - 2026-10-13
 
 ### Changed
