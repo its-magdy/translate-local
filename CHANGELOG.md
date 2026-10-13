@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.15] - 2026-10-13
+
+### Added
+- **File-mode benchmark.** `scripts/bench/file-mode.ts` translates a 131-key dashboard catalog with a real model and reports, per language, the model calls, grammar-repair calls, applied repairs and missed glossary terms. It measures what glossary and repair changes cost on a whole file, not just single sentences.
+
+### Changed
+- **Grammar repairs that only add end punctuation are discarded.** The grammar repair often just added a period to a UI label (`Supprimer cet hôte` → `Supprimer cet hôte.`). A repair that is the original translation plus sentence-final punctuation the source lacks is now rejected and the original kept. A repair that fixes agreement and also adds a period, or restores one the source has, is still applied. On the file-mode benchmark (French, German, Arabic) this rejected 13 of 56 applied repairs and none of the 14 that fixed grammar; the number of model calls is unchanged.
+- **Glossary guide:** documents the fixed-phrase workaround for collocations the model won't break up (`browser cache → كاش المتصفح`), how the Arabic `ل` + term form counts as covered, and every check a grammar repair must pass (no added `*`, no punctuation-only change).
+
 ## [0.5.14] - 2026-10-13
 
 ### Fixed
