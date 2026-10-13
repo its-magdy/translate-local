@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.10] - 2026-10-13
+
+### Fixed
+- **Glossary terms keep their meaning on the last retry.** The last glossary retry hands the model the target term in place of the source word. When that term is also another word (Arabic `الكاش` for "cache" also reads as "cash"), the model could translate the wrong meaning: on our benchmark, `Cleared the {name} cache.` became a payment sentence in 19–20 of 20 forced attempts. When the source word and the term use different writing systems, the retry now also tells the model which word the term stands for, and the drift went to 0/20. Same-script pairs (French, German, Italian, …) and Chinese, Japanese and Korean terms are sent as before, because the extra hint made the model copy the English word or drop placeholders there.
+- **Detached Arabic article before a glossary term.** `الـ كوميت` and `بالـ نشر` are now written `الكوميت` and `بالنشر`. Latin-script terms keep `الـ API`.
+
 ## [0.5.9] - 2026-10-12
 
 ### Added
