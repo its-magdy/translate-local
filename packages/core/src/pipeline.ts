@@ -160,7 +160,7 @@ export async function runPipeline(
       return draft;
     }
     const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
-    const coverage = computeGlossaryCoverage(realHits, repaired);
+    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetTerms));
     const ratio = repaired.length / draft.translated.length;
     const accepted =
       repaired !== draft.translated &&
@@ -189,6 +189,16 @@ function substitutesTerm(raw: string, targetTerms: string[]): boolean {
     if (closed ? keptTermForm(inner, term) === undefined : inner.trim() !== term) return true;
   }
   return false;
+}
+
+/**
+ * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`) so the
+ * exact-substring coverage finds an `ال`-initial term. Only the repair's
+ * acceptance uses it: the merge is correct grammar, and coverage elsewhere
+ * (retries, the reported ratio of the first attempt) stays exact.
+ */
+function splitArabicArticles(text: string, terms: string[]): string {
+  return terms.reduce((t, term) => (term.startsWith("ال") ? t.split("لل" + term.slice(2)).join("ل" + term) : t), text);
 }
 
 /** The placeholder sentinels in `text`, sorted, as one comparable string. */
