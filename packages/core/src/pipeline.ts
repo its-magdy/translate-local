@@ -170,6 +170,7 @@ export async function runPipeline(
       sentinels(repaired) === sentinels(draft.translated) &&
       // The proofreading prompt sometimes bolds the term (`**الكاش**`).
       count(repaired, "*") <= count(draft.translated, "*") &&
+      !appendsEndPunctuation(draft.translated, repaired, text) &&
       ratio <= REPAIR_MAX_LENGTH_RATIO &&
       ratio >= 1 / REPAIR_MAX_LENGTH_RATIO;
     if (!accepted) return draft;
@@ -211,6 +212,20 @@ function splitArabicArticles(text: string, targetLang: string, terms: string[]):
     text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
   }
   return text;
+}
+
+/**
+ * Whether `repaired` is `draft` plus sentence-final punctuation the source
+ * lacks (`Supprimer cet hôte` → `Supprimer cet hôte.`). That fixes no
+ * agreement and UI labels have none; it was 13 of the 56 applied repairs in
+ * the file-mode bench, none of them otherwise useful.
+ */
+function appendsEndPunctuation(draft: string, repaired: string, source: string): boolean {
+  return (
+    repaired.startsWith(draft) &&
+    /^\s*[.!?…。！？؟]+$/u.test(repaired.slice(draft.length)) &&
+    !/[.!?…。！？؟]$/u.test(source.trimEnd())
+  );
 }
 
 /** How many times `char` occurs in `text`. */
