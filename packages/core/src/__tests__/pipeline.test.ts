@@ -587,7 +587,7 @@ describe("runPipeline", () => {
       expect(result.missingTerms).toEqual(["feature"]);
     });
 
-    it("keeps the draft when the repair drops a term, changes the sentinels or the length", async () => {
+    it("keeps the draft when the repair drops a term, changes the sentinels or the length, or adds markdown", async () => {
       const TOK = "__TLPH_0__";
       const text = `Create a new branch for ${TOK}.`;
       const hit = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "de" }, startIndex: text.indexOf(TOK), endIndex: text.indexOf(TOK) + TOK.length };
@@ -599,6 +599,7 @@ describe("runPipeline", () => {
         `Erstellen Sie einen neuen Zweig für ${TOK} ${TOK}.`, // sentinel duplicated
         `Erstellen Sie einen neuen Zweig für ${TOK}. Das ist eine längere Erklärung dazu.`, // too long
         `Zweig ${TOK}.`, // too short
+        `Erstellen Sie einen neuen **Zweig** für ${TOK}.`, // markdown emphasis added
       ]) {
         const requests: any[] = [];
         const result = await runPipeline(text, "en", "de", repairAdapter([echo], bad, requests), store, { extraGlossaryHits: [hit] });
