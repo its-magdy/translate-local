@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.13] - 2026-10-13
+
+### Changed
+- **Arabic `ل` is joined to glossary terms that start with `ال`.** The model often wrote the preposition detached from the term (`مفيدة لـ الكاش`, `مخصصة للـ التوكن`, `للاللغة`). `tl` now writes it as Arabic does (`للكاش`, `للتوكن`, and `للغة` when the word itself starts with `ل`), without an extra model call. The joined form now counts as the glossary term, so a correct `للغة` is no longer reported as `0% covered` and no longer triggers retries that could replace it with a worse translation. On our Arabic benchmark, correct output went from 16 to 37 of 40 runs and the mean number of model calls from 2.83 to 2.25. Other languages are unaffected.
+
+### Fixed
+- **Arabic terms whose word starts with `ل` (`اللغة`).** 0.5.12's check accepted the misspelling `لللغة` and rejected the correct `للغة`. It now does the reverse.
+- **Grammar repairs no longer add markdown.** The grammar repair sometimes bolded the term (`**الكاش**`). Such repairs are now discarded and the original translation kept.
+
 ## [0.5.12] - 2026-10-13
 
 ### Fixed
