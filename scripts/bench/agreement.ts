@@ -9,9 +9,10 @@
  * A run is "term ok" when every target term is in the final output, and
  * "agree ok" when, in addition, the case's `expect` regex matches and its
  * `reject` regex (if any) does not. A strict-mode GLOSSARY_STRICT_MISS counts
- * as neither. `repairs` counts the pipeline's agreement repair calls (also
- * included in the calls count) and `applied` the runs whose final text is the
- * repaired one.
+ * as neither. Arabic outputs are scored with harakat removed, and the
+ * `ل` + `ال` merge (`للتوكن`) counts as the term. `repairs` counts the
+ * pipeline's agreement repair calls (also included in the calls count) and
+ * `applied` the runs whose final text is the repaired one.
  *
  * Uses the core/adapters sources directly with a temp SQLite glossary under a
  * mkdtemp dir (never ~/.config/tl). Model settings are the app defaults.
@@ -47,10 +48,23 @@ const GLOSSARY: Record<string, [string, string][]> = {
   "en-fr": [["server", "hôte"], ["cache", "antémémoire"], ["commit", "validation"]],
   "en-de": [["branch", "Zweig"], ["cache", "Zwischenspeicher"]],
   "en-it": [["server", "host"]],
+  "en-ar": [["token", "التوكن"], ["cache", "الكاش"], ["language", "اللغة"]],
 };
 
 const AP = "['’]";
 const FR_REJECT = /\b(le|au|du) hôte|«/i;
+/** `ل` + an `ال`-initial term, as written: `للتوكن`, or `للغة` when the stem starts with `ل`. */
+const arMerged = (term: string): string => (term[2] === "ل" ? "ل" : "لل") + term.slice(2);
+/** The term attached to its context: bare, after و/ف/ب/ك proclitics, or merged with ل. */
+const arAttached = (term: string): RegExp =>
+  new RegExp(`(?<![\\p{L}\\u0640])(?:[وف]?[بك]?${term}|[وف]?${arMerged(term)})`, "u");
+/** A detached or doubled article: `لـ التوكن`, `ل التوكن`, `لالتوكن`, `الالتوكن`, any tatweel. */
+const arDetached = (term: string): RegExp => new RegExp(`\\u0640|(?<!\\p{L})ل\\s+${term}|لا?${term}`, "u");
+/** Drops Arabic harakat (`للّغة` → `للغة`) before scoring; a no-op for other scripts. */
+const stripHarakat = (text: string): string => text.replace(/[\u064B-\u0652]/g, "");
+/** Coverage that counts the correct `ل` + `ال` merge as the term, so a merged output is not a miss. */
+const splitArMerge = (text: string, terms: string[]): string =>
+  terms.reduce((t, term) => (term.startsWith("ال") ? t.split(arMerged(term)).join("ل" + term) : t), text);
 type Case = { id: string; tgt: string; text: string; expect: RegExp; reject?: RegExp };
 const CASES: Case[] = [
   { id: "A1-fr-restart", tgt: "fr", text: "Restart the server.", expect: new RegExp(`\\bl${AP}hôte`, "i"), reject: FR_REJECT },
@@ -64,6 +78,12 @@ const CASES: Case[] = [
   { id: "A9-de-old", tgt: "de", text: "Delete the old branch.", expect: /\bden alten Zweig/i },
   { id: "A10-de-full", tgt: "de", text: "The cache is full.", expect: /^der Zwischenspeicher ist voll/i },
   { id: "A11-it-restart", tgt: "it", text: "Restart the server.", expect: new RegExp(`\\bl${AP}host`, "i"), reject: /\b(il|lo) host/i },
+  // Arabic `ال`-initial terms after the preposition ل (#125): `ل` + `التوكن` is
+  // written `للتوكن`, and `ل` + `اللغة` is `للغة` (the article's lam merges too).
+  { id: "A12-ar-reserved", tgt: "ar", text: "This space is reserved for the token.", expect: arAttached("التوكن"), reject: arDetached("التوكن") },
+  { id: "A13-ar-useful", tgt: "ar", text: "This option is useful for the cache.", expect: arAttached("الكاش"), reject: arDetached("الكاش") },
+  { id: "A14-ar-name", tgt: "ar", text: "Choose a name for the cache.", expect: arAttached("الكاش"), reject: arDetached("الكاش") },
+  { id: "A15-ar-support", tgt: "ar", text: "Support for the language is limited.", expect: arAttached("اللغة"), reject: arDetached("اللغة") },
 ];
 
 // ---------- instrumented adapter ----------
@@ -120,8 +140,9 @@ async function main(): Promise<void> {
         }
         const dt = performance.now() - t0;
         const hits = glossary.findMatches(c.text, "en", c.tgt);
-        const termOk = !failed && computeGlossaryCoverage(hits, out).missingTerms.length === 0;
-        const agreeOk = termOk && c.expect.test(out.trim()) && !(c.reject?.test(out) ?? false);
+        const plain = stripHarakat(out);
+        const termOk = !failed && computeGlossaryCoverage(hits, splitArMerge(plain, hits.map((h) => h.entry.targetTerm))).missingTerms.length === 0;
+        const agreeOk = termOk && c.expect.test(plain.trim()) && !(c.reject?.test(plain) ?? false);
         term += +termOk; agree += +agreeOk; calls += rec.raws.length; ms += dt; repairs += rec.repairs; repaired += +wasRepaired;
         outs.push({ out, termOk, agreeOk, calls: rec.raws.length, repairs: rec.repairs, repaired: wasRepaired, raws: rec.raws });
         console.log(`${c.id} ${i + 1}/${RUNS}: term=${termOk ? "ok" : "MISS"} agree=${agreeOk ? "ok" : "BAD"} calls=${rec.raws.length} repair=${rec.repairs ? (wasRepaired ? "applied" : "unchanged") : "-"} ${Math.round(dt)}ms  ${JSON.stringify(out)}`);
