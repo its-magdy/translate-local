@@ -33,7 +33,7 @@
     "@translate-local/adapters": "workspace:*",
     "@translate-local/shared": "workspace:*",
     "@types/bun": "^1.4.3",
-    "typescript": "^6.0"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@formatjs/icu-messageformat-parser": "^3.5.21",
