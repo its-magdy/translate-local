@@ -621,6 +621,34 @@ describe("runPipeline", () => {
       }
     });
 
+    it("keeps the draft when the repair only appends end punctuation the source lacks", async () => {
+      const TOK = "__TLPH_0__";
+      const hit = (text: string) => ({ entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "de" }, startIndex: text.indexOf(TOK), endIndex: text.indexOf(TOK) + TOK.length });
+      for (const [text, echo, repair] of [
+        ["Delete the branch", 'Löschen Sie den <term translation="Zweig">Ast</term>', "Löschen Sie den Zweig."],
+        ["Delete the branch", 'Löschen Sie den <term translation="Zweig">Ast</term>', "Löschen Sie den Zweig !"],
+        [`Rename the branch ${TOK}`, `Benennen Sie den <term translation="Zweig">Ast</term> ${TOK} um`, `Benennen Sie den Zweig ${TOK} um.`],
+        [`Branch: ${TOK}`, `<term translation="Zweig">Ast</term>: ${TOK}`, `Zweig: ${TOK}.`], // the source ends with a sentinel
+      ]) {
+        const requests: any[] = [];
+        const extraGlossaryHits = text.includes(TOK) ? [hit(text)] : [];
+        const result = await runPipeline(text, "en", "de", repairAdapter([echo], repair, requests), store, { extraGlossaryHits });
+        expect(requests).toHaveLength(2);
+        expect(result.translated).toBe(repair.replace(/\s*[.!]$/, ""));
+        expect(result.metadata.repaired).toBeUndefined();
+      }
+
+      // A period the source has is restored, and a repair that also fixes agreement is kept.
+      for (const [text, echo, repair] of [
+        ["Delete the branch.", 'Löschen Sie den <term translation="Zweig">Ast</term>', "Löschen Sie den Zweig."],
+        ["Create a new branch", 'Erstelle eine neue <term translation="Zweig">Abteilung</term>', "Erstelle einen neuen Zweig."],
+      ]) {
+        const result = await runPipeline(text, "en", "de", repairAdapter([echo], repair, []), store);
+        expect(result.translated).toBe(repair);
+        expect(result.metadata.repaired).toBe(true);
+      }
+    });
+
     it("keeps the draft when the repair call fails", async () => {
       const requests: any[] = [];
       const adapter = repairAdapter([ECHO], () => {
