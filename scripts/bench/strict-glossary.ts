@@ -89,6 +89,7 @@ const CASES: Case[] = [
   { id: "G11-fr-two", kind: "glossary", src: "en", tgt: "fr", text: "Push the commit to the remote branch.", note: "fr, 2 terms" },
   { id: "G12-de-cache", kind: "glossary", src: "en", tgt: "de", text: "Clear the cache before restarting the server.", note: "de, compound noun" },
   { id: "G13-de-branch", kind: "glossary", src: "en", tgt: "de", text: "Create a new branch for this feature.", note: "de, real word" },
+  { id: "G14-ar-browser-cache", kind: "glossary", src: "en", tgt: "ar", text: "Cleared the browser cache.", note: "fixed collocation: model writes ذاكرة التخزين المؤقت للمتصفح" },
   // Placeholders (file mode: translateFile on a one-key JSON, --mode glossary mode)
   { id: "P1-ar-one", kind: "placeholder", src: "en", tgt: "ar", text: "Hello {name}, welcome back!", note: "1 placeholder" },
   { id: "P2-ar-two", kind: "placeholder", src: "en", tgt: "ar", text: "You have {{count}} new messages from {sender}.", note: "2 placeholders" },
