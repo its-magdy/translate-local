@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.12] - 2026-10-13
+
+### Fixed
+- **Arabic agreement repairs are no longer rejected when they merge `ل` with the term's `ال`.** The repair turns `يمكن لـ التوكن` into `يمكن للتوكن`, which is correct Arabic, but the exact coverage check no longer found the term and the repair was discarded. The repair's acceptance now splits that merge before checking coverage. Retries and the coverage of the first attempt are unchanged.
+
 ## [0.5.11] - 2026-10-13
 
 ### Fixed
