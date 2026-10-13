@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -199,12 +199,14 @@ function substitutesTerm(raw: string, targetTerms: string[]): boolean {
  * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`,
  * `للغة` → `لاللغة`) so the exact-substring coverage finds an `ال`-initial
  * term. The merge must not follow `ل` or `ا`, so the misspelt `لللغة` stays a
- * miss. Coverage only: the returned text keeps the merge, which is correct
- * grammar (and what `fixTermAgreement()` writes).
+ * miss. Harakat are dropped first, as coverage drops them anyway, so `للّغة`
+ * splits too. Coverage only: the returned text keeps the merge, which is
+ * correct grammar (and what `fixTermAgreement()` writes).
  */
 function splitArabicArticles(text: string, targetLang: string, terms: string[]): string {
   if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
-  for (const term of terms) {
+  text = stripCombiningMarks(text);
+  for (const term of terms.map(stripCombiningMarks)) {
     if (!term.startsWith("ال")) continue;
     text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
   }
