@@ -13,6 +13,7 @@ function escapeContent(s: string): string {
 const scriptRe = (names: string): RegExp => new RegExp(`[${names.split(" ").map((n) => `\\p{Script=${n}}`).join("")}]`, "u");
 // Han and kana count as one writing system (Japanese mixes them).
 const CJK_SCRIPT_RES = [scriptRe("Han Hiragana Katakana"), scriptRe("Hangul")];
+const LATIN_RE = scriptRe("Latin");
 // One class per writing system.
 const SCRIPT_RES = [
   ...[
@@ -30,10 +31,10 @@ function sharesScript(a: string, b: string): boolean {
 
 /**
  * Whether a code-switched tag gets the source word as an attribute: only for a
- * term in another writing system than the word, and not a CJK one.
+ * term in another writing system than the word, and not a CJK or Latin one.
  */
 function keepsSourceWord(word: string, term: string): boolean {
-  return !sharesScript(word, term) && !CJK_SCRIPT_RES.some((re) => re.test(term));
+  return !sharesScript(word, term) && !LATIN_RE.test(term) && !CJK_SCRIPT_RES.some((re) => re.test(term));
 }
 
 /**
@@ -48,7 +49,9 @@ function keepsSourceWord(word: string, term: string): boolean {
  * its meaning (#116: a bare الكاش also reads as "cash"). A same-script source
  * word is left out: the model would copy it (it `server` for `host`). So is
  * one for a Han, kana or Hangul term: there the attribute bought no term
- * coverage and cost placeholders (ja `キャッシュ`: kept 29/60 vs 42/60).
+ * coverage and cost placeholders (ja `キャッシュ`: kept 29/60 vs 42/60). And
+ * one for a Latin-script term: the model translates the word itself (ja→en
+ * `サーバー` for `host`: last retry wrote "server" 6/16, vs 0/18 without).
  */
 export function injectGlossaryTags(text: string, hits: GlossaryHit[], codeSwitch: readonly GlossaryHit[] = []): string {
   if (hits.length === 0) return text;

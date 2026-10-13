@@ -85,6 +85,13 @@ describe("injectGlossaryTags", () => {
     }
   });
 
+  test("leaves out the source attribute for a Latin-script term", () => {
+    for (const [word, term] of [["サーバー", "host"], ["الخادم", "host"], ["коммит", "commit"], ["サーバー", "hôte"]]) {
+      const hit = makeHit(word, term, 4);
+      expect(injectGlossaryTags(`Use ${word}`, [hit], [hit])).toBe(`Use <term translation="${term}">${term}</term>`);
+    }
+  });
+
   test("escapes the source attribute and the target term of a code-switched tag", () => {
     const hit = makeHit('A&"B', "س<ص", 4);
     expect(injectGlossaryTags('Use A&"B', [hit], [hit])).toBe('Use <term translation="س&lt;ص" source="A&amp;&quot;B">س&lt;ص</term>');
