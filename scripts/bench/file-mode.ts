@@ -18,6 +18,9 @@
  *   - failed: leaves that fell back to source
  *   - lcStart: leaves with a glossary hit whose source starts with an
  *     uppercase letter and whose value starts with a lowercase one
+ *   - keptWord: leaves where a translation call's output tagged another word
+ *     while it had the target term outside the tags, so the strip kept that
+ *     word (termOutsideTags)
  *
  * `applied` is read from the output: a leaf counts when its value equals a
  * repair response run through the pipeline's own postprocessing and unmasked,
@@ -35,7 +38,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
-import { computeGlossaryCoverage, normalizeWhitespace, stripGlossaryTags } from "../../packages/shared/src/utils/text";
+import { computeGlossaryCoverage, keptTermForm, normalizeWhitespace, stripGlossaryTags, termOutsideTags } from "../../packages/shared/src/utils/text";
 import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translate-gemma/local";
 import { GlossaryStore } from "../../packages/core/src/glossary";
 import { ContextStore } from "../../packages/core/src/context";
@@ -89,6 +92,14 @@ const forCoverage = (text: string, terms: string[]): string =>
     text.replace(/[ً-ْ]/g, ""),
   );
 
+/** Whether `raw` has a complete tag for one of `terms` that the strip keeps only because the term is outside the tags. */
+const keepsOutsideWord = (raw: string, terms: string[]): boolean => {
+  const outside = termOutsideTags(raw);
+  return [...raw.matchAll(/<term translation="([^"]*)">([^<]*)<\/term>/g)].some(
+    ([, term, inner]) => terms.includes(term) && keptTermForm(inner, term) === undefined && outside(term),
+  );
+};
+
 // ---------- instrumented adapter ----------
 type Call = { repair: boolean; source: string; raw: string };
 class CountingAdapter implements Adapter {
@@ -129,7 +140,7 @@ async function main(): Promise<void> {
 
   try {
     for (const tgt of LANGS) {
-      const t = { leaves: 0, calls: 0, repairs: 0, applied: 0, hitLeaves: 0, termMiss: 0, lcStart: 0, failed: 0, ms: 0 };
+      const t = { leaves: 0, calls: 0, repairs: 0, applied: 0, hitLeaves: 0, termMiss: 0, lcStart: 0, keptWord: 0, failed: 0, ms: 0 };
       all[tgt] = [];
       for (let run = 0; run < RUNS; run++) {
         const outPath = join(dir, `${tgt}-${run}.json`);
@@ -143,7 +154,7 @@ async function main(): Promise<void> {
         const dt = performance.now() - t0;
         const out = new Map(leaves(JSON.parse(readFileSync(outPath, "utf8"))));
         const failed = new Set(summary.failed.map((f) => f.path));
-        let calls = 0, repairs = 0, applied = 0, hitLeaves = 0, termMiss = 0, lcStart = 0;
+        let calls = 0, repairs = 0, applied = 0, hitLeaves = 0, termMiss = 0, lcStart = 0, keptWord = 0;
         const perLeaf: unknown[] = [];
         for (const [path, src] of source) {
           const value = out.get(path) ?? "";
@@ -160,16 +171,17 @@ async function main(): Promise<void> {
           calls += leafCalls.length; repairs += leafRepairs.length; applied += +wasApplied;
           hitLeaves += +(terms.length > 0); termMiss += +(missing.length > 0);
           lcStart += +(terms.length > 0 && !failed.has(path) && /^\p{Lu}/u.test(src) && /^\p{Ll}/u.test(value));
+          keptWord += +leafCalls.some((c) => !c.repair && keepsOutsideWord(c.raw, terms));
           perLeaf.push({ path, source: src, value, failed: failed.has(path), terms, missing, applied: wasApplied, calls: leafCalls });
         }
         t.leaves += source.length; t.calls += calls; t.repairs += repairs; t.applied += applied;
-        t.hitLeaves += hitLeaves; t.termMiss += termMiss; t.lcStart += lcStart; t.failed += summary.failed.length; t.ms += dt;
+        t.hitLeaves += hitLeaves; t.termMiss += termMiss; t.lcStart += lcStart; t.keptWord += keptWord; t.failed += summary.failed.length; t.ms += dt;
         all[tgt].push({ summary, leaves: perLeaf });
-        console.log(`${tgt} run ${run + 1}/${RUNS}: calls=${calls} repairs=${repairs} applied=${applied} termMiss=${termMiss}/${hitLeaves} lcStart=${lcStart} failed=${summary.failed.length} skipped=${summary.skipped.count} ${Math.round(dt / 1000)}s`);
+        console.log(`${tgt} run ${run + 1}/${RUNS}: calls=${calls} repairs=${repairs} applied=${applied} termMiss=${termMiss}/${hitLeaves} lcStart=${lcStart} keptWord=${keptWord} failed=${summary.failed.length} skipped=${summary.skipped.count} ${Math.round(dt / 1000)}s`);
       }
       rows.push({
         lang: tgt, runs: RUNS, calls: t.calls, callsPerLeaf: +(t.calls / t.leaves).toFixed(2), repairs: t.repairs, applied: t.applied,
-        termMiss: `${t.termMiss}/${t.hitLeaves}`, lcStart: `${t.lcStart}/${t.hitLeaves}`, failed: t.failed, meanSec: Math.round(t.ms / RUNS / 1000),
+        termMiss: `${t.termMiss}/${t.hitLeaves}`, lcStart: `${t.lcStart}/${t.hitLeaves}`, keptWord: `${t.keptWord}/${t.hitLeaves}`, failed: t.failed, meanSec: Math.round(t.ms / RUNS / 1000),
       });
     }
   } finally {
