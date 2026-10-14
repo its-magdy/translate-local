@@ -80,9 +80,11 @@ Each form counts as the term:
 - inside a term tag the model echoes, which keeps the form instead of swapping in the term (`<term translation="bereitstellen">Bereitstellung</term>` stays `Bereitstellung`);
 - when the agreement repair rewrites a sentence around a form.
 
-A form with `…` (or `...`) is a split form: `stellen … bereit` counts when `stellen` and then `bereit` appear as whole words, in that order, in the same sentence. The prompt still names only the target term.
+A form with `…` (or `...`) is a split form: `stellen … bereit` counts when `stellen` and then `bereit` appear as whole words, in that order, in the same sentence (`Stellen Sie den Zweig jetzt bereit.`). A sentence ends at a line break or at `.`, `!` or `?` followed by a space and a word that doesn't start lowercase; a one-letter abbreviation (`z. B.`) or an ellipsis in the text doesn't end it. Parts in Chinese, Japanese or Thai script match as substrings, since those scripts have no spaces between words. Only forms are split this way: a target term that contains an ellipsis (`Speichern unter…`) is matched as written. The prompt still names only the target term.
 
-Forms loosen the check for that entry: a form that is also a common word makes the term count wherever that word appears. Keep them to real forms of the term. In the file-mode bench, the German forms above changed only the `deploy` leaves, all for the better: `vor der erneuten Bereitstellung`, `Bitte stellen Sie den Zweig … bereit`, `bereitgestellt werden kann`, with fewer model calls.
+To change an entry's forms, add it again with the new `--forms`; to remove them all, remove the entry and add it again.
+
+Forms loosen the check for that entry: a form that is also a common word makes the term count wherever that word appears. Keep them to real forms of the term. In the file-mode bench, the German forms above changed only the `deploy` leaves, all for the better: `vor der erneuten Bereitstellung`, `Bitte stellen Sie den Zweig in der Testumgebung bereit.`, `bereitgestellt werden kann`, with fewer model calls.
 
 ## CSV Import Format
 

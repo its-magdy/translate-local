@@ -180,7 +180,7 @@ tl glossary add --source "API" --target "واجهة برمجية" --from en --to
 tl glossary add --source deploy --target bereitstellen --from en --to de --forms "Bereitstellung|stellen … bereit"
 ```
 
-Adding an entry that already exists (same source, target and languages) changes nothing, except that `--forms` replaces its forms.
+Adding an entry that already exists (same source, target and languages) changes nothing, except that `--forms` replaces its forms. To drop all forms, remove the entry and add it again.
 
 #### `tl glossary list`
 
