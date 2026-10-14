@@ -318,6 +318,13 @@ describe("glossary term forms", () => {
     expect(foundForm("x 𝐀𝐁𝐂", "y", ["x … 𝐀𝐁"])).toBeUndefined();
   });
 
+  test("matches forms in linear time on long runs of spaces", () => {
+    const spaces = " ".repeat(20_000);
+    const start = performance.now();
+    foundForm(`a${spaces}b`, "x", [`stellen${spaces}bereit`, `stellen …${spaces}bereit`]);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   test("never splits the target term itself, even with an ellipsis", () => {
     expect(computeGlossaryCoverage([makeHit("save as", "Speichern unter…", 0)], "Klicken Sie auf Speichern unter")).toEqual({ glossaryCoverage: 0, missingTerms: ["save as"] });
     expect(computeGlossaryCoverage([makeHit("back", "Weiter … Zurück", 0)], "Weiter … Zurück")).toEqual({ glossaryCoverage: 1, missingTerms: [] });

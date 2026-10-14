@@ -101,7 +101,7 @@ export function capitalizeTerm(term: string): string {
 }
 
 /** Separates the parts of a split form (`stellen … bereit`): an ellipsis or three dots. */
-const FORM_GAP_RE = /\s*(?:…|\.\.\.)\s*/;
+const FORM_GAP_RE = /…|\.\.\./;
 
 /**
  * The parts of glossary form `form`: two or more for a split form (`stellen … bereit`
@@ -251,34 +251,61 @@ const SPACED_WORD_RE =
 const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
 
 /**
- * Where whole word `part` (or `capitalizeTerm(part)`) first occurs in `text` at or after
- * `from`, as [start, end], or undefined. An edge of `part` that is not a spaced-script word
- * character (CJK, punctuation) is not checked, as in core's glossary matcher.
+ * A finder for whole word `part` (or `capitalizeTerm(part)`): where it first
+ * occurs in a text at or after `from`, as [start, end], or undefined. An edge of
+ * `part` that is not a spaced-script word character (CJK, punctuation) is not
+ * checked, as in core's glossary matcher.
  */
-function findWord(text: string, part: string, from: number): [number, number] | undefined {
+function wordFinder(part: string): (text: string, from: number) => [number, number] | undefined {
   const checkStart = isWordChar(part.codePointAt(0));
   const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
-  let best: [number, number] | undefined;
-  for (const p of new Set([part, capitalizeTerm(part)])) {
-    for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
-      // The code point ending at i: step back over a surrogate pair.
-      const low = text.charCodeAt(i - 1);
-      const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
-      if ((checkStart && isWordChar(before)) || (checkEnd && isWordChar(text.codePointAt(i + p.length)))) continue;
-      best = [i, i + p.length];
-      break;
+  const variants = [...new Set([part, capitalizeTerm(part)])];
+  return (text, from) => {
+    let best: [number, number] | undefined;
+    for (const p of variants) {
+      for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
+        // The code point ending at i: step back over a surrogate pair.
+        const low = text.charCodeAt(i - 1);
+        const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+        if ((checkStart && isWordChar(before)) || (checkEnd && isWordChar(text.codePointAt(i + p.length)))) continue;
+        best = [i, i + p.length];
+        break;
+      }
     }
-  }
-  return best;
+    return best;
+  };
 }
 
+const SENTENCE_END = ".!?。！？؟।";
+
 /**
- * Sentence breaks for split forms: a line break, or `.!?` (and their CJK, Arabic
- * and Devanagari forms) plus whitespace before a character that is not lowercase.
- * Not after a one-letter word, so abbreviations like `z. B.` don't split, and not
- * after `…`, which elides inside a sentence as often as it ends one.
+ * `text` split into sentences for split forms, in one linear scan: at a line
+ * break, or after `.!?` (and their CJK, Arabic and Devanagari forms) plus
+ * whitespace before a character that is not lowercase. Not after a one-letter
+ * word, so abbreviations like `z. B.` don't split, and not after `…`, which
+ * elides inside a sentence as often as it ends one.
  */
-const SENTENCE_BREAK_RE = /(?<=(?<!(?:^|[\s.])\p{L})[.!?。！？؟।])\s+(?=\P{Ll})|\n/u;
+function sentences(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n") {
+      out.push(text.slice(start, i));
+      start = i + 1;
+      continue;
+    }
+    if (!SENTENCE_END.includes(text[i])) continue;
+    if (/\p{L}/u.test(text[i - 1] ?? "") && (i < 2 || /[\s.]/.test(text[i - 2]))) continue;
+    let j = i + 1;
+    while (j < text.length && text[j] !== "\n" && /\s/.test(text[j])) j++;
+    if (j === i + 1 || j === text.length || /\p{Ll}/u.test(String.fromCodePoint(text.codePointAt(j)!))) continue;
+    out.push(text.slice(start, i + 1));
+    start = j;
+    i = j - 1;
+  }
+  out.push(text.slice(start));
+  return out;
+}
 
 /**
  * Which of glossary target `term` and its other `forms` `text` contains: the
@@ -286,19 +313,21 @@ const SENTENCE_BREAK_RE = /(?<=(?<!(?:^|[\s.])\p{L})[.!?。！？؟।])\s+(?=\P
  * The term and one-piece forms count as substrings, as written or with the first
  * letter capitalized (capitalizeTerm), so inflected targets still count. A split
  * form (`stellen … bereit`) counts when each part occurs as a whole word, in
- * order, within one sentence.
+ * order, within one sentence (see `sentences`).
  */
 export function foundForm(text: string, term: string, forms: readonly string[] = []): string | undefined {
   const plain = stripCombiningMarks(text);
   const contains = (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
   if (contains(stripCombiningMarks(term))) return term;
+  let split: string[] | undefined;
   return forms.find((form) => {
     const parts = formParts(stripCombiningMarks(form));
     if (parts.length === 1) return contains(parts[0]);
-    return plain.split(SENTENCE_BREAK_RE).some((sentence) => {
+    const finders = parts.map(wordFinder);
+    return (split ??= sentences(plain)).some((sentence) => {
       let at = 0;
-      for (const part of parts) {
-        const found = findWord(sentence, part, at);
+      for (const find of finders) {
+        const found = find(sentence, at);
         if (!found) return false;
         at = found[1];
       }
