@@ -63,13 +63,35 @@ tl "machine learning model" --from en --to ar --glossary strict
 
 Use `strict` for legal, medical, or technical content where term accuracy is non-negotiable.
 
+## Other forms of a term
+
+Some terms change shape with their role in the sentence, and a single target term then forces bad grammar. German `deploy → bereitstellen` is a verb, but "before you deploy again" needs the noun (`vor der erneuten Bereitstellung`) and "Deploy the branch" needs the split verb (`Stellen Sie den Zweig bereit`). With only `bereitstellen`, `tl` reported those correct translations as missing, retried them and ended up with `vor der erneuten bereitstellen`.
+
+Give the entry its other forms, separated by `|`:
+
+```bash
+tl glossary add --source deploy --target bereitstellen --from en --to de \
+  --forms "Bereitstellung|bereitgestellt|bereitzustellen|stellen … bereit|stellt … bereit"
+```
+
+Each form counts as the term:
+
+- in the coverage check, so a translation that uses a form is not retried;
+- inside a term tag the model echoes, which keeps the form instead of swapping in the term (`<term translation="bereitstellen">Bereitstellung</term>` stays `Bereitstellung`);
+- when the agreement repair rewrites a sentence around a form.
+
+A form with `…` (or `...`) is a split form: `stellen … bereit` counts when `stellen` and then `bereit` appear as whole words, in that order, in the same sentence. The prompt still names only the target term.
+
+Forms loosen the check for that entry: a form that is also a common word makes the term count wherever that word appears. Keep them to real forms of the term. In the file-mode bench, the German forms above changed only the `deploy` leaves, all for the better: `vor der erneuten Bereitstellung`, `Bitte stellen Sie den Zweig … bereit`, `bereitgestellt werden kann`, with fewer model calls.
+
 ## CSV Import Format
 
 ```
-source,target,from,to,domain,note
-machine learning,تعلم الآلة,en,ar,tech,
-neural network,شبكة عصبية,en,ar,tech,
-bonjour,hello,fr,en,,informal greeting
+source,target,from,to,domain,note,forms
+machine learning,تعلم الآلة,en,ar,tech,,
+neural network,شبكة عصبية,en,ar,tech,,
+bonjour,hello,fr,en,,informal greeting,
+deploy,bereitstellen,en,de,,,Bereitstellung|bereitgestellt|stellen … bereit
 ```
 
 Columns:
@@ -79,6 +101,7 @@ Columns:
 - `to` — BCP-47 target language code (required)
 - `domain` — optional domain label
 - `note` — optional free-text note
+- `forms` — optional other target forms separated by `|` (see [Other forms of a term](#other-forms-of-a-term)); files without this column still import
 
 Import:
 
@@ -86,7 +109,7 @@ Import:
 tl glossary import ./terms.csv
 ```
 
-Duplicate entries (same source, target, source_lang, target_lang) are silently skipped. The whole file is imported in a single transaction — if the import fails partway, no rows are written.
+Duplicate entries (same source, target, source_lang, target_lang) are silently skipped, except that a duplicate row with forms replaces the stored entry's forms. The whole file is imported in a single transaction — if the import fails partway, no rows are written.
 
 ## CRUD via CLI
 
@@ -183,7 +206,7 @@ In file mode with `--from auto`, a locale token in the source filename (`en.json
 
 ## Coverage check
 
-After translation, a glossary term counts as covered if its target term appears anywhere in the output (ignoring combining diacritics), also with a capital first letter when the term is all lowercase (`Bereitstellen` for `bereitstellen`). This is a substring check on purpose: models inflect target terms (Arabic `الكتاب` for `كتاب`, Russian `компьютера` for `компьютер`, Japanese terms followed by particles), and a whole-word check would report those as missing and trigger needless retries in `strict` mode. The flip side is that a target term contained in a longer word also counts as covered. For Arabic targets, the preposition `ل` joined to an `ال`-initial term also counts as the term (`للكاش` for `الكاش`, `للغة` for `اللغة`, with or without harakat).
+After translation, a glossary term counts as covered if its target term, or one of its [other forms](#other-forms-of-a-term), appears anywhere in the output (ignoring combining diacritics), also with a capital first letter when the term is all lowercase (`Bereitstellen` for `bereitstellen`). This is a substring check on purpose: models inflect target terms (Arabic `الكتاب` for `كتاب`, Russian `компьютера` for `компьютер`, Japanese terms followed by particles), and a whole-word check would report those as missing and trigger needless retries in `strict` mode. The flip side is that a target term contained in a longer word also counts as covered. For Arabic targets, the preposition `ل` joined to an `ال`-initial term also counts as the term (`للكاش` for `الكاش`, `للغة` for `اللغة`, with or without harakat).
 
 ## Terms inside fixed phrases
 
