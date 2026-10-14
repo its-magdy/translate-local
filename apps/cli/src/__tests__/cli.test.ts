@@ -182,6 +182,26 @@ describe("tl CLI", () => {
       expect(r.stdout).toContain("Imported 2");
     });
 
+    it("adds, lists, imports and exports a term's forms", () => {
+      const home = ownHome();
+      const added = run(["glossary", "add", "--source", "deploy", "--target", "bereitstellen", "--from", "en", "--to", "de", "--forms", "Bereitstellung | stellen … bereit"], home);
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toContain("deploy → bereitstellen (also: Bereitstellung | stellen … bereit)");
+      expect(run(["glossary", "list"], home).stdout).toContain("(also: Bereitstellung | stellen … bereit)");
+
+      const csvFile = join(tmpDir, "forms.csv");
+      writeFileSync(csvFile, "source,target,from,to,domain,note,forms\nbranch,Zweig,en,de,,,Zweige|Zweiges\ncache,Zwischenspeicher,en,de,,\n");
+      expect(run(["glossary", "import", csvFile], home).stdout).toContain("Imported 2");
+      const json = JSON.parse(run(["glossary", "export", "--json"], home).stdout);
+      expect(json.find((e: any) => e.sourceTerm === "branch").forms).toEqual(["Zweige", "Zweiges"]);
+      expect(json.find((e: any) => e.sourceTerm === "cache").forms).toBeUndefined();
+
+      const csv = run(["glossary", "export"], home).stdout.split("\n");
+      expect(csv[0]).toBe("source,target,from,to,domain,note,forms");
+      expect(csv).toContain("deploy,bereitstellen,en,de,,,Bereitstellung|stellen … bereit");
+      expect(csv).toContain("cache,Zwischenspeicher,en,de,,,");
+    });
+
     it("imports CSV skipping rows with missing required fields", () => {
       const csvFile = join(tmpDir, "incomplete.csv");
       writeFileSync(csvFile, "hello,مرحبا,en,ar,,\n,missing_source,en,ar,,\nworld,,en,ar,,\n");

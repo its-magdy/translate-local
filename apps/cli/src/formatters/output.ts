@@ -52,7 +52,8 @@ export function formatGlossaryList(entries: GlossaryEntry[], json: boolean): str
   const rows = entries.map((e) => {
     const domain = e.domain ? color(` [${e.domain}]`, CYAN) : "";
     const note = e.note ? color(` — ${e.note}`, DIM) : "";
-    return `  ${color(e.id.slice(0, 8), DIM)}  ${color(e.sourceTerm, BOLD)} → ${e.targetTerm}  ${e.sourceLang}→${e.targetLang}${domain}${note}`;
+    const forms = e.forms ? color(` (also: ${e.forms.join(" | ")})`, DIM) : "";
+    return `  ${color(e.id.slice(0, 8), DIM)}  ${color(e.sourceTerm, BOLD)} → ${e.targetTerm}${forms}  ${e.sourceLang}→${e.targetLang}${domain}${note}`;
   });
 
   return [color(`${entries.length} entr${entries.length === 1 ? "y" : "ies"}:`, BOLD), ...rows].join("\n");

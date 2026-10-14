@@ -82,6 +82,7 @@ export const SPEC: RootSpec = {
             { flag: "--to", takes: "lang", description: "Target language" },
             { flag: "--domain", takes: "value", description: "Domain tag" },
             { flag: "--note", takes: "value", description: "Note" },
+            { flag: "--forms", takes: "value", description: "Other accepted target forms" },
           ],
         },
         {
