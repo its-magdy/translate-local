@@ -147,13 +147,6 @@ export function stripGlossaryTags(text: string): string {
 }
 
 /**
- * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with keptTermForm("$1", attribute)
- * or else the opening tag's translation attribute, capitalized at a sentence start as
- * stripGlossaryTags describes (else "$1") (withClose) or /<term[^>]*>/g
- * with "" (!withClose), in linear time. Those regexes rescan
- * to the end of the text from every unclosed "<term", which is quadratic.
- */
-/**
  * Tracks whether the output written so far ends at a sentence start: empty or
  * blank, after a line break, or after `.!?…` and whitespace. Fed segment by
  * segment, so the strip stays linear-time.
@@ -174,6 +167,13 @@ function sentenceStartTracker(): { feed(segment: string): void; atStart(): boole
   };
 }
 
+/**
+ * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with keptTermForm("$1", attribute)
+ * or else the opening tag's translation attribute, capitalized at a sentence start as
+ * stripGlossaryTags describes (else "$1") (withClose) or /<term[^>]*>/g
+ * with "" (!withClose), in linear time. Those regexes rescan
+ * to the end of the text from every unclosed "<term", which is quadratic.
+ */
 function removeTermTags(text: string, withClose: boolean): string {
   let result = "";
   let cursor = 0;
