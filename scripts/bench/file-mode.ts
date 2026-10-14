@@ -14,7 +14,7 @@
  *   - repairs: the pipeline's agreement repair calls (#115), also in calls
  *   - applied: leaves whose final value is a repair's output
  *   - termMiss: leaves with a glossary hit whose final value lacks a target
- *     term (Arabic `ل` + `ال` merge counted as the term, harakat dropped)
+ *     term or form (Arabic `ل` + `ال` merge counted as the term, harakat dropped)
  *   - failed: leaves that fell back to source
  *   - lcStart: leaves with a glossary hit whose source starts with an
  *     uppercase letter and whose value starts with a lowercase one
@@ -58,13 +58,17 @@ const GLOSSARY_MODE: "strict" | "prefer" = MODE;
 
 // ---------- glossary (one per language pair) ----------
 // Targets match the text benches where they overlap; `deploy → bereitstellen`
-// is a verb term, so its inflected forms show up as misses.
-const GLOSSARY: Record<string, [string, string][]> = {
+// is a verb term, so it lists the other forms German needs (noun, participle,
+// zu-infinitive, separable verb) as glossary forms.
+const GLOSSARY: Record<string, [string, string, string[]?][]> = {
   "en-fr": [
     ["server", "hôte"], ["cache", "antémémoire"], ["commit", "validation"], ["branch", "branche"],
     ["token", "jeton"], ["repository", "dépôt"],
   ],
-  "en-de": [["cache", "Zwischenspeicher"], ["branch", "Zweig"], ["deploy", "bereitstellen"]],
+  "en-de": [
+    ["cache", "Zwischenspeicher"], ["branch", "Zweig"],
+    ["deploy", "bereitstellen", ["Bereitstellung", "bereitgestellt", "bereitzustellen", "stellen … bereit", "stellt … bereit"]],
+  ],
   "en-ar": [
     ["cache", "الكاش"], ["token", "التوكن"], ["commit", "كوميت"], ["deploy", "نشر"], ["branch", "فرع"],
     ["pull request", "طلب دمج"],
@@ -120,7 +124,7 @@ async function main(): Promise<void> {
   const context = new ContextStore(join(dir, "context.db"));
   for (const [pair, entries] of Object.entries(GLOSSARY)) {
     const [sourceLang, targetLang] = pair.split("-");
-    glossary.addMany(entries.map(([sourceTerm, targetTerm]) => ({ sourceTerm, targetTerm, sourceLang, targetLang })));
+    glossary.addMany(entries.map(([sourceTerm, targetTerm, forms]) => ({ sourceTerm, targetTerm, sourceLang, targetLang, forms })));
   }
   const rec = new CountingAdapter(new TranslateGemmaLocalAdapter(DEFAULT_MODEL, DEFAULT_OLLAMA_URL));
   const rows: Record<string, unknown>[] = [];
