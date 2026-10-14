@@ -122,6 +122,21 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags('<term translation="hôte">serveur</term>')).toBe("hôte");
   });
 
+  test("keeps the model's word in the tag when the term is outside the tags as a whole word", () => {
+    const auto = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
+    expect(stripGlossaryTags(auto)).toBe("Automatisch nach jedem Commit bereitstellen.");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> et Hôte')).toBe("serveur et Hôte");
+    expect(stripGlossaryTags('<term translation="résumé">cv</term> du resume')).toBe("cv du resume");
+  });
+
+  test("still replaces the inner word when the term is only inside a word, a tag or a sentinel", () => {
+    expect(stripGlossaryTags('<term translation="نشر">إصدار</term> منشور')).toBe("نشر منشور");
+    expect(stripGlossaryTags('<term translation="a">x</term> and')).toBe("a and");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="hôte">hôte</term>')).toBe("hôte hôte");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="hôte">reste')).toBe("hôte hôte");
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">x</term> __TLPH_0__')).toBe("__TLPH_0__ __TLPH_0__");
+  });
+
   test("replaces an inner text with more words than the term", () => {
     expect(stripGlossaryTags('<term translation="كوميت">هذا الكوميت</term>')).toBe("كوميت");
     expect(stripGlossaryTags('<term translation="طلب دمج">طلب دمج جديد</term>')).toBe("طلب دمج");
@@ -223,7 +238,11 @@ describe("stripGlossaryTags", () => {
 
   test("matches the original regex implementation on random tag soup", () => {
     // The capitalization check looks at the output written so far, so build it match by match.
+    // The pieces' only term is "t"; it is outside the tags as a whole word ("t" or "T").
+    const outsideWord = (text: string) =>
+      /(?<![\p{L}\p{N}_])[tT](?![\p{L}\p{N}_])/u.test(text.replace(/<term[^>]*>(.*?)<\/term>/gs, "\0").replace(/<term[^>]*>/g, ""));
     const replaceTags = (text: string) => {
+      const outside = outsideWord(text);
       let out = "";
       let last = 0;
       for (const m of text.matchAll(/<(term[^>]*)>(.*?)<\/term>/gs)) {
@@ -231,7 +250,7 @@ describe("stripGlossaryTags", () => {
         const [, open, inner] = m;
         const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
         const capitalize = /(?:^\s*|\n\s*|[.!?…]\s+)$/u.test(out) && /^\P{L}*\p{Lu}/u.test(inner);
-        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (capitalize ? capitalizeTerm(attr) : attr));
+        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (outside ? inner : capitalize ? capitalizeTerm(attr) : attr));
         last = m.index + m[0].length;
       }
       return out + text.slice(last);
@@ -240,7 +259,7 @@ describe("stripGlossaryTags", () => {
       replaceTags(text)
         .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
         .replace(/<term[^>]*>/g, "");
-    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "T", "S", ". ", " ", "\n", "<b>"];
+    const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "t", "T", "S", ". ", " ", "\n", "<b>"];
     let seed = 42;
     const rand = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2 ** 31;
@@ -258,6 +277,7 @@ describe("stripGlossaryTags", () => {
     stripGlossaryTags("<term>".repeat(100_000));
     stripGlossaryTags("<term".repeat(100_000));
     stripGlossaryTags('<term translation=""'.repeat(100_000));
+    stripGlossaryTags('<term translation="t">x</term> '.repeat(100_000));
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });

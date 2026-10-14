@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, termOutsideTags, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -181,17 +181,19 @@ export async function runPipeline(
 /**
  * Whether the raw output has a term tag for one of `targetTerms` around a
  * different word, which stripGlossaryTags then replaces with the term. A
- * complete tag around the model's own form of the term (keptTermForm) keeps
- * that form, so it is no substitution.
+ * complete tag around the model's own form of the term (keptTermForm), or
+ * around any word while the term is outside the tags (termOutsideTags), keeps
+ * that word, so it is no substitution.
  */
 function substitutesTerm(raw: string, targetTerms: string[]): boolean {
+  const outside = termOutsideTags(raw);
   for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
     const [tag, attr, inner] = match;
     // The term exactly as the strip writes it (attribute unescaped).
     const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
     if (!targetTerms.includes(term)) continue;
     const closed = raw.startsWith("</term>", match.index + tag.length);
-    if (closed ? keptTermForm(inner, term) === undefined : inner.trim() !== term) return true;
+    if (closed ? keptTermForm(inner, term) === undefined && !outside(term) : inner.trim() !== term) return true;
   }
   return false;
 }

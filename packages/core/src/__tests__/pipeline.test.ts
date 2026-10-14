@@ -561,6 +561,16 @@ describe("runPipeline", () => {
       expect(result.missingTerms).toEqual([]);
       expect(result.metadata.repaired).toBeUndefined();
 
+      // Nor a tag around another word while the draft has the term outside it.
+      store.add({ sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de" });
+      const autoRequests: any[] = [];
+      const auto = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
+      const placed = await runPipeline("Deploy automatically after every commit.", "en", "de", repairAdapter([auto], "unused", autoRequests), store);
+      expect(autoRequests).toHaveLength(1);
+      expect(placed.translated).toBe("Automatisch nach jedem Commit bereitstellen.");
+      expect(placed.missingTerms).toEqual([]);
+      expect(placed.metadata.repaired).toBeUndefined();
+
       // One substituted tag next to a kept one still gets the repair.
       const mixedRequests: any[] = [];
       const mixed = 'ادفع <term translation="كوميت">الالتزام</term>، ثم <term translation="نشر">انشر</term>.';
