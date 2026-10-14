@@ -1,4 +1,4 @@
-import type { GlossaryEntry, GlossaryHit } from "../types";
+import type { GlossaryHit } from "../types";
 import { TlError } from "../errors";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "../constants";
 
@@ -103,18 +103,14 @@ export function capitalizeTerm(term: string): string {
 /** Separates the parts of a split form (`stellen … bereit`): an ellipsis or three dots. */
 const FORM_GAP_RE = /\s*(?:…|\.\.\.)\s*/;
 
-/** The parts of a split form (`stellen … bereit` → `stellen`, `bereit`); one part for any other form. */
-function formParts(form: string): string[] {
-  const parts = form.split(FORM_GAP_RE).filter((p) => p.trim());
-  return parts.length > 0 ? parts : [form];
-}
-
 /**
- * Every target form that counts as glossary entry `entry`'s term: `targetTerm`
- * first, then its `forms`.
+ * The parts of glossary form `form`: two or more for a split form (`stellen … bereit`
+ * → `stellen`, `bereit`), else one. Only `forms` are split; a target term with an
+ * ellipsis (`Speichern unter…`) is never a split form.
  */
-export function termForms(entry: Pick<GlossaryEntry, "targetTerm" | "forms">): string[] {
-  return [entry.targetTerm, ...(entry.forms ?? [])];
+export function formParts(form: string): string[] {
+  const parts = form.split(FORM_GAP_RE).map((p) => p.trim()).filter(Boolean);
+  return parts.length > 0 ? parts : [form];
 }
 
 /** The forms of `forms` written as one piece (not split), which can stand in a term tag or take agreement fix-ups. */
@@ -261,7 +257,7 @@ const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPAC
  */
 function findWord(text: string, part: string, from: number): [number, number] | undefined {
   const checkStart = isWordChar(part.codePointAt(0));
-  const checkEnd = isWordChar(part.codePointAt(part.length - 1));
+  const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
   let best: [number, number] | undefined;
   for (const p of new Set([part, capitalizeTerm(part)])) {
     for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
@@ -277,18 +273,29 @@ function findWord(text: string, part: string, from: number): [number, number] | 
 }
 
 /**
- * The first of `forms` that `text` contains, or undefined. Combining marks are
- * dropped on both sides. A form counts as a substring, as the term itself or with
- * its first letter capitalized (capitalizeTerm), so inflected targets still count.
- * A split form (`stellen … bereit`) counts when each part occurs as a whole word,
- * in order, within one sentence.
+ * Sentence breaks for split forms: a line break, or `.!?` (and their CJK, Arabic
+ * and Devanagari forms) plus whitespace before a character that is not lowercase.
+ * Not after a one-letter word, so abbreviations like `z. B.` don't split, and not
+ * after `…`, which elides inside a sentence as often as it ends one.
  */
-export function foundForm(text: string, forms: readonly string[]): string | undefined {
+const SENTENCE_BREAK_RE = /(?<=(?<!(?:^|[\s.])\p{L})[.!?。！？؟।])\s+(?=\P{Ll})|\n/u;
+
+/**
+ * Which of glossary target `term` and its other `forms` `text` contains: the
+ * first that matches, or undefined. Combining marks are dropped on both sides.
+ * The term and one-piece forms count as substrings, as written or with the first
+ * letter capitalized (capitalizeTerm), so inflected targets still count. A split
+ * form (`stellen … bereit`) counts when each part occurs as a whole word, in
+ * order, within one sentence.
+ */
+export function foundForm(text: string, term: string, forms: readonly string[] = []): string | undefined {
   const plain = stripCombiningMarks(text);
+  const contains = (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
+  if (contains(stripCombiningMarks(term))) return term;
   return forms.find((form) => {
     const parts = formParts(stripCombiningMarks(form));
-    if (parts.length === 1) return plain.includes(parts[0]) || plain.includes(capitalizeTerm(parts[0]));
-    return plain.split(/(?<=[.!?…。！？؟])\s+|\n/u).some((sentence) => {
+    if (parts.length === 1) return contains(parts[0]);
+    return plain.split(SENTENCE_BREAK_RE).some((sentence) => {
       let at = 0;
       for (const part of parts) {
         const found = findWord(sentence, part, at);
@@ -315,9 +322,12 @@ export function computeGlossaryCoverage(
 ): { glossaryCoverage: number; missingTerms: string[] } {
   if (hits.length === 0) return { glossaryCoverage: 1, missingTerms: [] };
   const uniqueTerms = [...new Set(hits.map((h) => h.entry.sourceTerm))];
-  const missingTerms = uniqueTerms.filter(
-    (sourceTerm) => foundForm(translated, termForms(hits.find((h) => h.entry.sourceTerm === sourceTerm)!.entry)) === undefined,
-  );
+  const missingTerms = uniqueTerms.filter((sourceTerm) => {
+    const { targetTerm } = hits.find((h) => h.entry.sourceTerm === sourceTerm)!.entry;
+    // Forms belong to the target word: every entry with this target lends its own.
+    const forms = hits.flatMap((h) => (h.entry.targetTerm === targetTerm ? (h.entry.forms ?? []) : []));
+    return foundForm(translated, targetTerm, forms) === undefined;
+  });
   return {
     glossaryCoverage: (uniqueTerms.length - missingTerms.length) / uniqueTerms.length,
     missingTerms,

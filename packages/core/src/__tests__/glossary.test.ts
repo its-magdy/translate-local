@@ -246,8 +246,8 @@ describe("GlossaryStore", () => {
     expect(store.list()[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
     expect(store.lookup("en", "de")[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
 
-    // Re-adding without forms keeps them; with forms replaces them.
-    expect(store.add(base).id).toBe(added.id);
+    // Re-adding without forms keeps them (and returns them); with forms replaces them.
+    expect(store.add(base)).toEqual({ ...added });
     expect(store.list()[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
     store.add({ ...base, forms: ["bereitgestellt"] });
     expect(store.list()).toHaveLength(1);
@@ -256,6 +256,21 @@ describe("GlossaryStore", () => {
     const plain = store.add({ sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de", forms: [] });
     expect(plain.forms).toBeUndefined();
     expect(store.list().find((e) => e.sourceTerm === "branch")!.forms).toBeUndefined();
+  });
+
+  it("collapses a split form with one part and ignores a corrupt stored value", () => {
+    const base = { sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de" };
+    expect(store.add({ ...base, forms: ["Bereitstellung …", "... bereitgestellt"] }).forms).toEqual(["Bereitstellung", "bereitgestellt"]);
+    store.close();
+    const db = new Database(dbPath);
+    db.run(`UPDATE glossary SET forms = 'not json'`);
+    db.close();
+    store = new GlossaryStore(dbPath);
+    expect(store.lookup("en", "de")[0].forms).toBeUndefined();
+    const db2 = new Database(dbPath);
+    db2.run(`UPDATE glossary SET forms = '"x"'`);
+    db2.close();
+    expect(store.list()[0].forms).toBeUndefined();
   });
 
   it("adds the forms column to a database from before term forms", () => {

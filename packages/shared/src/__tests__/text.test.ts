@@ -306,12 +306,27 @@ describe("glossary term forms", () => {
   });
 
   test("a split form needs its parts as whole words, in order, in one sentence", () => {
-    expect(foundForm("Stellen Sie den Zweig jetzt bereit.", FORMS)).toBe("stellen … bereit");
-    expect(foundForm("Bitte stellen Sie ihn bereit", ["stellen ... bereit"])).toBe("stellen ... bereit");
-    expect(foundForm("Bereit? Stellen Sie ihn ab.", FORMS)).toBeUndefined();
-    expect(foundForm("Stellen Sie ihn ab. Wir sind bereit.", FORMS)).toBeUndefined();
-    expect(foundForm("Einstellen und vorbereiten", FORMS)).toBeUndefined();
-    expect(foundForm("Stellen Sie ihn\nbereit", FORMS)).toBeUndefined();
+    expect(foundForm("Stellen Sie den Zweig jetzt bereit.", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("Bitte stellen Sie ihn bereit", "bereitstellen", ["stellen ... bereit"])).toBe("stellen ... bereit");
+    expect(foundForm("Bereit? Stellen Sie ihn ab.", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Stellen Sie ihn ab. Wir sind bereit.", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Einstellen und vorbereiten", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Stellen Sie ihn\nbereit", "bereitstellen", FORMS)).toBeUndefined();
+    // Abbreviations and an eliding … don't end the sentence.
+    expect(foundForm("Bitte stellen Sie z. B. den Zweig bereit.", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("Stellen Sie… den Zweig bereit", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("x 𝐀𝐁𝐂", "y", ["x … 𝐀𝐁"])).toBeUndefined();
+  });
+
+  test("never splits the target term itself, even with an ellipsis", () => {
+    expect(computeGlossaryCoverage([makeHit("save as", "Speichern unter…", 0)], "Klicken Sie auf Speichern unter")).toEqual({ glossaryCoverage: 0, missingTerms: ["save as"] });
+    expect(computeGlossaryCoverage([makeHit("back", "Weiter … Zurück", 0)], "Weiter … Zurück")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("lends one entry's forms to another entry with the same target term", () => {
+    const withForm = deploy();
+    const other = makeHit("ship", "bereitstellen", 10);
+    expect(computeGlossaryCoverage([withForm, other], "Bereitstellung")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
   });
 
   test("keeps a form written inside the term tag", () => {

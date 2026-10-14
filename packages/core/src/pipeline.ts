@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, termForms, foundForm, contiguousForms } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -155,10 +155,13 @@ export async function runPipeline(
    * cancellation still throws.
    */
   async function repairAgreement(draft: TranslationResult): Promise<TranslationResult> {
-    // The form of each covered term the draft has, which the repair must keep as written.
+    // The form of each covered term the draft has (a split form's parts), which the repair must keep as written.
     const terms = [...new Set(realHits
       .filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm))
-      .map((h) => foundForm(draft.translated, termForms(h.entry)) ?? h.entry.targetTerm))];
+      .flatMap((h) => {
+        const found = foundForm(draft.translated, h.entry.targetTerm, forms.get(h.entry.targetTerm)) ?? h.entry.targetTerm;
+        return found === h.entry.targetTerm ? [found] : formParts(found);
+      }))];
     if (terms.length === 0) return draft;
     if (signal?.aborted) throw cancelledError();
     let raw: TranslationResult;
