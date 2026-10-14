@@ -19,8 +19,8 @@
  *   - lcStart: leaves with a glossary hit whose source starts with an
  *     uppercase letter and whose value starts with a lowercase one
  *   - keptWord: leaves where a translation call's output tagged another word
- *     while it had the target term outside the tags, so the strip kept that
- *     word (termOutsideTags)
+ *     while it had placed the target term outside the tags, so the strip
+ *     kept that word (keepsTaggedWord)
  *
  * `applied` is read from the output: a leaf counts when its value equals a
  * repair response run through the pipeline's own postprocessing and unmasked,
@@ -36,9 +36,9 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
+import type { Adapter, GlossaryHit, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
-import { computeGlossaryCoverage, keptTermForm, normalizeWhitespace, stripGlossaryTags, termOutsideTags } from "../../packages/shared/src/utils/text";
+import { computeGlossaryCoverage, keepsTaggedWord, keptTermForm, normalizeWhitespace, stripGlossaryTags } from "../../packages/shared/src/utils/text";
 import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translate-gemma/local";
 import { GlossaryStore } from "../../packages/core/src/glossary";
 import { ContextStore } from "../../packages/core/src/context";
@@ -92,11 +92,14 @@ const forCoverage = (text: string, terms: string[]): string =>
     text.replace(/[ً-ْ]/g, ""),
   );
 
-/** Whether `raw` has a complete tag for one of `terms` that the strip keeps only because the term is outside the tags. */
-const keepsOutsideWord = (raw: string, terms: string[]): boolean => {
-  const outside = termOutsideTags(raw);
+/** Whether `raw` has a complete term tag the strip keeps only because the model placed the term outside the tags. */
+const keepsPlacedWord = (raw: string, hits: GlossaryHit[]): boolean => {
+  const keeps = keepsTaggedWord(raw, hits);
   return [...raw.matchAll(/<term translation="([^"]*)">([^<]*)<\/term>/g)].some(
-    ([, term, inner]) => terms.includes(term) && keptTermForm(inner, term) === undefined && outside(term),
+    ([, attr, inner]) => {
+      const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
+      return keptTermForm(inner, term) === undefined && keeps(term, inner);
+    },
   );
 };
 
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
           calls += leafCalls.length; repairs += leafRepairs.length; applied += +wasApplied;
           hitLeaves += +(terms.length > 0); termMiss += +(missing.length > 0);
           lcStart += +(terms.length > 0 && !failed.has(path) && /^\p{Lu}/u.test(src) && /^\p{Ll}/u.test(value));
-          keptWord += +leafCalls.some((c) => !c.repair && keepsOutsideWord(c.raw, terms));
+          keptWord += +leafCalls.some((c) => !c.repair && keepsPlacedWord(c.raw, glossary.findMatches(src, "en", tgt)));
           perLeaf.push({ path, source: src, value, failed: failed.has(path), terms, missing, applied: wasApplied, calls: leafCalls });
         }
         t.leaves += source.length; t.calls += calls; t.repairs += repairs; t.applied += applied;
