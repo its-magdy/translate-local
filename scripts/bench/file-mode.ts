@@ -16,6 +16,8 @@
  *   - termMiss: leaves with a glossary hit whose final value lacks a target
  *     term (Arabic `ل` + `ال` merge counted as the term, harakat dropped)
  *   - failed: leaves that fell back to source
+ *   - lcStart: leaves with a glossary hit whose source starts with an
+ *     uppercase letter and whose value starts with a lowercase one
  *
  * `applied` is read from the output: a leaf counts when its value equals a
  * repair response run through the pipeline's own postprocessing and unmasked,
@@ -127,7 +129,7 @@ async function main(): Promise<void> {
 
   try {
     for (const tgt of LANGS) {
-      const t = { leaves: 0, calls: 0, repairs: 0, applied: 0, hitLeaves: 0, termMiss: 0, failed: 0, ms: 0 };
+      const t = { leaves: 0, calls: 0, repairs: 0, applied: 0, hitLeaves: 0, termMiss: 0, lcStart: 0, failed: 0, ms: 0 };
       all[tgt] = [];
       for (let run = 0; run < RUNS; run++) {
         const outPath = join(dir, `${tgt}-${run}.json`);
@@ -141,7 +143,7 @@ async function main(): Promise<void> {
         const dt = performance.now() - t0;
         const out = new Map(leaves(JSON.parse(readFileSync(outPath, "utf8"))));
         const failed = new Set(summary.failed.map((f) => f.path));
-        let calls = 0, repairs = 0, applied = 0, hitLeaves = 0, termMiss = 0;
+        let calls = 0, repairs = 0, applied = 0, hitLeaves = 0, termMiss = 0, lcStart = 0;
         const perLeaf: unknown[] = [];
         for (const [path, src] of source) {
           const value = out.get(path) ?? "";
@@ -157,16 +159,17 @@ async function main(): Promise<void> {
             : computeGlossaryCoverage(glossary.findMatches(src, "en", tgt), forCoverage(value, terms)).missingTerms;
           calls += leafCalls.length; repairs += leafRepairs.length; applied += +wasApplied;
           hitLeaves += +(terms.length > 0); termMiss += +(missing.length > 0);
+          lcStart += +(terms.length > 0 && !failed.has(path) && /^\p{Lu}/u.test(src) && /^\p{Ll}/u.test(value));
           perLeaf.push({ path, source: src, value, failed: failed.has(path), terms, missing, applied: wasApplied, calls: leafCalls });
         }
         t.leaves += source.length; t.calls += calls; t.repairs += repairs; t.applied += applied;
-        t.hitLeaves += hitLeaves; t.termMiss += termMiss; t.failed += summary.failed.length; t.ms += dt;
+        t.hitLeaves += hitLeaves; t.termMiss += termMiss; t.lcStart += lcStart; t.failed += summary.failed.length; t.ms += dt;
         all[tgt].push({ summary, leaves: perLeaf });
-        console.log(`${tgt} run ${run + 1}/${RUNS}: calls=${calls} repairs=${repairs} applied=${applied} termMiss=${termMiss}/${hitLeaves} failed=${summary.failed.length} skipped=${summary.skipped.count} ${Math.round(dt / 1000)}s`);
+        console.log(`${tgt} run ${run + 1}/${RUNS}: calls=${calls} repairs=${repairs} applied=${applied} termMiss=${termMiss}/${hitLeaves} lcStart=${lcStart} failed=${summary.failed.length} skipped=${summary.skipped.count} ${Math.round(dt / 1000)}s`);
       }
       rows.push({
         lang: tgt, runs: RUNS, calls: t.calls, callsPerLeaf: +(t.calls / t.leaves).toFixed(2), repairs: t.repairs, applied: t.applied,
-        termMiss: `${t.termMiss}/${t.hitLeaves}`, failed: t.failed, meanSec: Math.round(t.ms / RUNS / 1000),
+        termMiss: `${t.termMiss}/${t.hitLeaves}`, lcStart: `${t.lcStart}/${t.hitLeaves}`, failed: t.failed, meanSec: Math.round(t.ms / RUNS / 1000),
       });
     }
   } finally {

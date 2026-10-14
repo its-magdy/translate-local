@@ -297,6 +297,20 @@ describe("runPipeline", () => {
       expect(doubled.translated).toBe("امسح الكاش");
     });
 
+    it("keeps the term capitalized as the model wrote it and counts it as covered", async () => {
+      store.add({ sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de" });
+      const de = await runPipeline("Deploy", "en", "de", fixedAdapter('<term translation="bereitstellen">Bereitstellen</term>'), store, { glossaryMode: "strict" });
+      expect(de.translated).toBe("Bereitstellen");
+      expect(de.missingTerms).toHaveLength(0);
+      expect(de.metadata.retries).toBe(0);
+
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const fr = await runPipeline("Server details", "en", "fr", fixedAdapter('<term translation="hôte">Serveur</term> : détails'), store, { glossaryMode: "strict" });
+      expect(fr.translated).toBe("Hôte : détails");
+      expect(fr.missingTerms).toHaveLength(0);
+      expect(fr.metadata.retries).toBe(0);
+    });
+
     it("leaves placeholder sentinels (extra hits) alone", async () => {
       const TOK = "__TLPH_0__";
       const text = `Open ${TOK}`;

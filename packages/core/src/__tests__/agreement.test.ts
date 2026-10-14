@@ -139,6 +139,12 @@ describe("fixTermAgreement", () => {
     expect(fixTermAgreement("Redémarrez le « hôte ».", "fr", ["hôte"])).toBe("Redémarrez l'hôte.");
   });
 
+  it("also unquotes and elides before the term written capitalized", () => {
+    expect(fixTermAgreement("« Hôte » : détails", "fr", ["hôte"])).toBe("Hôte : détails");
+    expect(fixTermAgreement("Voir le Hôte", "fr", ["hôte"])).toBe("Voir l'Hôte");
+    expect(fixTermAgreement("« IOS » prêt", "fr", ["iOS"])).toBe("« IOS » prêt");
+  });
+
   it("is a no-op without terms", () => {
     expect(fixTermAgreement("Redémarrez le « hôte ».", "fr", [])).toBe("Redémarrez le « hôte ».");
   });
