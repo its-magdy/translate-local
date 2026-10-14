@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { GlossaryStore, matchTerms } from "../glossary";
 import { rmSync } from "fs";
+import { Database } from "bun:sqlite";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { GlossaryEntry } from "@translate-local/shared/types";
@@ -236,6 +237,40 @@ describe("GlossaryStore", () => {
   afterEach(() => {
     store.close();
     rmSync(dbPath, { force: true });
+  });
+
+  it("stores a term's forms, trimmed and deduplicated, and updates them on a duplicate add", () => {
+    const base = { sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de" };
+    const added = store.add({ ...base, forms: [" Bereitstellung ", "Bereitstellung", "", "…", "bereitstellen", "stellen … bereit"] });
+    expect(added.forms).toEqual(["Bereitstellung", "stellen … bereit"]);
+    expect(store.list()[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
+    expect(store.lookup("en", "de")[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
+
+    // Re-adding without forms keeps them; with forms replaces them.
+    expect(store.add(base).id).toBe(added.id);
+    expect(store.list()[0].forms).toEqual(["Bereitstellung", "stellen … bereit"]);
+    store.add({ ...base, forms: ["bereitgestellt"] });
+    expect(store.list()).toHaveLength(1);
+    expect(store.list()[0].forms).toEqual(["bereitgestellt"]);
+
+    const plain = store.add({ sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de", forms: [] });
+    expect(plain.forms).toBeUndefined();
+    expect(store.list().find((e) => e.sourceTerm === "branch")!.forms).toBeUndefined();
+  });
+
+  it("adds the forms column to a database from before term forms", () => {
+    store.close();
+    rmSync(dbPath, { force: true });
+    const old = new Database(dbPath);
+    old.exec(`CREATE TABLE glossary (id TEXT PRIMARY KEY, source_term TEXT NOT NULL, target_term TEXT NOT NULL, source_lang TEXT NOT NULL,
+      target_lang TEXT NOT NULL, domain TEXT, note TEXT, UNIQUE(source_term, target_term, source_lang, target_lang))`);
+    old.run(`INSERT INTO glossary VALUES ('old', 'branch', 'Zweig', 'en', 'de', NULL, NULL)`);
+    old.close();
+
+    store = new GlossaryStore(dbPath);
+    expect(store.list()).toEqual([{ id: "old", sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de", domain: undefined, note: undefined }]);
+    store.add({ sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de", forms: ["Zweige"] });
+    expect(store.list()[0].forms).toEqual(["Zweige"]);
   });
 
   it("adds and lists entries", () => {
