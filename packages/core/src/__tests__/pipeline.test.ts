@@ -571,6 +571,14 @@ describe("runPipeline", () => {
       expect(placed.missingTerms).toEqual([]);
       expect(placed.metadata.repaired).toBeUndefined();
 
+      // With the term twice in the source, one placed occurrence doesn't excuse the tag.
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const twiceRequests: any[] = [];
+      const twice = 'Redémarrez le <term translation="hôte">serveur</term>. L\'hôte est en panne.';
+      await runPipeline("Restart the server. The server is down.", "en", "fr", repairAdapter([twice], "unused", twiceRequests), store);
+      expect(twiceRequests).toHaveLength(2);
+      expect(twiceRequests[1].source).toBe("Redémarrez l'hôte. L'hôte est en panne.");
+
       // One substituted tag next to a kept one still gets the repair.
       const mixedRequests: any[] = [];
       const mixed = 'ادفع <term translation="كوميت">الالتزام</term>، ثم <term translation="نشر">انشر</term>.';

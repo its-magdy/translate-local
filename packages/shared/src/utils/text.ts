@@ -92,6 +92,12 @@ const SENTINEL_TERM_RE = new RegExp(`^${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEH
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const wordCount = (s: string): number => s.split(/\s+/).length;
 
+/** `inner` trimmed, with one pair of surrounding quotes dropped. */
+function unquote(inner: string): string {
+  const word = inner.trim();
+  return word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1]) ? word.slice(1, -1).trim() : word;
+}
+
 /**
  * `term` with its first letter raised (`hôte` → `Hôte`) when it has no uppercase
  * letter at all; otherwise `term` unchanged, so `iOS` or `Zweig` keep their casing.
@@ -113,10 +119,7 @@ export function capitalizeTerm(term: string): string {
  */
 export function keptTermForm(inner: string, term: string): string | undefined {
   if (!term.trim() || SENTINEL_TERM_RE.test(term)) return undefined;
-  let word = inner.trim();
-  if (word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1])) {
-    word = word.slice(1, -1).trim();
-  }
+  const word = unquote(inner);
   if (/[<>]/.test(word) || wordCount(word) > wordCount(term.trim())) return undefined;
   const match = new RegExp(escapeRegExp(term), "iu").exec(word);
   if (!match) return undefined;
@@ -129,77 +132,94 @@ export function keptTermForm(inner: string, term: string): string | undefined {
  * - Complete tags: replace with the translation attribute value (what injectGlossaryTags wrote),
  *   unless the inner text is the model's own inflected form of that term (see keptTermForm),
  *   which is kept. Otherwise the model echoed the tag with its own word inside; the glossary
- *   requires the attribute's term, not that word, unless the text already has the term outside
- *   its complete tags (termOutsideTags): then the model placed the term itself and tagged some
- *   other word (de `<term translation="bereitstellen">Automatisch</term> nach jedem Commit
- *   bereitstellen.`), and the tag keeps that word. The term is capitalized (capitalizeTerm)
+ *   requires the attribute's term, not that word, unless `hits` (the real glossary hits) are
+ *   given and keepsTaggedWord finds the model placed the term itself outside the tags; then
+ *   the tag keeps that word. The term is capitalized (capitalizeTerm)
  *   when that word's first letter is uppercase and the tag starts the text, a line or a sentence
  *   (fr `<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`). Tags without
  *   a translation attribute keep their inner content.
  * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
  * - Any remaining bare <term ...> opening tags: remove.
  */
-export function stripGlossaryTags(text: string): string {
+export function stripGlossaryTags(text: string, hits: readonly GlossaryHit[] = []): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
-  let result = removeTermTags(text, true);
+  let result = removeTermTags(text, true, hits.length > 0 ? keepsTaggedWord(text, hits) : undefined);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(/<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
+  result = result.replace(UNCLOSED_TAG_RE, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;
 }
 
 /**
- * One word character of a space-delimited script; as in core's glossary matcher
- * (CJK, kana, Thai, Lao, Khmer and Myanmar have no word boundary to check).
+ * One word character of a space-delimited script, the class core's glossary
+ * matcher uses (CJK, kana, Thai, Lao, Khmer and Myanmar have no word boundary).
  */
 const SPACED_WORD_RE =
   /^[[\p{L}\p{N}\p{M}_\u200C\u200D]--[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]]$/v;
+const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
 
-/** Whether `term` occurs in `text` with no word character of a spaced script right before or after it. */
-function hasWord(text: string, term: string): boolean {
-  for (let i = text.indexOf(term); i !== -1; i = text.indexOf(term, i + 1)) {
+/** Occurrences of `term` in `text` with no spaced-script word character right before or after. */
+function countWords(text: string, term: string): number {
+  let n = 0;
+  for (let i = text.indexOf(term); i !== -1; i = text.indexOf(term, i + term.length)) {
     // The code point ending at i: step back over a surrogate pair.
     const low = text.charCodeAt(i - 1);
-    const before = text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1));
-    const after = text.codePointAt(i + term.length);
-    const isWord = (cp: number | undefined) => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
-    if (!(i > 0 && isWord(before)) && !isWord(after)) return true;
+    const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+    if (!isWordChar(before) && !isWordChar(text.codePointAt(i + term.length))) n++;
   }
-  return false;
+  return n;
 }
 
+const UNCLOSED_TAG_RE = /<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g;
+
 /**
- * For glossary target terms: whether `text` has the term as a whole word outside
- * its complete term tags and opening tags (combining marks dropped as coverage
- * does; the term or `capitalizeTerm(term)`). Never for placeholder sentinels.
- * One linear scan of `text`; answers are cached per term.
+ * For the tag strip: whether a complete tag for glossary target `term` around
+ * `inner` (an inner keptTermForm rejects) keeps `inner`, because the model placed
+ * the term itself and tagged another word (de `<term translation="bereitstellen">
+ * Automatisch</term> nach jedem Commit bereitstellen.`). That needs, outside every
+ * complete tag and unclosed tag of `text` (combining marks dropped, as coverage
+ * does), as many whole-word occurrences of the term (or `capitalizeTerm(term)`)
+ * as `hits` (the real glossary hits) have for it, so one placed occurrence never
+ * excuses another; and an inner that is not a hit's source word (an English leak).
+ * Only terms of `hits` are counted, and only ones that start and end with a
+ * spaced-script word character: a CJK or punctuation edge has no word boundary.
  */
-export function termOutsideTags(text: string): (term: string) => boolean {
-  let outside = "";
-  let cursor = 0;
-  for (;;) {
-    const open = text.indexOf("<term", cursor);
-    if (open === -1) break;
-    const openEnd = text.indexOf(">", open);
-    if (openEnd === -1) break;
-    const close = text.indexOf("</term>", openEnd + 1);
-    if (close === -1) break;
-    // A NUL where the tag was, so the term can't match across it.
-    outside += text.slice(cursor, open) + "\0";
-    cursor = close + "</term>".length;
+export function keepsTaggedWord(text: string, hits: readonly GlossaryHit[]): (term: string, inner: string) => boolean {
+  const byTerm = new Map<string, { count: number; sources: Set<string> }>();
+  for (const { entry } of hits) {
+    const t = byTerm.get(entry.targetTerm) ?? { count: 0, sources: new Set<string>() };
+    t.count++;
+    t.sources.add(entry.sourceTerm.toLowerCase());
+    byTerm.set(entry.targetTerm, t);
   }
-  // Opening tags left unclosed hold the term as their attribute; drop them.
-  outside = stripCombiningMarks(removeTermTags(outside + text.slice(cursor), false));
-  const cache = new Map<string, boolean>();
-  return (term) => {
-    let found = cache.get(term);
-    if (found === undefined) {
-      const t = stripCombiningMarks(term);
-      found = !!t.trim() && !SENTINEL_TERM_RE.test(term) && (hasWord(outside, t) || hasWord(outside, capitalizeTerm(t)));
-      cache.set(term, found);
+  const placed = new Map<string, Set<string>>();
+  if (byTerm.size > 0) {
+    let outside = "";
+    let cursor = 0;
+    for (;;) {
+      const open = text.indexOf("<term", cursor);
+      if (open === -1) break;
+      const openEnd = text.indexOf(">", open);
+      if (openEnd === -1) break;
+      const close = text.indexOf("</term>", openEnd + 1);
+      if (close === -1) break;
+      // A NUL where the tag was, so the term can't match across it.
+      outside += text.slice(cursor, open) + "\0";
+      cursor = close + "</term>".length;
     }
-    return found;
+    // The strip replaces an unclosed tag and the text after it; drop leftover opening tags too.
+    outside = stripCombiningMarks(removeTermTags((outside + text.slice(cursor)).replace(UNCLOSED_TAG_RE, "\0"), false));
+    for (const [term, { count, sources }] of byTerm) {
+      const t = stripCombiningMarks(term);
+      if (SENTINEL_TERM_RE.test(term) || !isWordChar(t.codePointAt(0)) || !isWordChar(t.codePointAt(t.length - 1))) continue;
+      const cap = capitalizeTerm(t);
+      if (countWords(outside, t) + (cap === t ? 0 : countWords(outside, cap)) >= count) placed.set(term, sources);
+    }
+  }
+  return (term, inner) => {
+    const sources = placed.get(term);
+    return !!sources && !sources.has(unquote(inner).toLowerCase());
   };
 }
 
@@ -226,17 +246,16 @@ function sentenceStartTracker(): { feed(segment: string): void; atStart(): boole
 
 /**
  * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with keptTermForm("$1", attribute)
- * or else, unless the term is outside the tags ("$1" then), the opening tag's translation
+ * or else, unless `keeps` keeps "$1", the opening tag's translation
  * attribute, capitalized at a sentence start as stripGlossaryTags describes (else "$1")
  * (withClose) or /<term[^>]*>/g
  * with "" (!withClose), in linear time. Those regexes rescan
  * to the end of the text from every unclosed "<term", which is quadratic.
  */
-function removeTermTags(text: string, withClose: boolean): string {
+function removeTermTags(text: string, withClose: boolean, keeps?: (term: string, inner: string) => boolean): string {
   let result = "";
   let cursor = 0;
   const sentence = sentenceStartTracker();
-  const outside = withClose ? termOutsideTags(text) : undefined;
 
   for (;;) {
     const open = text.indexOf("<term", cursor);
@@ -254,7 +273,7 @@ function removeTermTags(text: string, withClose: boolean): string {
       if (attr) {
         const term = unescapeAttr(attr[1]);
         const capitalize = sentence.atStart() && /^\P{L}*\p{Lu}/u.test(inner);
-        inner = keptTermForm(inner, term) ?? (outside!(term) ? inner : capitalize ? capitalizeTerm(term) : term);
+        inner = keptTermForm(inner, term) ?? (keeps?.(term, inner) ? inner : capitalize ? capitalizeTerm(term) : term);
       }
       next = close + "</term>".length;
     }

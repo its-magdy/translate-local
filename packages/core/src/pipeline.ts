@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, termOutsideTags, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, keepsTaggedWord, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -102,9 +102,9 @@ export async function runPipeline(
     // tag strip below swaps in the term (a tag around the model's own form of
     // the term keeps that form, so it is not forced). The words around it may still agree
     // with the model's word, so such a result gets an agreement repair.
-    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms);
+    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, realHits);
 
-    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
+    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, realHits)), targetLang, targetTerms);
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, targetTerms));
     const result: TranslationResult = {
       ...raw,
@@ -182,18 +182,18 @@ export async function runPipeline(
  * Whether the raw output has a term tag for one of `targetTerms` around a
  * different word, which stripGlossaryTags then replaces with the term. A
  * complete tag around the model's own form of the term (keptTermForm), or
- * around any word while the term is outside the tags (termOutsideTags), keeps
- * that word, so it is no substitution.
+ * one the strip keeps because the model placed the term itself (keepsTaggedWord
+ * with the same `realHits`), keeps that word, so it is no substitution.
  */
-function substitutesTerm(raw: string, targetTerms: string[]): boolean {
-  const outside = termOutsideTags(raw);
+function substitutesTerm(raw: string, targetTerms: string[], realHits: GlossaryHit[]): boolean {
+  const keeps = keepsTaggedWord(raw, realHits);
   for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
     const [tag, attr, inner] = match;
     // The term exactly as the strip writes it (attribute unescaped).
     const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
     if (!targetTerms.includes(term)) continue;
     const closed = raw.startsWith("</term>", match.index + tag.length);
-    if (closed ? keptTermForm(inner, term) === undefined && !outside(term) : inner.trim() !== term) return true;
+    if (closed ? keptTermForm(inner, term) === undefined && !keeps(term, inner) : inner.trim() !== term) return true;
   }
   return false;
 }

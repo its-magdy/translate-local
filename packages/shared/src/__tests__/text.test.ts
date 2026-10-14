@@ -122,19 +122,31 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags('<term translation="hôte">serveur</term>')).toBe("hôte");
   });
 
-  test("keeps the model's word in the tag when the term is outside the tags as a whole word", () => {
+  test("keeps the model's word in the tag when it placed the term outside the tags", () => {
+    const deploy = [makeHit("deploy", "bereitstellen", 0)];
     const auto = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
-    expect(stripGlossaryTags(auto)).toBe("Automatisch nach jedem Commit bereitstellen.");
-    expect(stripGlossaryTags('<term translation="hôte">serveur</term> et Hôte')).toBe("serveur et Hôte");
-    expect(stripGlossaryTags('<term translation="résumé">cv</term> du resume')).toBe("cv du resume");
+    expect(stripGlossaryTags(auto, deploy)).toBe("Automatisch nach jedem Commit bereitstellen.");
+    expect(stripGlossaryTags(auto)).toBe("Bereitstellen nach jedem Commit bereitstellen.");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> et Hôte', [makeHit("server", "hôte", 0)])).toBe("serveur et Hôte");
+    expect(stripGlossaryTags('<term translation="résumé">cv</term> du resume', [makeHit("resume", "résumé", 0)])).toBe("cv du resume");
   });
 
-  test("still replaces the inner word when the term is only inside a word, a tag or a sentinel", () => {
-    expect(stripGlossaryTags('<term translation="نشر">إصدار</term> منشور')).toBe("نشر منشور");
-    expect(stripGlossaryTags('<term translation="a">x</term> and')).toBe("a and");
-    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="hôte">hôte</term>')).toBe("hôte hôte");
-    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="hôte">reste')).toBe("hôte hôte");
-    expect(stripGlossaryTags('<term translation="__TLPH_0__">x</term> __TLPH_0__')).toBe("__TLPH_0__ __TLPH_0__");
+  test("still replaces the inner word unless every hit of the term is placed as a whole word", () => {
+    const server = [makeHit("server", "hôte", 0)];
+    // Twice in the source, once outside the tags.
+    const twice = [makeHit("server", "hôte", 0), makeHit("server", "hôte", 20)];
+    expect(stripGlossaryTags('Redémarrez le <term translation="hôte">serveur</term>. L\'hôte est en panne.', twice)).toBe("Redémarrez le hôte. L'hôte est en panne.");
+    expect(stripGlossaryTags('<term translation="نشر">إصدار</term> منشور', [makeHit("deploy", "نشر", 0)])).toBe("نشر منشور");
+    expect(stripGlossaryTags('<term translation="a">x</term> and', [makeHit("b", "a", 0)])).toBe("a and");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="hôte">hôte</term>', server)).toBe("hôte hôte");
+    // The text after an unclosed tag is replaced too, so it doesn't count.
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> <term translation="X">foo hôte', server)).toBe("hôte X");
+    // A CJK term has no word boundary to check.
+    expect(stripGlossaryTags('<term translation="キー">鍵</term>を押してキーボード', [makeHit("key", "キー", 0)])).toBe("キーを押してキーボード");
+    // The source word leaked into the tag; a term the hits lack; a sentinel.
+    expect(stripGlossaryTags('<term translation="bereitstellen">Deploy</term> und bereitstellen', [makeHit("deploy", "bereitstellen", 0)])).toBe("Bereitstellen und bereitstellen");
+    expect(stripGlossaryTags('<term translation="hôte">serveur</term> hôte', [makeHit("cache", "antémémoire", 0)])).toBe("hôte hôte");
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">x</term> __TLPH_0__', [makeHit("__TLPH_0__", "__TLPH_0__", 0)])).toBe("__TLPH_0__ __TLPH_0__");
   });
 
   test("replaces an inner text with more words than the term", () => {
@@ -238,11 +250,7 @@ describe("stripGlossaryTags", () => {
 
   test("matches the original regex implementation on random tag soup", () => {
     // The capitalization check looks at the output written so far, so build it match by match.
-    // The pieces' only term is "t"; it is outside the tags as a whole word ("t" or "T").
-    const outsideWord = (text: string) =>
-      /(?<![\p{L}\p{N}_])[tT](?![\p{L}\p{N}_])/u.test(text.replace(/<term[^>]*>(.*?)<\/term>/gs, "\0").replace(/<term[^>]*>/g, ""));
     const replaceTags = (text: string) => {
-      const outside = outsideWord(text);
       let out = "";
       let last = 0;
       for (const m of text.matchAll(/<(term[^>]*)>(.*?)<\/term>/gs)) {
@@ -250,7 +258,7 @@ describe("stripGlossaryTags", () => {
         const [, open, inner] = m;
         const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
         const capitalize = /(?:^\s*|\n\s*|[.!?…]\s+)$/u.test(out) && /^\P{L}*\p{Lu}/u.test(inner);
-        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (outside ? inner : capitalize ? capitalizeTerm(attr) : attr));
+        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (capitalize ? capitalizeTerm(attr) : attr));
         last = m.index + m[0].length;
       }
       return out + text.slice(last);
@@ -277,7 +285,9 @@ describe("stripGlossaryTags", () => {
     stripGlossaryTags("<term>".repeat(100_000));
     stripGlossaryTags("<term".repeat(100_000));
     stripGlossaryTags('<term translation=""'.repeat(100_000));
-    stripGlossaryTags('<term translation="t">x</term> '.repeat(100_000));
+    // Only the hits' terms are counted, however many distinct tags the output has.
+    const tags = Array.from({ length: 50_000 }, (_, i) => `<term translation="w${i}q">x</term> filler text`).join(" ");
+    stripGlossaryTags(tags, [makeHit("a", "filler", 0), makeHit("b", "text", 0)]);
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
