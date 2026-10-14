@@ -570,6 +570,34 @@ describe("runPipeline", () => {
       expect(repaired.translated).toBe("ادفع الكوميت، ثم انشر.");
     });
 
+    it("accepts a glossary entry's other forms in tags, coverage and the repair", async () => {
+      const entry = { id: "d", sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de", forms: ["Bereitstellung", "stellen … bereit"] };
+      const opts = { glossaryEntries: [entry] };
+
+      // A form in the tag is kept: no substitution, so no repair, and no retry.
+      const tagged: any[] = [];
+      const kept = await runPipeline("Roll back before you deploy again.", "en", "de", repairAdapter(['Vor der erneuten <term translation="bereitstellen">Bereitstellung</term> zurücksetzen.'], "unused", tagged), store, opts);
+      expect(tagged).toHaveLength(1);
+      expect(kept.translated).toBe("Vor der erneuten Bereitstellung zurücksetzen.");
+      expect(kept.missingTerms).toEqual([]);
+
+      // A split form written without the tag covers the term on the first attempt.
+      const split: any[] = [];
+      const placed = await runPipeline("Deploy the branch now.", "en", "de", repairAdapter(["Stellen Sie den Zweig jetzt bereit."], "unused", split), store, opts);
+      expect(split).toHaveLength(1);
+      expect(placed.missingTerms).toEqual([]);
+
+      // A forced term's repair may write a form instead; the repair names the form the draft has.
+      const repairs: any[] = [];
+      const repaired = await runPipeline("Deploy now", "en", "de", repairAdapter(['<term translation="bereitstellen">Einsatz</term> jetzt'], "Jetzt bereitstellen", repairs), store, opts);
+      expect(repairs).toHaveLength(2);
+      expect(repairs[1].repairTerms).toEqual(["bereitstellen"]);
+      expect(repaired.translated).toBe("Jetzt bereitstellen");
+      const toForm = await runPipeline("Deploy now", "en", "de", repairAdapter(['<term translation="bereitstellen">Einsatz</term> jetzt'], "Stellen Sie jetzt bereit", []), store, opts);
+      expect(toForm.translated).toBe("Stellen Sie jetzt bereit");
+      expect(toForm.metadata.repaired).toBe(true);
+    });
+
     it("does not repair without a real glossary term (no glossary, sentinels only, image mode)", async () => {
       const requests: any[] = [];
       await runPipeline("Hello", "en", "de", repairAdapter(['Hallo <term translation="Zweig">Ast</term>'], "unused", requests), store);
