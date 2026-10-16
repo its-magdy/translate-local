@@ -92,6 +92,12 @@ const SENTINEL_TERM_RE = new RegExp(`^${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEH
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const wordCount = (s: string): number => s.split(/\s+/).length;
 
+/** `inner` trimmed, with one pair of surrounding quotes dropped. */
+function unquote(inner: string): string {
+  const word = inner.trim();
+  return word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1]) ? word.slice(1, -1).trim() : word;
+}
+
 /**
  * `term` with its first letter raised (`hôte` → `Hôte`) when it has no uppercase
  * letter at all; otherwise `term` unchanged, so `iOS` or `Zweig` keep their casing.
@@ -138,10 +144,7 @@ export function contiguousForms(forms: readonly string[]): string[] {
  */
 export function keptTermForm(inner: string, term: string, forms: readonly string[] = [], atSentenceStart = false): string | undefined {
   if (!term.trim() || SENTINEL_TERM_RE.test(term)) return undefined;
-  let word = inner.trim();
-  if (word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1])) {
-    word = word.slice(1, -1).trim();
-  }
+  const word = unquote(inner);
   if (/[<>]/.test(word)) return undefined;
   for (const candidate of [term, ...contiguousForms(forms)]) {
     if (!candidate.trim() || wordCount(word) > wordCount(candidate.trim())) continue;
@@ -170,20 +173,24 @@ export function keptTermForm(inner: string, term: string, forms: readonly string
  *   `forms` (keyed by target term; see keptTermForm), which is kept. Otherwise the model echoed the tag with its own word inside; the glossary
  *   requires the attribute's term, not that word. The term is capitalized (capitalizeTerm)
  *   when that word's first letter is uppercase and the tag starts the text, a line or a sentence
- *   (fr `<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`). Tags without
+ *   (fr `<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`). A tag whose
+ *   term `kept` maps to exactly its inner text (the pipeline's tag check, see
+ *   tagCheckCandidates) keeps that text as written. Tags without
  *   a translation attribute keep their inner content.
  * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
  * - Any remaining bare <term ...> opening tags: remove.
  */
-export function stripGlossaryTags(text: string, forms?: ReadonlyMap<string, readonly string[]>): string {
+export function stripGlossaryTags(text: string, forms?: ReadonlyMap<string, readonly string[]>, kept?: ReadonlyMap<string, string>): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
-  let result = removeTermTags(text, true, forms);
+  let result = removeTermTags(text, true, forms, kept);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(/<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
+  result = result.replace(UNCLOSED_TAG_RE, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;
 }
+
+const UNCLOSED_TAG_RE = /<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g;
 
 /**
  * Tracks whether the output written so far ends at a sentence start: empty or
@@ -208,12 +215,13 @@ function sentenceStartTracker(): { feed(segment: string): void; atStart(): boole
 
 /**
  * Same result as replacing /<term[^>]*>(.*?)<\/term>/gs with keptTermForm("$1", attribute)
- * or else the opening tag's translation attribute, capitalized at a sentence start as
+ * or else ("$1" when `kept` maps the attribute to exactly "$1") the opening tag's
+ * translation attribute, capitalized at a sentence start as
  * stripGlossaryTags describes (else "$1") (withClose) or /<term[^>]*>/g
  * with "" (!withClose), in linear time. Those regexes rescan
  * to the end of the text from every unclosed "<term", which is quadratic.
  */
-function removeTermTags(text: string, withClose: boolean, forms?: ReadonlyMap<string, readonly string[]>): string {
+function removeTermTags(text: string, withClose: boolean, forms?: ReadonlyMap<string, readonly string[]>, kept?: ReadonlyMap<string, string>): string {
   let result = "";
   let cursor = 0;
   const sentence = sentenceStartTracker();
@@ -234,7 +242,7 @@ function removeTermTags(text: string, withClose: boolean, forms?: ReadonlyMap<st
       if (attr) {
         const term = unescapeAttr(attr[1]);
         const capitalize = sentence.atStart() && /^\P{L}*\p{Lu}/u.test(inner);
-        inner = keptTermForm(inner, term, forms?.get(term), sentence.atStart()) ?? (capitalize ? capitalizeTerm(term) : term);
+        inner = keptTermForm(inner, term, forms?.get(term), sentence.atStart()) ?? (kept?.get(term) === inner ? inner : capitalize ? capitalizeTerm(term) : term);
       }
       next = close + "</term>".length;
     }
@@ -332,8 +340,15 @@ function sentences(text: string): string[] {
  * order, within one sentence (see `sentences`).
  */
 export function foundForm(text: string, term: string, forms: readonly string[] = []): string | undefined {
+  return findForm(text, term, forms, false);
+}
+
+/** foundForm, with the term and one-piece forms as whole words when `wholeWord` (see wordFinder). */
+function findForm(text: string, term: string, forms: readonly string[], wholeWord: boolean): string | undefined {
   const plain = stripCombiningMarks(text);
-  const contains = (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
+  const contains = wholeWord
+    ? (s: string) => wordFinder(s)(plain, 0) !== undefined
+    : (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
   if (contains(stripCombiningMarks(term))) return term;
   let split: string[] | undefined;
   return forms.find((form) => {
@@ -350,6 +365,116 @@ export function foundForm(text: string, term: string, forms: readonly string[] =
       return true;
     });
   });
+}
+
+/** A letter of a script written without spaces between words. */
+const NO_SPACE_RE = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]/u;
+
+/** The unescaped translation attribute of opening tag `openTag`, if any. */
+function termAttr(openTag: string): string | undefined {
+  const attr = /\btranslation="([^"]*)"/.exec(openTag);
+  return attr ? unescapeAttr(attr[1]) : undefined;
+}
+
+/**
+ * The complete term tags of model output `raw` that get the pipeline's tag
+ * check: a tag for real glossary target term T around a word X that
+ * keptTermForm rejects (so the strip would replace X with T) while T or one of
+ * its `forms` occurs outside every tag as a whole word (foundForm with word
+ * edges checked, so `hôtel` is not `hôte`), as in de
+ * `<term translation="bereitstellen">Automatisch</term> nach jedem Commit
+ * bereitstellen.`: the model may have placed the term itself and tagged a word
+ * that translates another source word. Returned as T → the tag's inner text
+ * exactly as written (what stripGlossaryTags' `kept` takes).
+ *
+ * Only for a T with exactly one of `hits` (the real glossary hits) and exactly
+ * one tag in `raw`: with two source occurrences, T outside the tags may
+ * translate the other one. Not for placeholder sentinels, an X with no letter
+ * or with `<`/`>`, or an X that is the hit's source word (an untranslated
+ * leak, `<term …>Deploy</term>`). Never when X, T or a form has a CJK, kana,
+ * Thai, Lao, Khmer or Myanmar letter: with no word edges to check, T could be
+ * part of another word (`キー` in `キーボード`), and X too. Outside excludes all the strip replaces:
+ * complete tags, and an unclosed tag with the text after it. Linear in `raw`
+ * per distinct term of `hits`.
+ */
+export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
+  const candidates = new Map<string, string>();
+  const sources = new Map<string, string[]>();
+  for (const { entry } of hits) sources.set(entry.targetTerm, [...(sources.get(entry.targetTerm) ?? []), entry.sourceTerm]);
+  if (sources.size === 0) return candidates;
+
+  const tagCount = new Map<string, number>();
+  const count = (term: string | undefined) => {
+    if (term !== undefined) tagCount.set(term, (tagCount.get(term) ?? 0) + 1);
+  };
+  const tags: [term: string, inner: string][] = [];
+  let outside = "";
+  let cursor = 0;
+  // Complete tags, paired as removeTermTags pairs them.
+  for (;;) {
+    const open = raw.indexOf("<term", cursor);
+    if (open === -1) break;
+    const openEnd = raw.indexOf(">", open);
+    if (openEnd === -1) break;
+    const close = raw.indexOf("</term>", openEnd + 1);
+    if (close === -1) break;
+    const term = termAttr(raw.slice(open, openEnd));
+    count(term);
+    if (term !== undefined) tags.push([term, raw.slice(openEnd + 1, close)]);
+    // A NUL where the tag was, so the term can't match across it.
+    outside += raw.slice(cursor, open) + "\0";
+    cursor = close + "</term>".length;
+  }
+  const rest = raw.slice(cursor);
+  for (let open = rest.indexOf("<term"); open !== -1; ) {
+    const openEnd = rest.indexOf(">", open);
+    if (openEnd === -1) break;
+    count(termAttr(rest.slice(open, openEnd)));
+    open = rest.indexOf("<term", openEnd + 1);
+  }
+  // The strip replaces an unclosed tag and the text after it; leftover opening tags go too.
+  outside = removeTermTags((outside + rest).replace(UNCLOSED_TAG_RE, "\0"), false);
+
+  const fold = (s: string) => stripCombiningMarks(s).toLowerCase();
+  for (const [term, inner] of tags) {
+    const termSources = sources.get(term);
+    if (termSources?.length !== 1 || tagCount.get(term) !== 1 || SENTINEL_TERM_RE.test(term)) continue;
+    const word = unquote(inner);
+    if (!/\p{L}/u.test(word) || /[<>]/.test(word) || fold(word) === fold(termSources[0])) continue;
+    const termForms = forms?.get(term) ?? [];
+    if ([word, term, ...termForms].some((s) => NO_SPACE_RE.test(s))) continue;
+    if (keptTermForm(inner, term, termForms) !== undefined) continue;
+    if (findForm(outside, term, termForms, true) !== undefined) candidates.set(term, inner);
+  }
+  return candidates;
+}
+
+/**
+ * The tag check's decision for a tagCheckCandidates entry (term T, tag inner
+ * `inner`): keep the model's word X only when `check`, the model's output for
+ * the code-switched source (T in place of the glossary source word), has T or
+ * one of its `forms` and X, each as a whole word (X case-insensitively), after
+ * the tag strip with combining marks dropped. An X that is a part of one of
+ * T's split forms is never kept. X then translates another source word;
+ * when the model wrote X for the glossary source word, the check's tag strip
+ * puts T there and X is gone. X is looked for outside every occurrence of T
+ * and its one-piece forms (any case), so a part of a multi-word term does not
+ * count (`Request` in `Pull Request`). Word edges are checked as for split
+ * forms (not at a punctuation edge).
+ */
+export function checkKeepsWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
+  const stripped = stripGlossaryTags(check, forms);
+  const termForms = forms?.get(term) ?? [];
+  if (findForm(stripped, term, termForms, true) === undefined) return false;
+  const fold = (s: string) => stripCombiningMarks(s).toLowerCase();
+  // A part of a split form (`Stellen` of `stellen … bereit`) is the term itself.
+  const word = fold(unquote(inner));
+  if (termForms.some((form) => formParts(form).length > 1 && formParts(form).some((part) => fold(part) === word))) return false;
+  // Longest first, so a form inside another is blanked with it.
+  const spans = [term, ...contiguousForms(termForms)].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
+  // A NUL where T was, as tagCheckCandidates blanks tags (split/join: linear, no regex).
+  const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripped));
+  return wordFinder(word)(rest, 0) !== undefined;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */
