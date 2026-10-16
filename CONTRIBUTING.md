@@ -7,7 +7,7 @@
 git clone https://github.com/its-magdy/translate-local.git
 cd translate-local
 
-# 2. Install dependencies (Bun is required; the repo pins Bun 1.4.2 via `packageManager`, and CI uses that version)
+# 2. Install dependencies (Bun is required; the repo pins Bun 1.4.3 via `packageManager`, and CI uses that version)
 bun install
 
 # 3. Run all tests
