@@ -754,6 +754,9 @@ describe("runPipeline", () => {
         [`Cache size: ${TOK}`, "fr", `Taille du cache : ${TOK}.`, `Taille du cache : ${TOK}`], // ends with a sentinel
         ['Click "Save"', "fr", "Cliquez sur « Enregistrer ».", "Cliquez sur « Enregistrer »"],
         ["Saved. Reload the page", "fr", "Enregistré. Rechargez la page.", "Enregistré. Rechargez la page"],
+        ["Remove this server", "ar", "احذف هذا الخادم.‏", "احذف هذا الخادم‏"], // a trailing RLM is kept
+        [`Open ${TOK}docs${TOK.replace("0", "1")}`, "fr", `Ouvrez ${TOK}la documentation${TOK.replace("0", "1")}.`, `Ouvrez ${TOK}la documentation${TOK.replace("0", "1")}`],
+        ["5 minutes", "de", "5 Minuten.", "5 Minuten"],
       ]) {
         const result = await runPipeline(text, "en", lang, fixedAdapter(output), store);
         expect(result.translated).toBe(expected);
@@ -761,6 +764,7 @@ describe("runPipeline", () => {
     });
 
     it("keeps end punctuation the source has, and anything but a lone full stop", async () => {
+      const TOK = "__TLPH_0__";
       for (const [text, output] of [
         ["Save changes.", "Enregistrer les modifications."],
         ["Saved.)", "Enregistré.)"],
@@ -775,7 +779,29 @@ describe("runPipeline", () => {
         ["Images, videos and more", "Images, vidéos, etc."],
         ["Images, videos and more", "Bilder, Videos usw."],
         ["Acme", "Acme Inc."],
+        ["5 min", "5 Min."],
+        ["Order number", "Bestell-Nr."],
+        ["For example", "p. ex."],
         ["Settings", "Paramètres"],
+        ["Settings", ""],
+        // The source's end punctuation sits before sentinels or markdown closers.
+        [`Read the ${TOK}docs.${TOK.replace("0", "1")}`, `Lisez la ${TOK}documentation${TOK.replace("0", "1")}.`],
+        [`Saved.${TOK}`, `Enregistré${TOK}.`],
+        ["**Saved.**", "**Enregistré**."],
+        ["_Saved._", "_Enregistré_."],
+        ["`npm i`.`", "`npm i`."],
+        // Other scripts' end punctuation, and a bidi mark after the source's period.
+        ["Պահպանված է։", "Enregistré."],
+        ["ተቀምጧል።", "Enregistré."],
+        ["သိမ်းပြီး။", "Enregistré."],
+        ["រក្សាទុក។", "Enregistré."],
+        ["ཉར་ཚགས།", "Enregistré."],
+        ["सहेजा गया॥", "Enregistré."],
+        ["Really‼", "Vraiment."],
+        ["Really⁉", "Vraiment."],
+        ["Really‽", "Vraiment."],
+        ["Αποθηκεύτηκε;", "Enregistré."],
+        ["تم الحفظ.‏", "Enregistré."],
       ]) {
         const result = await runPipeline(text, "en", "fr", fixedAdapter(output), store);
         expect(result.translated).toBe(output);
@@ -787,6 +813,11 @@ describe("runPipeline", () => {
       const kept = await runPipeline("Contact Acme", "en", "fr", fixedAdapter("Contactez Acme S.A."), store);
       expect(kept.translated).toBe("Contactez Acme S.A.");
       expect(kept.missingTerms).toEqual([]);
+
+      // A glossary form ending in a full stop.
+      store.add({ sourceTerm: "Globex", targetTerm: "Globex Groupe", sourceLang: "en", targetLang: "fr", forms: ["Globex Groupe."] });
+      const form = await runPipeline("Contact Globex", "en", "fr", fixedAdapter("Contactez Globex Groupe."), store);
+      expect(form.translated).toBe("Contactez Globex Groupe.");
 
       store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
       const requests: any[] = [];
