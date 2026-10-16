@@ -10,7 +10,7 @@ tl
 
 ## Layout
 
-The TUI has two tabs, switchable with **Tab** / **Shift+Tab**:
+The TUI has two tabs; **Tab** cycles between them (it wraps, so pressing it twice returns you):
 
 - **Translate** — side-by-side source and target panes
 - **Glossary** — manage glossary entries
@@ -25,7 +25,7 @@ The TUI has two tabs, switchable with **Tab** / **Shift+Tab**:
 2. Press **Ctrl+T** to translate
 3. The translation appears in the right pane
 
-Language selectors at the top control the source and target languages. Source defaults to auto-detect; target defaults to the language in your config (fallback: French).
+Language selectors at the top control the source and target languages. Source defaults to auto-detect; target defaults to `defaults.targetLang` from your config (fallback: French).
 
 The status bar at the bottom shows translation progress, then the duration (plus glossary coverage when a glossary term matched) after each translation, or the error and its hint when one fails.
 
@@ -74,9 +74,8 @@ Navigate the list with **Up/Down** arrows, then press **Ctrl+D** to delete the s
 
 | Key | Action |
 |-----|--------|
-| **Ctrl+T** | Translate |
-| **Tab** | Switch to next tab |
-| **Shift+Tab** | Switch to previous tab |
+| **Ctrl+T** | Translate (cancels a running translation and starts a new one) |
+| **Tab** | Switch to the other tab |
 | **Up / Down** | Navigate glossary list |
 | **Ctrl+D** | Delete selected glossary entry |
 | **Ctrl+Q** / **Ctrl+C** | Quit |
