@@ -100,35 +100,58 @@ export function capitalizeTerm(term: string): string {
   return /\p{Lu}/u.test(term) ? term : term.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
 }
 
+/** Separates the parts of a split form (`stellen … bereit`): an ellipsis or three dots. */
+const FORM_GAP_RE = /…|\.\.\./;
+
+/**
+ * The parts of glossary form `form`: two or more for a split form (`stellen … bereit`
+ * → `stellen`, `bereit`), else one. Only `forms` are split; a target term with an
+ * ellipsis (`Speichern unter…`) is never a split form.
+ */
+export function formParts(form: string): string[] {
+  const parts = form.split(FORM_GAP_RE).map((p) => p.trim()).filter(Boolean);
+  return parts.length > 0 ? parts : [form];
+}
+
+/** The forms of `forms` written as one piece (not split), which can stand in a term tag or take agreement fix-ups. */
+export function contiguousForms(forms: readonly string[]): string[] {
+  return forms.filter((f) => formParts(f).length === 1);
+}
+
 /**
  * The model's own inflected form of glossary term `term` written inside a
  * complete term tag, or undefined when the tag is to be replaced by the term.
  * The inner text (trimmed, one pair of surrounding quotes dropped) is kept when
- * it contains the term case-insensitively and has no more words than the term:
- * ar `الكوميت` / `انشر` for `كوميت` / `نشر`, fr `hôtes` for `hôte`. The matched
- * part is written as the term itself, or as `capitalizeTerm(term)` when the
- * model wrote it that way (de `Bereitstellen` for `bereitstellen`), so the
- * output always contains one of the two exactly (coverage accepts both).
+ * it contains the term, or one of the entry's other contiguous `forms`,
+ * case-insensitively and has no more words than it: ar `الكوميت` / `انشر` for
+ * `كوميت` / `نشر`, fr `hôtes` for `hôte`, de `Bereitstellung` with that form.
+ * The matched part is written as that form itself, or as `capitalizeTerm(form)`
+ * when the model wrote it that way (de `Bereitstellen` for `bereitstellen`), so
+ * the output always contains one of the two exactly (coverage accepts both).
  * Placeholder sentinel tags always become the attribute.
  */
-export function keptTermForm(inner: string, term: string): string | undefined {
+export function keptTermForm(inner: string, term: string, forms: readonly string[] = []): string | undefined {
   if (!term.trim() || SENTINEL_TERM_RE.test(term)) return undefined;
   let word = inner.trim();
   if (word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1])) {
     word = word.slice(1, -1).trim();
   }
-  if (/[<>]/.test(word) || wordCount(word) > wordCount(term.trim())) return undefined;
-  const match = new RegExp(escapeRegExp(term), "iu").exec(word);
-  if (!match) return undefined;
-  const form = match[0] === capitalizeTerm(term) ? match[0] : term;
-  return word.slice(0, match.index) + form + word.slice(match.index + match[0].length);
+  if (/[<>]/.test(word)) return undefined;
+  for (const candidate of [term, ...contiguousForms(forms)]) {
+    if (!candidate.trim() || wordCount(word) > wordCount(candidate.trim())) continue;
+    const match = new RegExp(escapeRegExp(candidate), "iu").exec(word);
+    if (!match) continue;
+    const form = match[0] === capitalizeTerm(candidate) ? match[0] : candidate;
+    return word.slice(0, match.index) + form + word.slice(match.index + match[0].length);
+  }
+  return undefined;
 }
 
 /**
  * Strip all <term ...>...</term> tags from text.
  * - Complete tags: replace with the translation attribute value (what injectGlossaryTags wrote),
- *   unless the inner text is the model's own inflected form of that term (see keptTermForm),
- *   which is kept. Otherwise the model echoed the tag with its own word inside; the glossary
+ *   unless the inner text is the model's own inflected form of that term, or of one of its
+ *   `forms` (keyed by target term; see keptTermForm), which is kept. Otherwise the model echoed the tag with its own word inside; the glossary
  *   requires the attribute's term, not that word. The term is capitalized (capitalizeTerm)
  *   when that word's first letter is uppercase and the tag starts the text, a line or a sentence
  *   (fr `<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`). Tags without
@@ -136,9 +159,9 @@ export function keptTermForm(inner: string, term: string): string | undefined {
  * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
  * - Any remaining bare <term ...> opening tags: remove.
  */
-export function stripGlossaryTags(text: string): string {
+export function stripGlossaryTags(text: string, forms?: ReadonlyMap<string, readonly string[]>): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
-  let result = removeTermTags(text, true);
+  let result = removeTermTags(text, true, forms);
   // Unclosed tags: <term translation="X">... → X (use translation attribute)
   result = result.replace(/<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g, (_m, attr: string) => unescapeAttr(attr));
   // Any remaining bare opening tags
@@ -174,7 +197,7 @@ function sentenceStartTracker(): { feed(segment: string): void; atStart(): boole
  * with "" (!withClose), in linear time. Those regexes rescan
  * to the end of the text from every unclosed "<term", which is quadratic.
  */
-function removeTermTags(text: string, withClose: boolean): string {
+function removeTermTags(text: string, withClose: boolean, forms?: ReadonlyMap<string, readonly string[]>): string {
   let result = "";
   let cursor = 0;
   const sentence = sentenceStartTracker();
@@ -195,7 +218,7 @@ function removeTermTags(text: string, withClose: boolean): string {
       if (attr) {
         const term = unescapeAttr(attr[1]);
         const capitalize = sentence.atStart() && /^\P{L}*\p{Lu}/u.test(inner);
-        inner = keptTermForm(inner, term) ?? (capitalize ? capitalizeTerm(term) : term);
+        inner = keptTermForm(inner, term, forms?.get(term)) ?? (capitalize ? capitalizeTerm(term) : term);
       }
       next = close + "</term>".length;
     }
@@ -219,6 +242,100 @@ export function normalizeWhitespace(text: string): string {
     .trim();
 }
 
+/**
+ * One word character of a space-delimited script, as in core's glossary matcher
+ * (CJK, kana, Thai, Lao, Khmer and Myanmar have no word boundary to check).
+ */
+const SPACED_WORD_RE =
+  /^[[\p{L}\p{N}\p{M}_\u200C\u200D]--[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]]$/v;
+const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
+
+/**
+ * A finder for whole word `part` (or `capitalizeTerm(part)`): where it first
+ * occurs in a text at or after `from`, as [start, end], or undefined. An edge of
+ * `part` that is not a spaced-script word character (CJK, punctuation) is not
+ * checked, as in core's glossary matcher.
+ */
+function wordFinder(part: string): (text: string, from: number) => [number, number] | undefined {
+  const checkStart = isWordChar(part.codePointAt(0));
+  const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
+  const variants = [...new Set([part, capitalizeTerm(part)])];
+  return (text, from) => {
+    let best: [number, number] | undefined;
+    for (const p of variants) {
+      for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
+        // The code point ending at i: step back over a surrogate pair.
+        const low = text.charCodeAt(i - 1);
+        const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+        if ((checkStart && isWordChar(before)) || (checkEnd && isWordChar(text.codePointAt(i + p.length)))) continue;
+        best = [i, i + p.length];
+        break;
+      }
+    }
+    return best;
+  };
+}
+
+const SENTENCE_END = ".!?。！？؟।";
+
+/**
+ * `text` split into sentences for split forms, in one linear scan: at a line
+ * break, or after `.!?` (and their CJK, Arabic and Devanagari forms) plus
+ * whitespace before a character that is not lowercase. Not after a one-letter
+ * word, so abbreviations like `z. B.` don't split, and not after `…`, which
+ * elides inside a sentence as often as it ends one.
+ */
+function sentences(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n") {
+      out.push(text.slice(start, i));
+      start = i + 1;
+      continue;
+    }
+    if (!SENTENCE_END.includes(text[i])) continue;
+    if (/\p{L}/u.test(text[i - 1] ?? "") && (i < 2 || /[\s.]/.test(text[i - 2]))) continue;
+    let j = i + 1;
+    while (j < text.length && text[j] !== "\n" && /\s/.test(text[j])) j++;
+    if (j === i + 1 || j === text.length || /\p{Ll}/u.test(String.fromCodePoint(text.codePointAt(j)!))) continue;
+    out.push(text.slice(start, i + 1));
+    start = j;
+    i = j - 1;
+  }
+  out.push(text.slice(start));
+  return out;
+}
+
+/**
+ * Which of glossary target `term` and its other `forms` `text` contains: the
+ * first that matches, or undefined. Combining marks are dropped on both sides.
+ * The term and one-piece forms count as substrings, as written or with the first
+ * letter capitalized (capitalizeTerm), so inflected targets still count. A split
+ * form (`stellen … bereit`) counts when each part occurs as a whole word, in
+ * order, within one sentence (see `sentences`).
+ */
+export function foundForm(text: string, term: string, forms: readonly string[] = []): string | undefined {
+  const plain = stripCombiningMarks(text);
+  const contains = (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
+  if (contains(stripCombiningMarks(term))) return term;
+  let split: string[] | undefined;
+  return forms.find((form) => {
+    const parts = formParts(stripCombiningMarks(form));
+    if (parts.length === 1) return contains(parts[0]);
+    const finders = parts.map(wordFinder);
+    return (split ??= sentences(plain)).some((sentence) => {
+      let at = 0;
+      for (const find of finders) {
+        const found = find(sentence, at);
+        if (!found) return false;
+        at = found[1];
+      }
+      return true;
+    });
+  });
+}
+
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */
 export function stripCombiningMarks(s: string): string {
   return s.normalize("NFD").replace(/\p{Mn}/gu, "").normalize("NFC");
@@ -233,11 +350,12 @@ export function computeGlossaryCoverage(
   translated: string
 ): { glossaryCoverage: number; missingTerms: string[] } {
   if (hits.length === 0) return { glossaryCoverage: 1, missingTerms: [] };
-  const normalizedTranslated = stripCombiningMarks(translated);
   const uniqueTerms = [...new Set(hits.map((h) => h.entry.sourceTerm))];
   const missingTerms = uniqueTerms.filter((sourceTerm) => {
-    const targetTerm = stripCombiningMarks(hits.find((h) => h.entry.sourceTerm === sourceTerm)!.entry.targetTerm);
-    return !normalizedTranslated.includes(targetTerm) && !normalizedTranslated.includes(capitalizeTerm(targetTerm));
+    const { targetTerm } = hits.find((h) => h.entry.sourceTerm === sourceTerm)!.entry;
+    // Forms belong to the target word: every entry with this target lends its own.
+    const forms = hits.flatMap((h) => (h.entry.targetTerm === targetTerm ? (h.entry.forms ?? []) : []));
+    return foundForm(translated, targetTerm, forms) === undefined;
   });
   return {
     glossaryCoverage: (uniqueTerms.length - missingTerms.length) / uniqueTerms.length,

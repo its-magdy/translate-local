@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -66,6 +66,11 @@ export async function runPipeline(
   const codeSwitchedSource = realHits.length > 0 ? injectGlossaryTags(text, hits, realHits) : taggedSource;
   // Real hits only: placeholder sentinels need no agreement fix-up.
   const targetTerms = [...new Set(realHits.map((h) => h.entry.targetTerm))];
+  // Each target term's other forms, which the tag strip keeps like the term.
+  const forms = new Map<string, string[]>();
+  for (const { entry } of realHits) forms.set(entry.targetTerm, [...new Set([...(forms.get(entry.targetTerm) ?? []), ...(entry.forms ?? [])])]);
+  // Fix-ups and the Arabic coverage split also apply to the one-piece forms.
+  const agreementTerms = [...new Set([...targetTerms, ...contiguousForms([...forms.values()].flat())])];
 
   const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
@@ -102,10 +107,10 @@ export async function runPipeline(
     // tag strip below swaps in the term (a tag around the model's own form of
     // the term keeps that form, so it is not forced). The words around it may still agree
     // with the model's word, so such a result gets an agreement repair.
-    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms);
+    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, forms);
 
-    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, targetTerms));
+    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
+    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, agreementTerms));
     const result: TranslationResult = {
       ...raw,
       translated,
@@ -150,7 +155,13 @@ export async function runPipeline(
    * cancellation still throws.
    */
   async function repairAgreement(draft: TranslationResult): Promise<TranslationResult> {
-    const terms = [...new Set(realHits.filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm)).map((h) => h.entry.targetTerm))];
+    // The form of each covered term the draft has (a split form's parts), which the repair must keep as written.
+    const terms = [...new Set(realHits
+      .filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm))
+      .flatMap((h) => {
+        const found = foundForm(draft.translated, h.entry.targetTerm, forms.get(h.entry.targetTerm)) ?? h.entry.targetTerm;
+        return found === h.entry.targetTerm ? [found] : formParts(found);
+      }))];
     if (terms.length === 0) return draft;
     if (signal?.aborted) throw cancelledError();
     let raw: TranslationResult;
@@ -161,8 +172,8 @@ export async function runPipeline(
       if (signal?.aborted) throw cancelledError(err);
       return draft;
     }
-    const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated)), targetLang, targetTerms);
-    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetLang, targetTerms));
+    const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
+    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetLang, agreementTerms));
     const ratio = repaired.length / draft.translated.length;
     const accepted =
       repaired !== draft.translated &&
@@ -181,17 +192,17 @@ export async function runPipeline(
 /**
  * Whether the raw output has a term tag for one of `targetTerms` around a
  * different word, which stripGlossaryTags then replaces with the term. A
- * complete tag around the model's own form of the term (keptTermForm) keeps
- * that form, so it is no substitution.
+ * complete tag around the model's own form of the term or of one of its
+ * `forms` (keptTermForm) keeps that form, so it is no substitution.
  */
-function substitutesTerm(raw: string, targetTerms: string[]): boolean {
+function substitutesTerm(raw: string, targetTerms: string[], forms: ReadonlyMap<string, readonly string[]>): boolean {
   for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
     const [tag, attr, inner] = match;
     // The term exactly as the strip writes it (attribute unescaped).
     const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
     if (!targetTerms.includes(term)) continue;
     const closed = raw.startsWith("</term>", match.index + tag.length);
-    if (closed ? keptTermForm(inner, term) === undefined : inner.trim() !== term) return true;
+    if (closed ? keptTermForm(inner, term, forms.get(term)) === undefined : inner.trim() !== term) return true;
   }
   return false;
 }

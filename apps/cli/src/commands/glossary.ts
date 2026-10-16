@@ -39,6 +39,12 @@ function parseCsvLine(line: string): string[] {
   return fields;
 }
 
+/** A `|`-separated list of other target forms (`--forms`, the CSV `forms` column). */
+function parseForms(value: string | undefined): string[] | undefined {
+  const forms = (value ?? "").split("|").map((f) => f.trim()).filter(Boolean);
+  return forms.length > 0 ? forms : undefined;
+}
+
 function withGlossary<T>(fn: (store: GlossaryStore) => T): Promise<T> {
   return withStore((config) => new GlossaryStore(config.glossary.dbPath), fn);
 }
@@ -56,7 +62,8 @@ export function makeGlossaryCommand(): Command {
     .requiredOption("--to <lang>", "Target language")
     .option("--domain <domain>", "Domain tag")
     .option("--note <note>", "Usage note")
-    .action((opts: { source: string; target: string; from: string; to: string; domain?: string; note?: string }) => runAction(async () => {
+    .option("--forms <forms>", 'Other target forms that also count as the term, separated by | (a split form such as "stellen … bereit" counts when its parts appear in order in one sentence)')
+    .action((opts: { source: string; target: string; from: string; to: string; domain?: string; note?: string; forms?: string }) => runAction(async () => {
       if (!isSupported(opts.from)) {
         console.error(`Unsupported language code: "${opts.from}". Run \`tl config status\` to see supported codes.`);
         process.exit(1);
@@ -73,9 +80,11 @@ export function makeGlossaryCommand(): Command {
           targetLang: opts.to,
           domain: opts.domain,
           note: opts.note,
+          forms: parseForms(opts.forms),
         }),
       );
-      console.log(`Added: ${entry.sourceTerm} → ${entry.targetTerm} (${entry.id.slice(0, 8)})`);
+      const forms = entry.forms ? ` (also: ${entry.forms.join(" | ")})` : "";
+      console.log(`Added: ${entry.sourceTerm} → ${entry.targetTerm}${forms} (${entry.id.slice(0, 8)})`);
     }));
 
   // list
@@ -114,13 +123,13 @@ export function makeGlossaryCommand(): Command {
   // import
   cmd
     .command("import <file>")
-    .description("Import entries from CSV (source,target,from,to[,domain][,note])")
+    .description("Import entries from CSV (source,target,from,to[,domain][,note][,forms])")
     .action((file: string) => runAction(async () => {
       const resolvedFile = resolve(file);
       const lines = readFileSync(resolvedFile, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#"));
       const entries: Omit<GlossaryEntry, "id">[] = [];
       for (const line of lines) {
-        const [sourceTerm, targetTerm, sourceLang, targetLang, domain, note] = parseCsvLine(line).map((s) => s.trim());
+        const [sourceTerm, targetTerm, sourceLang, targetLang, domain, note, forms] = parseCsvLine(line).map((s) => s.trim());
         if (!sourceTerm || !targetTerm || !sourceLang || !targetLang) continue;
         // Skip header rows (e.g. "source,target,from,to,..." or "source,target,source_lang,...")
         if (sourceTerm === "source" && targetTerm === "target") continue;
@@ -128,7 +137,7 @@ export function makeGlossaryCommand(): Command {
           console.error(`Skipping row with unsupported language: "${sourceLang}" → "${targetLang}"`);
           continue;
         }
-        entries.push({ sourceTerm, targetTerm, sourceLang, targetLang, domain: domain || undefined, note: note || undefined });
+        entries.push({ sourceTerm, targetTerm, sourceLang, targetLang, domain: domain || undefined, note: note || undefined, forms: parseForms(forms) });
       }
       // One transaction for the whole file — per-row inserts pay a commit each.
       const added = await withGlossary((store) => store.addMany(entries));
@@ -147,9 +156,9 @@ export function makeGlossaryCommand(): Command {
       if (opts.json) {
         console.log(JSON.stringify(entries, null, 2));
       } else {
-        console.log("source,target,from,to,domain,note");
+        console.log("source,target,from,to,domain,note,forms");
         for (const e of entries) {
-          console.log([e.sourceTerm, e.targetTerm, e.sourceLang, e.targetLang, e.domain ?? "", e.note ?? ""].map(csvField).join(","));
+          console.log([e.sourceTerm, e.targetTerm, e.sourceLang, e.targetLang, e.domain ?? "", e.note ?? "", (e.forms ?? []).join("|")].map(csvField).join(","));
         }
       }
     }, { json: opts.json }));

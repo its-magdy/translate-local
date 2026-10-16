@@ -4,6 +4,7 @@ import type { GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { langFallbackChain, normalizeLang } from "@translate-local/shared/utils/language";
 import { SQLITE_BUSY_TIMEOUT_MS } from "@translate-local/shared/constants";
+import { formParts } from "@translate-local/shared/utils/text";
 import { ensurePrivateDir } from "./fsutil";
 
 function escapeRegex(s: string): string {
@@ -147,8 +148,34 @@ function foldKey(term: string): string {
   return out;
 }
 
+/**
+ * `entry.forms` trimmed, without empty ones, duplicates or the target term
+ * itself; undefined when none is left.
+ */
+function normalizeForms(entry: Pick<GlossaryEntry, "targetTerm" | "forms">): string[] | undefined {
+  const trimmed = (entry.forms ?? [])
+    .filter((f) => f.replace(/…|\.\.\./g, "").trim())
+    // A split form with one part left (`a …`) is that part.
+    .map((f) => (formParts(f).length === 1 ? formParts(f)[0] : f.trim()));
+  const forms = [...new Set(trimmed)].filter((f) => f !== entry.targetTerm.trim());
+  return forms.length > 0 ? forms : undefined;
+}
+
+/** A stored `forms` value: a JSON array of strings, else (NULL, or edited into something else) none. */
+function readForms(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const forms: unknown = JSON.parse(value);
+    return Array.isArray(forms) && forms.length > 0 && forms.every((f) => typeof f === "string") ? forms : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class GlossaryStore {
   private db: Database;
+  /** False for an older database the store could not add the forms column to (read-only): forms read as none. */
+  private hasForms = true;
 
   constructor(dbPath: string) {
     try {
@@ -164,10 +191,22 @@ export class GlossaryStore {
           target_lang TEXT NOT NULL,
           domain TEXT,
           note TEXT,
+          forms TEXT,
           UNIQUE(source_term, target_term, source_lang, target_lang)
         )
       `);
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_langs ON glossary(source_lang, target_lang)`);
+      // Databases from before term forms: add the column (a JSON array of strings, or NULL).
+      const columns = this.db.query(`PRAGMA table_info(glossary)`).all() as { name: string }[];
+      if (!columns.some((c) => c.name === "forms")) {
+        try {
+          this.db.exec(`ALTER TABLE glossary ADD COLUMN forms TEXT`);
+        } catch {
+          // Read-only, or another process added it first.
+          const again = this.db.query(`PRAGMA table_info(glossary)`).all() as { name: string }[];
+          this.hasForms = again.some((c) => c.name === "forms");
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError(
@@ -188,25 +227,32 @@ export class GlossaryStore {
       );
     }
     const id = randomUUID();
+    const forms = normalizeForms(entry);
+    const { forms: _, ...rest } = entry;
+    const added: Omit<GlossaryEntry, "id"> = forms ? { ...rest, forms } : rest;
     try {
       const result = this.db.run(
-        `INSERT OR IGNORE INTO glossary (id, source_term, target_term, source_lang, target_lang, domain, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang, entry.domain ?? null, entry.note ?? null],
+        `INSERT OR IGNORE INTO glossary (id, source_term, target_term, source_lang, target_lang, domain, note, forms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang, entry.domain ?? null, entry.note ?? null, forms ? JSON.stringify(forms) : null],
       );
       if (result.changes === 0) {
-        // Duplicate entry — return the existing row
+        // Duplicate entry — return the existing row, with these forms when given
         const existing = this.db.query(
-          `SELECT id FROM glossary WHERE source_term = ? AND target_term = ? AND source_lang = ? AND target_lang = ?`,
-        ).get(entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang) as { id: string } | null;
-        if (existing) return { id: existing.id, ...entry };
+          `SELECT id, forms FROM glossary WHERE source_term = ? AND target_term = ? AND source_lang = ? AND target_lang = ?`,
+        ).get(entry.sourceTerm, entry.targetTerm, entry.sourceLang, entry.targetLang) as { id: string; forms: string | null } | null;
+        if (existing) {
+          if (forms) this.db.run(`UPDATE glossary SET forms = ? WHERE id = ?`, [JSON.stringify(forms), existing.id]);
+          const kept = forms ?? readForms(existing.forms);
+          return { id: existing.id, ...rest, ...(kept ? { forms: kept } : {}) };
+        }
         // Row vanished between INSERT OR IGNORE and SELECT — fall through to return the new id
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError("GLOSSARY_DB_ERROR", `Failed to add glossary entry: ${msg}`, "Check for db corruption", err);
     }
-    return { id, ...entry };
+    return { id, ...added };
   }
 
   /** Add many entries in one transaction — bulk import pays one commit instead of one per row. */
@@ -239,18 +285,22 @@ export class GlossaryStore {
   private queryEntries(where: string, params: string[], failure: string): GlossaryEntry[] {
     try {
       const rows = this.db.query(
-        `SELECT id, source_term, target_term, source_lang, target_lang, domain, note FROM glossary${where} ORDER BY source_term ASC`,
+        `SELECT id, source_term, target_term, source_lang, target_lang, domain, note, ${this.hasForms ? "forms" : "NULL AS forms"} FROM glossary${where} ORDER BY source_term ASC`,
       ).all(...params) as any[];
 
-      return rows.map((r) => ({
-        id: r.id,
-        sourceTerm: r.source_term,
-        targetTerm: r.target_term,
-        sourceLang: r.source_lang,
-        targetLang: r.target_lang,
-        domain: r.domain ?? undefined,
-        note: r.note ?? undefined,
-      }));
+      return rows.map((r) => {
+        const forms = readForms(r.forms);
+        return {
+          id: r.id,
+          sourceTerm: r.source_term,
+          targetTerm: r.target_term,
+          sourceLang: r.source_lang,
+          targetLang: r.target_lang,
+          domain: r.domain ?? undefined,
+          note: r.note ?? undefined,
+          ...(forms ? { forms } : {}),
+        };
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError("GLOSSARY_DB_ERROR", `${failure}: ${msg}`, "Check db integrity", err);

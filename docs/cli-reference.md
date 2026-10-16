@@ -172,11 +172,15 @@ Add a term pair.
 | `--to <lang>` | yes | Target language |
 | `--domain <domain>` | no | Domain label (e.g. `legal`, `medical`) |
 | `--note <note>` | no | Free-text note |
+| `--forms <forms>` | no | Other target forms that also count as the term, separated by `\|`; `a … b` is a split form (see [glossary-guide.md](glossary-guide.md#other-forms-of-a-term)) |
 
 ```bash
 tl glossary add --source "machine learning" --target "تعلم الآلة" --from en --to ar
 tl glossary add --source "API" --target "واجهة برمجية" --from en --to ar --domain tech
+tl glossary add --source deploy --target bereitstellen --from en --to de --forms "Bereitstellung|stellen … bereit"
 ```
+
+Adding an entry that already exists (same source, target and languages) changes nothing, except that `--forms` replaces its forms. To drop all forms, remove the entry and add it again.
 
 #### `tl glossary list`
 
@@ -214,7 +218,7 @@ See [glossary-guide.md](glossary-guide.md) for the CSV format.
 
 #### `tl glossary export`
 
-Export the glossary to stdout.
+Export the glossary to stdout. CSV has the columns `source,target,from,to,domain,note,forms` (forms joined with `|`), which `tl glossary import` reads back.
 
 | Flag | Description |
 |------|-------------|

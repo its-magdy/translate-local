@@ -55,6 +55,12 @@ export interface GlossaryEntry {
   targetLang: string;
   domain?: string;
   note?: string;
+  /**
+   * Other target forms that also count as the term (de `Bereitstellung` or the
+   * split `stellen … bereit` for `bereitstellen`). The prompt still names
+   * `targetTerm`; see `termForms()` in `@translate-local/shared/utils/text`.
+   */
+  forms?: string[];
 }
 
 export interface GlossaryHit {

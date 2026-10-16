@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -286,6 +286,66 @@ describe("capitalizeTerm", () => {
     expect(capitalizeTerm("الكاش")).toBe("الكاش");
     expect(capitalizeTerm("__TLPH_0__")).toBe("__TLPH_0__");
     expect(capitalizeTerm("")).toBe("");
+  });
+});
+
+describe("glossary term forms", () => {
+  const FORMS = ["Bereitstellung", "bereitgestellt", "stellen … bereit"];
+  const deploy = (start = 0): GlossaryHit => {
+    const hit = makeHit("deploy", "bereitstellen", start);
+    return { ...hit, entry: { ...hit.entry, forms: FORMS } };
+  };
+
+  test("counts any form, or the term capitalized, as covered", () => {
+    expect(computeGlossaryCoverage([deploy()], "vor der erneuten Bereitstellung")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+    expect(computeGlossaryCoverage([deploy()], "Die App wurde bereitgestellt.")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+    expect(computeGlossaryCoverage([deploy()], "Bereitstellen")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+    expect(computeGlossaryCoverage([deploy()], "Einsatz jetzt")).toEqual({ glossaryCoverage: 0, missingTerms: ["deploy"] });
+    // Without forms, only the term counts.
+    expect(computeGlossaryCoverage([makeHit("deploy", "bereitstellen", 0)], "Bereitstellung")).toEqual({ glossaryCoverage: 0, missingTerms: ["deploy"] });
+  });
+
+  test("a split form needs its parts as whole words, in order, in one sentence", () => {
+    expect(foundForm("Stellen Sie den Zweig jetzt bereit.", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("Bitte stellen Sie ihn bereit", "bereitstellen", ["stellen ... bereit"])).toBe("stellen ... bereit");
+    expect(foundForm("Bereit? Stellen Sie ihn ab.", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Stellen Sie ihn ab. Wir sind bereit.", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Einstellen und vorbereiten", "bereitstellen", FORMS)).toBeUndefined();
+    expect(foundForm("Stellen Sie ihn\nbereit", "bereitstellen", FORMS)).toBeUndefined();
+    // Abbreviations and an eliding … don't end the sentence.
+    expect(foundForm("Bitte stellen Sie z. B. den Zweig bereit.", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("Stellen Sie… den Zweig bereit", "bereitstellen", FORMS)).toBe("stellen … bereit");
+    expect(foundForm("x 𝐀𝐁𝐂", "y", ["x … 𝐀𝐁"])).toBeUndefined();
+  });
+
+  test("matches forms in linear time on long runs of spaces", () => {
+    const spaces = " ".repeat(20_000);
+    const start = performance.now();
+    foundForm(`a${spaces}b`, "x", [`stellen${spaces}bereit`, `stellen …${spaces}bereit`]);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  test("never splits the target term itself, even with an ellipsis", () => {
+    expect(computeGlossaryCoverage([makeHit("save as", "Speichern unter…", 0)], "Klicken Sie auf Speichern unter")).toEqual({ glossaryCoverage: 0, missingTerms: ["save as"] });
+    expect(computeGlossaryCoverage([makeHit("back", "Weiter … Zurück", 0)], "Weiter … Zurück")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("lends one entry's forms to another entry with the same target term", () => {
+    const withForm = deploy();
+    const other = makeHit("ship", "bereitstellen", 10);
+    expect(computeGlossaryCoverage([withForm, other], "Bereitstellung")).toEqual({ glossaryCoverage: 1, missingTerms: [] });
+  });
+
+  test("keeps a form written inside the term tag", () => {
+    expect(keptTermForm("Bereitstellung", "bereitstellen", FORMS)).toBe("Bereitstellung");
+    expect(keptTermForm("Bereitstellungen", "bereitstellen", FORMS)).toBe("Bereitstellungen");
+    expect(keptTermForm("Bereitstellung", "bereitstellen")).toBeUndefined();
+    // A split form never stands in a tag; a form with more words than the inner is skipped.
+    expect(keptTermForm("stellen", "bereitstellen", FORMS)).toBeUndefined();
+    const forms = new Map([["bereitstellen", FORMS]]);
+    expect(stripGlossaryTags('vor der erneuten <term translation="bereitstellen">Bereitstellung</term>', forms)).toBe("vor der erneuten Bereitstellung");
+    expect(stripGlossaryTags('vor der erneuten <term translation="bereitstellen">Bereitstellung</term>')).toBe("vor der erneuten bereitstellen");
+    expect(stripGlossaryTags('<term translation="bereitstellen">Einsatz</term> jetzt', forms)).toBe("Bereitstellen jetzt");
   });
 });
 
