@@ -8,7 +8,7 @@ All adapters implement the `Adapter` interface from `@translate-local/shared/typ
 
 ```typescript
 export interface Adapter {
-  translate(request: TranslationRequest): Promise<TranslationResult>;
+  translate(request: TranslationRequest): Promise<AdapterResponse>;
   dispose(): Promise<void>;
 }
 ```
@@ -33,25 +33,22 @@ export interface TranslationRequest {
 }
 ```
 
-### `TranslationResult`
+### `AdapterResponse`
 
 ```typescript
-export interface TranslationResult {
-  translated: string;       // The translated text
-  sourceLang: string;
-  targetLang: string;
-  glossaryCoverage: number; // 0–1, computed by the pipeline (not the adapter)
-  missingTerms: string[];   // Computed by the pipeline
+export interface AdapterResponse {
+  translated: string;       // The model's raw output (glossary tags and all)
   metadata: {
     adapter: string;        // Identifier string for this adapter
     durationMs: number;     // Wall-clock time of the translate() call
-    retries: number;        // Set by the pipeline, not the adapter
-    repaired?: boolean;     // Set by the pipeline when its agreement repair changed the text
-    tagChecked?: boolean;   // Set by the pipeline when it made an extra tag-check call
-    keptWord?: boolean;     // Set by the pipeline when the tag check kept the model's word
   };
 }
 ```
+
+That is all an adapter returns. The pipeline strips the glossary tags, computes
+coverage, counts retries and builds the `TranslationResult` that frontends and
+`--json` see (`glossaryCoverage`, `missingTerms`, `glossaryTerms`, and the
+`retries` / `repaired` / `tagChecked` / `keptWord` metadata).
 
 ### Glossary retries (`glossaryReminder`)
 
@@ -132,7 +129,7 @@ export function createAdapter(config: AdapterConfig): Adapter {
 
 ```typescript
 // packages/adapters/src/my-service/index.ts
-import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, AdapterResponse, TranslationRequest } from "@translate-local/shared/types";
 import { buildNaturalPrompt } from "../base";
 
 export class MyServiceAdapter implements Adapter {
@@ -142,7 +139,7 @@ export class MyServiceAdapter implements Adapter {
     this.client = new MyServiceClient(apiKey);
   }
 
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     const start = Date.now();
     const prompt = buildNaturalPrompt(request);
 
@@ -150,15 +147,7 @@ export class MyServiceAdapter implements Adapter {
 
     return {
       translated: text,
-      sourceLang: request.sourceLang,
-      targetLang: request.targetLang,
-      glossaryCoverage: 1,   // placeholder — the pipeline computes the real value
-      missingTerms: [],       // placeholder — the pipeline computes the real value
-      metadata: {
-        adapter: "my-service",
-        durationMs: Date.now() - start,
-        retries: 0,
-      },
+      metadata: { adapter: "my-service", durationMs: Date.now() - start },
     };
   }
 

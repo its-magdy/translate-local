@@ -78,9 +78,13 @@ so far are written first and the rest are left for the next run (see
   "targetLang": "ar",
   "glossaryCoverage": 1,
   "missingTerms": [],
+  "glossaryTerms": 0,
   "metadata": { "adapter": "translate-gemma-local", "durationMs": 420, "retries": 0 }
 }
 ```
+
+`glossaryTerms` is the number of distinct glossary terms found in the source; at
+0 no term matched, so `glossaryCoverage` reads 1 without meaning anything.
 
 `metadata` carries three more fields when the corresponding pass ran, all
 described in the [glossary guide](glossary-guide.md):
