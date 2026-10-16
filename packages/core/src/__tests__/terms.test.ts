@@ -58,6 +58,75 @@ describe("TermSet", () => {
     expect(terms.read("يمكن للتوكن أن يعمل.")).toMatchObject({ translated: "يمكن للتوكن أن يعمل.", glossaryCoverage: 1, missingTerms: [] });
   });
 
+  describe("a full stop the source lacks", () => {
+    it("drops a sentence-final full stop the model added to a label", () => {
+      const TOK = "__TLPH_0__";
+      for (const [text, lang, output, expected] of [
+        ["Save changes", "fr", "Enregistrer les modifications.", "Enregistrer les modifications"],
+        ["Save changes", "fr", "Enregistrer les modifications.\n", "Enregistrer les modifications"],
+        ["Clear the cache", "ar", "امسح ذاكرة التخزين المؤقت.", "امسح ذاكرة التخزين المؤقت"],
+        ["Save changes", "ja", "変更を保存。", "変更を保存"],
+        ["Save changes", "ur", "تبدیلیاں محفوظ کریں۔", "تبدیلیاں محفوظ کریں"],
+        ["Save changes", "hi", "परिवर्तन सहेजें।", "परिवर्तन सहेजें"],
+        ["Upgrade to version 2", "de", "Auf Version 2 aktualisieren.", "Auf Version 2 aktualisieren"],
+        [`Cache size: ${TOK}`, "fr", `Taille du cache : ${TOK}.`, `Taille du cache : ${TOK}`], // ends with a sentinel
+        ['Click "Save"', "fr", "Cliquez sur « Enregistrer ».", "Cliquez sur « Enregistrer »"],
+        ["Saved. Reload the page", "fr", "Enregistré. Rechargez la page.", "Enregistré. Rechargez la page"],
+        ["Remove this server", "ar", "احذف هذا الخادم.‏", "احذف هذا الخادم‏"], // a trailing RLM is kept
+        [`Open ${TOK}docs${TOK.replace("0", "1")}`, "fr", `Ouvrez ${TOK}la documentation${TOK.replace("0", "1")}.`, `Ouvrez ${TOK}la documentation${TOK.replace("0", "1")}`],
+        ["5 minutes", "de", "5 Minuten.", "5 Minuten"],
+      ]) {
+        expect(new TermSet(text, [], [], lang, false).read(output).translated).toBe(expected);
+      }
+    });
+
+    it("keeps end punctuation the source has, and anything but a lone full stop", () => {
+      const TOK = "__TLPH_0__";
+      for (const [text, output] of [
+        ["Save changes.", "Enregistrer les modifications."],
+        ["Saved.)", "Enregistré.)"],
+        ['Say "Hello."', "Dites « Bonjour »."], // the source's period is inside the quotes
+        ["Is it saved?", "Est-ce enregistré ?"],
+        ["Save changes", "Enregistrer les modifications !"],
+        ["Loading", "Chargement..."],
+        ["Loading", "Chargement…"],
+        ["Loading", "Chargement.."],
+        ["For example", "z. B."], // single-letter abbreviation
+        ["For example", "z.B."],
+        ["Images, videos and more", "Images, vidéos, etc."],
+        ["Images, videos and more", "Bilder, Videos usw."],
+        ["Acme", "Acme Inc."],
+        ["5 min", "5 Min."],
+        ["Order number", "Bestell-Nr."],
+        ["For example", "p. ex."],
+        ["Settings", "Paramètres"],
+        ["Settings", ""],
+        // The source's end punctuation sits before sentinels or markdown closers.
+        [`Read the ${TOK}docs.${TOK.replace("0", "1")}`, `Lisez la ${TOK}documentation${TOK.replace("0", "1")}.`],
+        [`Saved.${TOK}`, `Enregistré${TOK}.`],
+        ["**Saved.**", "**Enregistré**."],
+        ["_Saved._", "_Enregistré_."],
+        ["`npm i`.`", "`npm i`."],
+        // Other scripts' end punctuation, and a bidi mark after the source's period.
+        ["Պահպանված է։", "Enregistré."],
+        ["ተቀምጧል።", "Enregistré."],
+        ["သိမ်းပြီး။", "Enregistré."],
+        ["រក្សាទុក។", "Enregistré."],
+        ["ཉར་ཚགས།", "Enregistré."],
+        ["सहेजा गया॥", "Enregistré."],
+        ["Really‼", "Vraiment."],
+        ["Really⁉", "Vraiment."],
+        ["Really‽", "Vraiment."],
+        ["Αποθηκεύτηκε;", "Enregistré."],
+        ["Τι;", "Quoi."],
+        ["تم الحفظ.‏", "Enregistré."],
+      ]) {
+        expect(new TermSet(text, [], [], "fr", false).read(output).translated).toBe(output);
+      }
+    });
+
+  });
+
   it("drops a full stop the source lacks, except in image mode", () => {
     expect(new TermSet("Save changes", [], [], "fr", false).read("Enregistrer les modifications.").translated).toBe("Enregistrer les modifications");
     expect(new TermSet("", [], [], "fr", true).read("Enregistrer les modifications.").translated).toBe("Enregistrer les modifications.");
