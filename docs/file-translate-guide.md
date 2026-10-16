@@ -277,6 +277,21 @@ Override all of these with `--translate-all`.
 
 ---
 
+## Label punctuation
+
+Catalog values are mostly UI labels without a final period, and the model
+likes to add one (`Save changes` → `Enregistrer les modifications.`). When the
+source value has no sentence-final punctuation, `tl` drops one trailing full
+stop (`.`, `。`, `．`, `۔`, `।`) from the translation. Abbreviations (`etc.`,
+`Bestell-Nr.`), single letters (`z. B.`), words that already contain a dot and
+glossary terms ending in a period keep theirs, and a source that ends in
+punctuation behind a placeholder or markdown closer
+(`Read the {{link}}docs.{{/link}}`, `**Saved.**`) counts as punctuated. Across
+every recorded file-mode run this changed 326 of 9,039 leaves, all of them
+period-only.
+
+---
+
 ## Atomic write
 
 `tl` always writes the output via temp-file-plus-rename:
@@ -342,7 +357,7 @@ Long translated strings are not reflowed — the writer is configured with `line
 
 ## Glossary and context in file mode
 
-Glossary terms are applied per leaf, exactly as they would be for a single-string translation. The same `--glossary prefer|strict` flag governs both modes.
+Glossary terms are applied per leaf, exactly as they would be for a single-string translation. The same `--glossary prefer|strict` flag governs both modes, and so do the passes that follow a translation: term [forms](glossary-guide.md#other-forms-of-a-term), the [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word), the article and elision fix-ups, and the [agreement repair](glossary-guide.md#agreement-repair) all run per key. Entries are read from SQLite once per file, not once per key.
 
 Context retrieval also runs per leaf, with the source value as the query. If you've added a context source via `tl context add`, snippets are retrieved per key, using the same `context.maxSnippets` and `context.minRelevance` settings as single-string mode (see [Relevance score](context-guide.md#relevance-score)). The tokenizer is Unicode-aware — Arabic, Cyrillic, CJK, and Thai values retrieve context as well as Latin ones (see [Tokenization](context-guide.md#tokenization)).
 
@@ -380,5 +395,5 @@ All errors carry a `tag` and a `hint`. With `--json`, errors serialize as `{ "er
 
 ## What's coming next
 
-- **Phase B (YAML)** — Rails / Hugo / Symfony non-ICU catalogs with full comment, anchor, and block-scalar preservation.
-- **Phase C (later)** — proper ARB and xcstrings handling.
+- Proper ARB and xcstrings handling (both are refused today; `--format raw-json` is the escape hatch).
+- Multi-document YAML and anchored values.
