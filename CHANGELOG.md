@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.5.15] - 2026-10-13
+## [0.5.16] - 2026-10-16
+
+### Added
+- **Glossary terms can accept other target forms.** A term like German `deploy → bereitstellen` is often correctly written as `Bereitstellung`, `bereitgestellt` or `stellen … bereit`. Before, `tl` reported such translations as missing the term, retried and could replace a correct sentence with a worse one. Add the forms with `tl glossary add … --forms "Bereitstellung|bereitgestellt|stellen … bereit"` or a 7th `forms` column in CSV imports; `glossary list` shows them. A split form (`a … b`) counts when its parts appear in order within one sentence. Prompts still name only the main term. Existing glossaries are upgraded automatically and behave exactly as before until you add forms. On our German benchmark, `Bitte stellen Sie den Zweig … bereit.` went from 0/3 to 3/3 correct, and a rollback message from 1/3 to 3/3 in 1 model call instead of 4.
+
+### Changed
+- **A glossary term tagged around the wrong word is checked before it is replaced.** The model sometimes puts the glossary term in the right place but marks a different word as the term, so the translation came out with the term twice (`Bereitstellen nach jedem Commit bereitstellen.` for "Deploy automatically after each commit."). When the term already appears elsewhere in the sentence, `tl` now asks the model once more and keeps the marked word if that answer confirms it (`Automatisch nach jedem Commit bereitstellen.`). This happens on about 0.1% of translations; on our benchmark that sentence went from 0/3 to 2/3 correct with no change in the total number of model calls.
+- **No added period on labels.** The model often ended a UI label with a period the source lacks (`Make the repository public` → `Rendre le dépôt public.`). `tl` now removes it when the source has no sentence-final punctuation; abbreviations (`etc.`, `Nr.`), ellipses and glossary terms ending in a period are kept. On our benchmark this removed 10 (French), 19 (German) and 26 (Arabic) added periods per 3 runs of 131 keys, and changed nothing else.
+
+### Fixed
+- **Glossary terms keep the capital the model gave them.** When the model wrote a term at the start of a sentence or label (`Hôte : détails`), `tl` replaced it with the glossary's lowercase form (`hôte : détails`). Capitalized starts are now kept: lowercase sentence starts went from 21/240 to 1/240 in French and 12/99 to 0/99 in German on our benchmark.
+- **All-caps glossary terms no longer come out half lowercase.** An all-caps word marked as a term (`HÔTES`) became `hôteS`. It is now `hôtes`, or `Hôtes` at the start of a sentence.
 
 ### Added
 - **File-mode benchmark.** `scripts/bench/file-mode.ts` translates a 131-key dashboard catalog with a real model and reports, per language, the model calls, grammar-repair calls, applied repairs and missed glossary terms. It measures what glossary and repair changes cost on a whole file, not just single sentences.
