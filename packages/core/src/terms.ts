@@ -1,7 +1,6 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
-import { langFallbackChain } from "@translate-local/shared/utils/language";
-import { arabicLamMerge, escapeRegExp, fixTermAgreement } from "./agreement";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
+import { fixTermAgreement, splitArabicArticles } from "./agreement";
 import { dropAddedFullStop } from "./punctuation";
 
 // A term tag in model output, closed or not: [, translation attribute, inner text].
@@ -127,22 +126,4 @@ function substitutesTerm(raw: string, targetTerms: string[], forms: ReadonlyMap<
     if (closed ? keptTermForm(inner, term, forms.get(term)) === undefined && kept?.get(term) !== inner : inner.trim() !== term) return true;
   }
   return false;
-}
-
-/**
- * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`,
- * `للغة` → `لاللغة`) so the exact-substring coverage finds an `ال`-initial
- * term. The merge must not follow `ل` or `ا`, so the misspelt `لللغة` stays a
- * miss. Harakat are dropped first, as coverage drops them anyway, so `للّغة`
- * splits too. Coverage only: the returned text keeps the merge, which is
- * correct grammar (and what `fixTermAgreement()` writes).
- */
-function splitArabicArticles(text: string, targetLang: string, terms: string[]): string {
-  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
-  text = stripCombiningMarks(text);
-  for (const term of terms.map(stripCombiningMarks)) {
-    if (!term.startsWith("ال")) continue;
-    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
-  }
-  return text;
 }
