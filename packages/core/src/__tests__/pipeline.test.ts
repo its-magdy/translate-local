@@ -680,13 +680,13 @@ describe("runPipeline", () => {
         expect(result.metadata.repaired).toBeUndefined();
       }
 
-      // A period the source has is restored, and a repair that also fixes agreement is kept.
-      for (const [text, echo, repair] of [
-        ["Delete the branch.", 'Löschen Sie den <term translation="Zweig">Ast</term>', "Löschen Sie den Zweig."],
-        ["Create a new branch", 'Erstelle eine neue <term translation="Zweig">Abteilung</term>', "Erstelle einen neuen Zweig."],
+      // A period the source has is restored, and a repair that also fixes agreement is kept (without the added period).
+      for (const [text, echo, repair, expected] of [
+        ["Delete the branch.", 'Löschen Sie den <term translation="Zweig">Ast</term>', "Löschen Sie den Zweig.", "Löschen Sie den Zweig."],
+        ["Create a new branch", 'Erstelle eine neue <term translation="Zweig">Abteilung</term>', "Erstelle einen neuen Zweig.", "Erstelle einen neuen Zweig"],
       ]) {
         const result = await runPipeline(text, "en", "de", repairAdapter([echo], repair, []), store);
-        expect(result.translated).toBe(repair);
+        expect(result.translated).toBe(expected);
         expect(result.metadata.repaired).toBe(true);
       }
     });
@@ -726,6 +726,79 @@ describe("runPipeline", () => {
       const aborting = { ...adapter, translate: async (req: any) => { const res = await adapter.translate(req); controller.abort(); return res; } };
       await expect(runPipeline(TEXT, "en", "de", aborting, store, { signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
       expect(requests).toHaveLength(1);
+    });
+  });
+
+  describe("a full stop the source lacks", () => {
+    function fixedAdapter(output: string, requests: any[] = []) {
+      return {
+        name: "fixed",
+        async translate(req: any) {
+          requests.push(req);
+          return { translated: output, sourceLang: req.sourceLang, targetLang: req.targetLang, glossaryCoverage: 1, missingTerms: [], metadata: { adapter: "fixed", durationMs: 0, retries: 0 } };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    it("drops a sentence-final full stop the model added to a label", async () => {
+      const TOK = "__TLPH_0__";
+      for (const [text, lang, output, expected] of [
+        ["Save changes", "fr", "Enregistrer les modifications.", "Enregistrer les modifications"],
+        ["Save changes", "fr", "Enregistrer les modifications.\n", "Enregistrer les modifications"],
+        ["Clear the cache", "ar", "امسح ذاكرة التخزين المؤقت.", "امسح ذاكرة التخزين المؤقت"],
+        ["Save changes", "ja", "変更を保存。", "変更を保存"],
+        ["Save changes", "ur", "تبدیلیاں محفوظ کریں۔", "تبدیلیاں محفوظ کریں"],
+        ["Save changes", "hi", "परिवर्तन सहेजें।", "परिवर्तन सहेजें"],
+        ["Upgrade to version 2", "de", "Auf Version 2 aktualisieren.", "Auf Version 2 aktualisieren"],
+        [`Cache size: ${TOK}`, "fr", `Taille du cache : ${TOK}.`, `Taille du cache : ${TOK}`], // ends with a sentinel
+        ['Click "Save"', "fr", "Cliquez sur « Enregistrer ».", "Cliquez sur « Enregistrer »"],
+        ["Saved. Reload the page", "fr", "Enregistré. Rechargez la page.", "Enregistré. Rechargez la page"],
+      ]) {
+        const result = await runPipeline(text, "en", lang, fixedAdapter(output), store);
+        expect(result.translated).toBe(expected);
+      }
+    });
+
+    it("keeps end punctuation the source has, and anything but a lone full stop", async () => {
+      for (const [text, output] of [
+        ["Save changes.", "Enregistrer les modifications."],
+        ["Saved.)", "Enregistré.)"],
+        ['Say "Hello."', "Dites « Bonjour »."], // the source's period is inside the quotes
+        ["Is it saved?", "Est-ce enregistré ?"],
+        ["Save changes", "Enregistrer les modifications !"],
+        ["Loading", "Chargement..."],
+        ["Loading", "Chargement…"],
+        ["Loading", "Chargement.."],
+        ["For example", "z. B."], // single-letter abbreviation
+        ["For example", "z.B."],
+        ["Images, videos and more", "Images, vidéos, etc."],
+        ["Images, videos and more", "Bilder, Videos usw."],
+        ["Acme", "Acme Inc."],
+        ["Settings", "Paramètres"],
+      ]) {
+        const result = await runPipeline(text, "en", "fr", fixedAdapter(output), store);
+        expect(result.translated).toBe(output);
+      }
+    });
+
+    it("keeps a full stop that ends a glossary term, and counts coverage on the returned text", async () => {
+      store.add({ sourceTerm: "Acme", targetTerm: "Acme S.A.", sourceLang: "en", targetLang: "fr" });
+      const kept = await runPipeline("Contact Acme", "en", "fr", fixedAdapter("Contactez Acme S.A."), store);
+      expect(kept.translated).toBe("Contactez Acme S.A.");
+      expect(kept.missingTerms).toEqual([]);
+
+      store.add({ sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" });
+      const requests: any[] = [];
+      const dropped = await runPipeline("Remove this server", "en", "fr", fixedAdapter("Supprimez cet hôte.", requests), store);
+      expect(dropped.translated).toBe("Supprimez cet hôte");
+      expect(dropped.missingTerms).toEqual([]);
+      expect(requests).toHaveLength(1);
+    });
+
+    it("leaves image mode alone", async () => {
+      const result = await runPipeline("", "en", "fr", fixedAdapter("Enregistrer les modifications."), store, { imageBase64: "dGVzdA==" });
+      expect(result.translated).toBe("Enregistrer les modifications.");
     });
   });
 

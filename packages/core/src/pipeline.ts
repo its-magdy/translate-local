@@ -109,7 +109,8 @@ export async function runPipeline(
     // with the model's word, so such a result gets an agreement repair.
     const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, forms);
 
-    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
+    const postprocessed = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
+    const translated = isImageMode ? postprocessed : dropAddedFullStop(postprocessed, text, agreementTerms);
     const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, agreementTerms));
     const result: TranslationResult = {
       ...raw,
@@ -172,7 +173,7 @@ export async function runPipeline(
       if (signal?.aborted) throw cancelledError(err);
       return draft;
     }
-    const repaired = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
+    const repaired = dropAddedFullStop(fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms), text, agreementTerms);
     const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetLang, agreementTerms));
     const ratio = repaired.length / draft.translated.length;
     const accepted =
@@ -235,8 +236,46 @@ function appendsEndPunctuation(draft: string, repaired: string, source: string):
   return (
     repaired.startsWith(draft) &&
     /^\s*[.!?…。！？؟]+$/u.test(repaired.slice(draft.length)) &&
-    !/[.!?…。！？؟]$/u.test(source.trimEnd())
+    !endsWithPunctuation(source)
   );
+}
+
+/** Sentence-final punctuation (`.`, `!`, `?`, `…`, CJK, Arabic, Urdu, Devanagari). */
+const END_PUNCTUATION = ".!?…。．！？؟۔।";
+/** The full stops among END_PUNCTUATION. */
+const FULL_STOPS = ".。．۔।";
+/** Closing quotes and brackets, which may follow a sentence's end punctuation. */
+const CLOSERS = `"'”’»›)]}」』）`;
+/** Abbreviations a translation can end with although the source has no full stop. */
+const ABBREVIATIONS = new Set(["etc", "usw", "bzw", "ggf", "inkl", "vgl", "ca", "vs", "cf", "inc", "ltd", "co", "corp", "jr", "sr"]);
+
+/** Whether `source` ends with sentence-final punctuation, maybe followed by closing quotes or brackets. */
+function endsWithPunctuation(source: string): boolean {
+  let i = source.length - 1;
+  while (i >= 0 && (/\s/u.test(source[i]) || CLOSERS.includes(source[i]))) i--;
+  return i >= 0 && END_PUNCTUATION.includes(source[i]);
+}
+
+/**
+ * Drops the full stop the model put at the end of `translated` when the
+ * source has no sentence-final punctuation (`Save changes` →
+ * `Enregistrer les modifications.`): UI labels have none, and the model added
+ * one to about 6 of 131 catalog labels per language in the file-mode bench.
+ * Kept after another `.`, after a one-letter word or one with a dot inside
+ * (`z. B.`, `z.B.`), after a common abbreviation (`etc.`) and when a glossary
+ * term ends with it. `translated` is already trimmed.
+ */
+function dropAddedFullStop(translated: string, source: string, terms: string[]): string {
+  if (source.trim() === "" || endsWithPunctuation(source) || !FULL_STOPS.includes(translated.at(-1) ?? "")) return translated;
+  const body = translated.slice(0, -1);
+  if (translated.endsWith(".")) {
+    let start = body.length;
+    while (start > 0 && !/\s/u.test(body[start - 1])) start--;
+    const word = body.slice(start);
+    if (word === "" || word.includes(".") || /^\p{L}$/u.test(word) || ABBREVIATIONS.has(word.toLowerCase())) return translated;
+    if (terms.some((term) => term.endsWith(".") && translated.endsWith(term))) return translated;
+  }
+  return body;
 }
 
 /** How many times `char` occurs in `text`. */
