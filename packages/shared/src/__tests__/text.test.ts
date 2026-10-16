@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm, tagCheckCandidates, checkKeepsWord } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -450,5 +450,101 @@ describe("computeGlossaryCoverage", () => {
   test("reports a missing CJK target", () => {
     const hit = makeHit("machine learning", "机器学习", 0);
     expect(computeGlossaryCoverage([hit], "我喜欢深度学习")).toEqual({ glossaryCoverage: 0, missingTerms: ["machine learning"] });
+  });
+});
+
+describe("tag check", () => {
+  const deploy = makeHit("deploy", "bereitstellen", 0);
+  const deployForms = new Map([["bereitstellen", ["Bereitstellung", "stellen … bereit"]]]);
+  const auto = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
+
+  test("finds a tag around another word while the term is outside the tags", () => {
+    expect(tagCheckCandidates(auto, [deploy])).toEqual(new Map([["bereitstellen", "Automatisch"]]));
+    const mirror = 'Copier le <term translation="dépôt">répertoire</term> vers un autre dépôt distant.';
+    expect(tagCheckCandidates(mirror, [makeHit("repository", "dépôt", 0)])).toEqual(new Map([["dépôt", "répertoire"]]));
+    // No term outside the tags, or a kept form inside: nothing to check.
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> nach jedem Commit.', [deploy]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="bereitstellen">Bereitstellen</term> nach bereitstellen.', [deploy]).size).toBe(0);
+    expect(tagCheckCandidates(auto, []).size).toBe(0);
+  });
+
+  test("needs exactly one hit and one tag for the term", () => {
+    expect(tagCheckCandidates(auto, [deploy, makeHit("deploy", "bereitstellen", 30)]).size).toBe(0);
+    // Two source terms with one target term count as two hits.
+    expect(tagCheckCandidates(auto, [deploy, makeHit("ship", "bereitstellen", 30)]).size).toBe(0);
+    const twoTags = '<term translation="bereitstellen">Automatisch</term> <term translation="bereitstellen">nach</term> bereitstellen.';
+    expect(tagCheckCandidates(twoTags, [deploy]).size).toBe(0);
+    // An unclosed second tag for the term counts as a tag too.
+    expect(tagCheckCandidates(`${auto} <term translation="bereitstellen">x`, [deploy]).size).toBe(0);
+    // Another term's hits don't matter.
+    expect(tagCheckCandidates(auto, [deploy, makeHit("branch", "Zweig", 20)])).toEqual(new Map([["bereitstellen", "Automatisch"]]));
+  });
+
+  test("counts the term's forms outside the tags, one-piece and split", () => {
+    const noun = '<term translation="bereitstellen">Automatisch</term> nach jeder Bereitstellung.';
+    expect(tagCheckCandidates(noun, [deploy], deployForms)).toEqual(new Map([["bereitstellen", "Automatisch"]]));
+    expect(tagCheckCandidates(noun, [deploy]).size).toBe(0);
+    const split = 'Bitte <term translation="bereitstellen">automatisch</term> stellen Sie den Zweig bereit.';
+    expect(tagCheckCandidates(split, [deploy], deployForms)).toEqual(new Map([["bereitstellen", "automatisch"]]));
+    // A split form's parts around the tag count: the tag may hold the word between them.
+    expect(tagCheckCandidates('Stellen <term translation="bereitstellen">Sie</term> bereit.', [deploy], deployForms).size).toBe(1);
+    // A part inside the tag doesn't.
+    expect(tagCheckCandidates('<term translation="bereitstellen">Stellen Sie</term> bereit.', [deploy], deployForms).size).toBe(0);
+  });
+
+  test("never for sentinels, leaked source words or non-words", () => {
+    const sentinel = makeHit("__TLPH_0__", "__TLPH_0__", 0);
+    expect(tagCheckCandidates('<term translation="__TLPH_0__">x</term> __TLPH_0__', [sentinel]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="bereitstellen">Deploy</term> und bereitstellen', [deploy]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="bereitstellen">« deploy »</term> und bereitstellen', [deploy]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="bereitstellen">…</term> bereitstellen', [deploy]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="bereitstellen"><b>x</term> bereitstellen', [deploy]).size).toBe(0);
+  });
+
+  test("a CJK term counts as a substring outside the tags", () => {
+    const key = makeHit("key", "キー", 0);
+    expect(tagCheckCandidates('<term translation="キー">鍵</term>を押してキーボード', [key])).toEqual(new Map([["キー", "鍵"]]));
+  });
+
+  test("an unclosed tag and the text after it are not outside", () => {
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term translation="Zweig">nach bereitstellen', [deploy, makeHit("branch", "Zweig", 20)]).size).toBe(0);
+    // A leftover opening tag without a translation attribute is dropped, its text kept.
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term>bereitstellen', [deploy]).size).toBe(1);
+  });
+
+  test("the strip keeps a checked word, only for its term and exact inner", () => {
+    const kept = new Map([["bereitstellen", "Automatisch"]]);
+    expect(stripGlossaryTags(auto, undefined, kept)).toBe("Automatisch nach jedem Commit bereitstellen.");
+    expect(stripGlossaryTags(auto)).toBe("Bereitstellen nach jedem Commit bereitstellen.");
+    expect(stripGlossaryTags('<term translation="Zweig">Automatisch</term>', undefined, kept)).toBe("Zweig");
+    expect(stripGlossaryTags('<term translation="bereitstellen">Manuell</term>', undefined, kept)).toBe("Bereitstellen");
+  });
+
+  test("keeps the word only when the check has the term and the word", () => {
+    expect(checkKeepsWord("Automatisch nach jedem Commit bereitstellen.", "bereitstellen", "Automatisch")).toBe(true);
+    expect(checkKeepsWord("Nach jedem Commit automatisch bereitstellen.", "bereitstellen", "Automatisch")).toBe(true);
+    // The word only as part of another word, or the term missing.
+    expect(checkKeepsWord("Automatischer Commit, dann bereitstellen.", "bereitstellen", "Automatisch")).toBe(false);
+    expect(checkKeepsWord("Automatisch nach jedem Commit.", "bereitstellen", "Automatisch")).toBe(false);
+    expect(checkKeepsWord("Automatisch nach jeder Bereitstellung.", "bereitstellen", "Automatisch", deployForms)).toBe(true);
+    // The counter-example: the check translates the source word as the term.
+    expect(checkKeepsWord("Répliquer le dépôt vers un deuxième serveur distant.", "dépôt", "répertoire")).toBe(false);
+    // A tag around the word in the check is the term's place: the strip puts the term there.
+    expect(checkKeepsWord('Copier le <term translation="dépôt">répertoire</term> vers un dépôt.', "dépôt", "répertoire")).toBe(false);
+    // Marks dropped, quotes and apostrophes handled.
+    expect(checkKeepsWord("Envoyez la validation vers la branche d'origine.", "branche", "d'origine")).toBe(true);
+    expect(checkKeepsWord("Envoyez la validation vers la branche d'origine.", "branche", "« origine »")).toBe(true);
+    expect(checkKeepsWord("Deploiement automatique, puis depot.", "dépôt", "Déploiement")).toBe(true);
+  });
+
+  test("runs in linear time on many tags", () => {
+    const start = performance.now();
+    const tags = Array.from({ length: 50_000 }, (_, i) => `<term translation="w${i}q">x</term> filler text`).join(" ");
+    tagCheckCandidates(tags, [makeHit("a", "filler", 0), makeHit("b", "w7q", 0)]);
+    tagCheckCandidates("<term".repeat(100_000), [deploy]);
+    tagCheckCandidates('<term translation="bereitstellen">'.repeat(50_000), [deploy]);
+    tagCheckCandidates('<term translation="bereitstellen">a</term>'.repeat(50_000) + " bereitstellen", [deploy]);
+    checkKeepsWord("a ".repeat(100_000) + "bereitstellen", "bereitstellen", "a b");
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 });
