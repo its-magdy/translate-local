@@ -453,8 +453,9 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
  * The tag check's decision for a tagCheckCandidates entry (term T, tag inner
  * `inner`): keep the model's word X only when `check`, the model's output for
  * the code-switched source (T in place of the glossary source word), has T or
- * one of its `forms` and X as a whole word, case-insensitively, after the tag
- * strip with combining marks dropped. X then translates another source word;
+ * one of its `forms` and X, each as a whole word (X case-insensitively), after
+ * the tag strip with combining marks dropped. An X that is a part of one of
+ * T's split forms is never kept. X then translates another source word;
  * when the model wrote X for the glossary source word, the check's tag strip
  * puts T there and X is gone. X is looked for outside every occurrence of T
  * and its one-piece forms (any case), so a part of a multi-word term does not
@@ -463,13 +464,17 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
  */
 export function checkKeepsWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
   const stripped = stripGlossaryTags(check, forms);
-  if (foundForm(stripped, term, forms?.get(term)) === undefined) return false;
+  const termForms = forms?.get(term) ?? [];
+  if (findForm(stripped, term, termForms, true) === undefined) return false;
   const fold = (s: string) => stripCombiningMarks(s).toLowerCase();
+  // A part of a split form (`Stellen` of `stellen … bereit`) is the term itself.
+  const word = fold(unquote(inner));
+  if (termForms.some((form) => formParts(form).length > 1 && formParts(form).some((part) => fold(part) === word))) return false;
   // Longest first, so a form inside another is blanked with it.
-  const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
+  const spans = [term, ...contiguousForms(termForms)].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
   // A NUL where T was, as tagCheckCandidates blanks tags (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripped));
-  return wordFinder(fold(unquote(inner)))(rest, 0) !== undefined;
+  return wordFinder(word)(rest, 0) !== undefined;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

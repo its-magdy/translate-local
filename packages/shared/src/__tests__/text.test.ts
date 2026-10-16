@@ -559,6 +559,13 @@ describe("tag check", () => {
     expect(checkKeepsWord("Pull Request: Request prüfen.", "Pull Request", "Request")).toBe(true);
     const forms = new Map([["Merge-Anfrage", ["Zusammenführungs Anfrage"]]]);
     expect(checkKeepsWord("Eine Zusammenführungs Anfrage öffnen.", "Merge-Anfrage", "Anfrage", forms)).toBe(false);
+    // The term must be a whole word in the check too, as tagCheckCandidates requires outside the tags.
+    expect(checkKeepsWord("Le serveur de l'hôtel.", "hôte", "serveur")).toBe(false);
+    expect(checkKeepsWord("Le serveur de l'Hôte.", "hôte", "serveur")).toBe(true);
+    // A part of a split form is the term, not another word.
+    const split = new Map([["bereitstellen", ["stellen … bereit"]]]);
+    expect(checkKeepsWord("Stellen Sie den Zweig bereit.", "bereitstellen", "Stellen", split)).toBe(false);
+    expect(checkKeepsWord("Stellen Sie den Zweig bereit.", "bereitstellen", "Zweig", split)).toBe(true);
   });
 
   test("runs in linear time on many tags", () => {
