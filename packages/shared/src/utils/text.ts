@@ -128,6 +128,8 @@ export function contiguousForms(forms: readonly string[]): string[] {
  * The matched part is written as that form itself, or as `capitalizeTerm(form)`
  * when the model wrote it that way (de `Bereitstellen` for `bereitstellen`), so
  * the output always contains one of the two exactly (coverage accepts both).
+ * When the part is rewritten in a word with no lowercase letter, the rest of the
+ * word is lowercased too (`HÔTES` → `hôtes`, not `hôteS`).
  * Placeholder sentinel tags always become the attribute.
  */
 export function keptTermForm(inner: string, term: string, forms: readonly string[] = []): string | undefined {
@@ -142,7 +144,9 @@ export function keptTermForm(inner: string, term: string, forms: readonly string
     const match = new RegExp(escapeRegExp(candidate), "iu").exec(word);
     if (!match) continue;
     const form = match[0] === capitalizeTerm(candidate) ? match[0] : candidate;
-    return word.slice(0, match.index) + form + word.slice(match.index + match[0].length);
+    // An all-caps word (`HÔTES`) is lowercased around the rewritten part, or it reads `hôteS`.
+    const rest = form === match[0] || /\p{Ll}/u.test(word) ? (s: string) => s : (s: string) => s.toLowerCase();
+    return rest(word.slice(0, match.index)) + form + rest(word.slice(match.index + match[0].length));
   }
   return undefined;
 }

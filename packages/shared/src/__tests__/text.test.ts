@@ -148,6 +148,22 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags('<term translation="iOS">Système</term> mis à jour')).toBe("iOS mis à jour");
   });
 
+  test("lowercases the rest of an all-caps word whose matched part is written as the term", () => {
+    expect(stripGlossaryTags('Les <term translation="hôte">HÔTES</term> sont prêts')).toBe("Les hôtes sont prêts");
+    expect(stripGlossaryTags("<term translation=\"hôte\">L'HÔTE</term>")).toBe("l'hôte");
+    expect(stripGlossaryTags('<term translation="Zweig">ZWEIGE</term>')).toBe("Zweige");
+    // Capital sharp s folds to ß, so the span and the rest are sliced from the model's word.
+    expect(stripGlossaryTags('<term translation="Straße">STRAẞEN</term>')).toBe("Straßen");
+    // SS does not fold to ß: no match, so the term replaces the word.
+    expect(stripGlossaryTags('<term translation="Straße">STRASSEN</term>')).toBe("Straße");
+    // Kept as written: the term itself, or capitalized, matched exactly.
+    expect(stripGlossaryTags('<term translation="API">APIS</term>')).toBe("APIS");
+    expect(stripGlossaryTags('<term translation="x">XS</term>')).toBe("XS");
+    // A word with a lowercase letter keeps the rest as written.
+    expect(stripGlossaryTags('<term translation="Zweig">ZWEIGe</term>')).toBe("Zweige");
+    expect(stripGlossaryTags('<term translation="الكاش">والكاش</term>')).toBe("والكاش");
+  });
+
   test("capitalizes a replacing term when the model's word is capitalized at a sentence start", () => {
     expect(stripGlossaryTags('<term translation="hôte">Serveur</term> : détails')).toBe("Hôte : détails");
     expect(stripGlossaryTags('  <term translation="hôte">« Serveur »</term> prêt')).toBe("  Hôte prêt");
