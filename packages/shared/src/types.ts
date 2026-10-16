@@ -25,12 +25,24 @@ export interface TranslationRequest {
   };
 }
 
+/** What an adapter returns: the raw model output and its own timing. */
+export interface AdapterResponse {
+  translated: string;
+  metadata: {
+    adapter: string;
+    durationMs: number;
+  };
+}
+
+/** What the pipeline returns (and `--json` prints). */
 export interface TranslationResult {
   translated: string;
   sourceLang: string;
   targetLang: string;
   glossaryCoverage: number; // 0-1
   missingTerms: string[];
+  /** Distinct glossary terms found in the source. 0 means none matched, so coverage reads 1 and says nothing. */
+  glossaryTerms: number;
   metadata: {
     adapter: string;
     durationMs: number;
@@ -49,7 +61,7 @@ export interface TranslationResult {
 }
 
 export interface Adapter {
-  translate(request: TranslationRequest): Promise<TranslationResult>;
+  translate(request: TranslationRequest): Promise<AdapterResponse>;
   dispose(): Promise<void>;
 }
 

@@ -1,4 +1,4 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, AdapterResponse } from "@translate-local/shared/types";
 import { cancelledError } from "@translate-local/shared/errors";
 import { injectGlossaryTags, stripGlossaryTags } from "@translate-local/shared/utils/text";
 
@@ -25,7 +25,7 @@ export class MockAdapter implements Adapter {
     this.ignoreGlossary = options.ignoreGlossary ?? process.env.TL_MOCK_IGNORE_GLOSSARY === "1";
   }
 
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     if (request.signal?.aborted) throw cancelledError();
     const start = Date.now();
 
@@ -59,16 +59,7 @@ export class MockAdapter implements Adapter {
 
     return {
       translated,
-      sourceLang: request.sourceLang,
-      targetLang: request.targetLang,
-      // Real coverage is computed by the pipeline on the postprocessed text.
-      glossaryCoverage: 1,
-      missingTerms: [],
-      metadata: {
-        adapter: this.name,
-        durationMs: Date.now() - start,
-        retries: 0,
-      },
+      metadata: { adapter: this.name, durationMs: Date.now() - start },
     };
   }
 

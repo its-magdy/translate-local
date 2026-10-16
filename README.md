@@ -194,6 +194,7 @@ tl "good morning" --from en --to ar --json
   "targetLang": "ar",
   "glossaryCoverage": 1,
   "missingTerms": [],
+  "glossaryTerms": 0,
   "metadata": { "adapter": "translate-gemma-local", "durationMs": 5065, "retries": 0 }
 }
 ```

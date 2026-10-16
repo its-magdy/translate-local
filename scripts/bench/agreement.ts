@@ -22,7 +22,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
+import type { Adapter, AdapterResponse, TranslationRequest } from "../../packages/shared/src/types";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
 import { computeGlossaryCoverage } from "../../packages/shared/src/utils/text";
 import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translate-gemma/local";
@@ -92,7 +92,7 @@ class CountingAdapter implements Adapter {
   raws: string[] = [];
   repairs = 0; // agreement repair calls (#115), also counted in raws
   constructor(private readonly inner: Adapter) {}
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     if (request.repairTerms) this.repairs++;
     const res = await this.inner.translate(request);
     this.raws.push(res.translated);

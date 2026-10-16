@@ -30,7 +30,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
+import type { Adapter, AdapterResponse, TranslationRequest } from "../../packages/shared/src/types";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
 import { tagCheckCandidates } from "../../packages/shared/src/utils/text";
 import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translate-gemma/local";
@@ -83,11 +83,11 @@ type Call = { kind: "attempt" | "check" | "repair"; source: string; raw: string 
 class ProbeAdapter implements Adapter {
   calls: Call[] = [];
   constructor(private readonly inner: Adapter, private readonly first: string) {}
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     const kind = request.repairTerms ? "repair" : this.calls.length === 0 ? "attempt" : "check";
     const res = kind === "check"
       ? await this.inner.translate(request)
-      : { translated: kind === "repair" ? request.source : this.first, sourceLang: request.sourceLang, targetLang: request.targetLang, glossaryCoverage: 1, missingTerms: [], metadata: { adapter: "probe", durationMs: 0, retries: 0 } };
+      : { translated: kind === "repair" ? request.source : this.first, metadata: { adapter: "probe", durationMs: 0 } };
     this.calls.push({ kind, source: request.source, raw: res.translated });
     return res;
   }
