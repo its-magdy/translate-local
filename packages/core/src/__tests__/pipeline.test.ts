@@ -729,6 +729,166 @@ describe("runPipeline", () => {
     });
   });
 
+  describe("tag check", () => {
+    const AUTO_TEXT = "Deploy automatically after each commit.";
+    const AUTO_RAW = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
+    const AUTO_CHECK_SOURCE = '<term translation="bereitstellen">bereitstellen</term> automatically after each commit.';
+    const KEPT = "Automatisch nach jedem Commit bereitstellen.";
+    const STRIPPED = "Bereitstellen nach jedem Commit bereitstellen.";
+    const deploy = { id: "d", sourceTerm: "deploy", targetTerm: "bereitstellen", sourceLang: "en", targetLang: "de", forms: ["Bereitstellung", "stellen … bereit"] };
+    const branch = { id: "b", sourceTerm: "branch", targetTerm: "Zweig", sourceLang: "en", targetLang: "de" };
+
+    // Translation requests (attempts and checks) get `translations[i]` in order; a
+    // function entry throws or computes. Repair requests get `repair` (default: the draft back).
+    function checkAdapter(translations: (string | ((req: any) => string))[], requests: any[], repair?: string) {
+      let n = 0;
+      return {
+        name: "check",
+        async translate(req: any) {
+          requests.push(req);
+          const next = req.repairTerms ? (repair ?? req.source) : translations[n++];
+          if (next === undefined) throw new Error(`unexpected request ${requests.length}`);
+          const translated = typeof next === "string" ? next : next(req);
+          return { translated, sourceLang: req.sourceLang, targetLang: req.targetLang, glossaryCoverage: 1, missingTerms: [], metadata: { adapter: "check", durationMs: 0, retries: 0 } };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    it("keeps the model's word when the check writes it next to the term", async () => {
+      const requests: any[] = [];
+      const controller = new AbortController();
+      const result = await runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, KEPT], requests), store, {
+        glossaryEntries: [deploy], signal: controller.signal, onChunk: () => {}, contextSnippets: ["Deploy means bereitstellen."],
+      });
+      expect(requests).toHaveLength(2);
+      const check = requests[1];
+      expect(check.source).toBe(AUTO_CHECK_SOURCE);
+      expect(check.glossaryReminder).toBeUndefined();
+      expect(check.onChunk).toBeUndefined();
+      expect(check.contextSnippets).toBeUndefined();
+      expect(check.repairTerms).toBeUndefined();
+      expect(check.signal).toBe(controller.signal);
+      expect(result.translated).toBe(KEPT);
+      expect(result.missingTerms).toEqual([]);
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.tagChecked).toBe(true);
+      expect(result.metadata.keptWord).toBe(true);
+      expect(result.metadata.repaired).toBeUndefined();
+      expect(result.metadata.retries).toBe(0);
+    });
+
+    it("strips the tag when the check translates the source word as the term, then repairs", async () => {
+      const repository = { id: "r", sourceTerm: "repository", targetTerm: "dépôt", sourceLang: "en", targetLang: "fr" };
+      const raw = 'Copier le <term translation="dépôt">répertoire</term> vers un autre dépôt distant.';
+      const requests: any[] = [];
+      const result = await runPipeline("Mirror the repository to a second remote.", "en", "fr", checkAdapter([raw, "Répliquer le dépôt vers un deuxième serveur distant."], requests), store, { glossaryEntries: [repository] });
+      expect(requests).toHaveLength(3);
+      expect(requests[1].source).toBe('Mirror the <term translation="dépôt">dépôt</term> to a second remote.');
+      expect(requests[2].repairTerms).toEqual(["dépôt"]);
+      expect(requests[2].source).toBe("Copier le dépôt vers un autre dépôt distant.");
+      expect(result.translated).toBe("Copier le dépôt vers un autre dépôt distant.");
+      expect(result.metadata.tagChecked).toBe(true);
+      expect(result.metadata.keptWord).toBeUndefined();
+    });
+
+    it("strips the tag when the check has the word but not the term", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, "Automatisch nach jedem Commit."], requests), store, { glossaryEntries: [deploy] });
+      expect(requests).toHaveLength(3);
+      expect(requests[2].repairTerms).toEqual(["bereitstellen"]);
+      expect(result.translated).toBe(STRIPPED);
+      expect(result.metadata.keptWord).toBeUndefined();
+    });
+
+    it("strips the tag when the check fails, and surfaces a cancellation", async () => {
+      const requests: any[] = [];
+      const fail = () => {
+        throw new TlError("TRANSLATION_FAILED", "boom", "hint");
+      };
+      const result = await runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, fail], requests), store, { glossaryEntries: [deploy] });
+      expect(requests).toHaveLength(3);
+      expect(result.translated).toBe(STRIPPED);
+      expect(result.metadata.tagChecked).toBe(true);
+
+      const cancel = () => {
+        throw new TlError("CANCELLED", "Translation cancelled", "hint");
+      };
+      await expect(runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, cancel], []), store, { glossaryEntries: [deploy] })).rejects.toMatchObject({ tag: "CANCELLED" });
+
+      // Aborted during the check, failing with a non-cancel error.
+      const controller = new AbortController();
+      const abortThrow = () => {
+        controller.abort();
+        throw new Error("socket closed");
+      };
+      await expect(runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, abortThrow], []), store, { glossaryEntries: [deploy], signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
+
+      // Aborted before the check: it never starts.
+      const before = new AbortController();
+      const beforeRequests: any[] = [];
+      const abortAfter = () => {
+        before.abort();
+        return AUTO_RAW;
+      };
+      await expect(runPipeline(AUTO_TEXT, "en", "de", checkAdapter([abortAfter, KEPT], beforeRequests), store, { glossaryEntries: [deploy], signal: before.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
+      expect(beforeRequests).toHaveLength(1);
+    });
+
+    it("checks in strict mode too", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline(AUTO_TEXT, "en", "de", checkAdapter([AUTO_RAW, KEPT], requests), store, { glossaryEntries: [deploy], glossaryMode: "strict" });
+      expect(requests).toHaveLength(2);
+      expect(result.translated).toBe(KEPT);
+    });
+
+    it("checks only the attempt prefer mode returns, never the code-switched one", async () => {
+      const text = "Deploy the branch automatically after each commit.";
+      const raw = '<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.';
+      const opts = { glossaryEntries: [deploy, branch] };
+
+      // The triggering first attempt misses Zweig; the second covers both and is returned unchecked.
+      const covered: any[] = [];
+      const second = await runPipeline(text, "en", "de", checkAdapter([raw, "Den Zweig nach jedem Commit automatisch bereitstellen."], covered), store, opts);
+      expect(covered).toHaveLength(2);
+      expect(covered[1].glossaryReminder).toEqual([{ source: "branch", target: "Zweig" }]);
+      expect(second.metadata.tagChecked).toBeUndefined();
+
+      // The first attempt wins on coverage after both retries: it is checked, with its coverage unchanged.
+      const best: any[] = [];
+      const kept = await runPipeline(text, "en", "de", checkAdapter([raw, "miss", "miss", KEPT], best), store, opts);
+      expect(best).toHaveLength(4);
+      expect(best[3].source).toBe(best[2].source);
+      expect(best[3].source).toBe('<term translation="bereitstellen">bereitstellen</term> the <term translation="Zweig">Zweig</term> automatically after each commit.');
+      expect(kept.translated).toBe(KEPT);
+      expect(kept.glossaryCoverage).toBe(0.5);
+      expect(kept.missingTerms).toEqual(["branch"]);
+      expect(kept.metadata.retries).toBe(2);
+      expect(kept.metadata.keptWord).toBe(true);
+
+      // The code-switched attempt had the check's source: no check, it is repaired as forced.
+      const switched: any[] = [];
+      const last = await runPipeline(AUTO_TEXT, "en", "de", checkAdapter(["miss", "miss", AUTO_RAW], switched), store, { glossaryEntries: [deploy] });
+      expect(switched).toHaveLength(4);
+      expect(switched[3].repairTerms).toEqual(["bereitstellen"]);
+      expect(last.metadata.tagChecked).toBeUndefined();
+    });
+
+    it("no check for a term hit twice, or with MockAdapter", async () => {
+      const requests: any[] = [];
+      await runPipeline("Deploy automatically, then deploy again.", "en", "de", checkAdapter([AUTO_RAW], requests), store, { glossaryEntries: [deploy] });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].repairTerms).toBeDefined();
+
+      const calls: any[] = [];
+      const mock = new MockAdapter();
+      const spy = { async translate(req: any) { calls.push(req); return mock.translate(req); }, async dispose() {} } as any;
+      const result = await runPipeline("Please deploy automatically after each commit.", "en", "de", spy, store, { glossaryEntries: [deploy] });
+      expect(calls).toHaveLength(1);
+      expect(result.metadata.tagChecked).toBeUndefined();
+    });
+  });
+
   describe("extraGlossaryHits (tagging only)", () => {
     const TOK = "__TLPH_0__";
     const sentinelHit = (text: string) => ({

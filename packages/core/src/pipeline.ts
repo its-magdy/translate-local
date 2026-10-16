@@ -1,5 +1,5 @@
 import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
@@ -76,9 +76,7 @@ export async function runPipeline(
   let retries = 0;
   let glossaryReminder: TranslationRequest["glossaryReminder"];
   // Prefer mode returns the attempt with the highest coverage; ties keep the earlier one.
-  let best: TranslationResult | undefined;
-  // Whether `best` holds a term forced into the output (see `forced` below).
-  let bestForced = false;
+  let best: Attempt | undefined;
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
@@ -109,21 +107,12 @@ export async function runPipeline(
     // with the model's word, so such a result gets an agreement repair.
     const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, forms);
 
-    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms);
-    const { glossaryCoverage, missingTerms } = computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, agreementTerms));
-    const result: TranslationResult = {
-      ...raw,
-      translated,
-      glossaryCoverage,
-      missingTerms,
-      metadata: { ...raw.metadata, retries },
-    };
+    const result: TranslationResult = { ...raw, ...postprocess(raw.translated), metadata: { ...raw.metadata, retries } };
+    const attempt: Attempt = { raw: raw.translated, result, forced, codeSwitched };
+    const { missingTerms } = result;
 
-    if (missingTerms.length === 0) return forced ? repairAgreement(result) : result;
-    if (!best || glossaryCoverage > best.glossaryCoverage) {
-      best = result;
-      bestForced = forced;
-    }
+    if (missingTerms.length === 0) return finish(attempt);
+    if (!best || result.glossaryCoverage > best.result.glossaryCoverage) best = attempt;
 
     if (retries < retryLimit) {
       // missingTerms are source terms; the model needs their target translations.
@@ -143,8 +132,51 @@ export async function runPipeline(
       );
     }
 
-    const final = { ...best, metadata: { ...best.metadata, retries } };
-    return bestForced ? repairAgreement(final) : final;
+    return finish({ ...best, result: { ...best.result, metadata: { ...best.result.metadata, retries } } });
+  }
+
+  /** Raw model output after the tag strip (keeping the `kept` words) and fix-ups, with its coverage. */
+  function postprocess(raw: string, kept?: ReadonlyMap<string, string>) {
+    const translated = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw, forms, kept)), targetLang, agreementTerms);
+    return { translated, ...computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, agreementTerms)) };
+  }
+
+  /** The attempt to return, after the tag check and, for a forced term, the agreement repair. */
+  async function finish(attempt: Attempt): Promise<TranslationResult> {
+    let { result, forced } = attempt;
+    // The code-switched attempt was already sent the check's source.
+    const candidates = attempt.codeSwitched ? new Map<string, string>() : tagCheckCandidates(attempt.raw, realHits, forms);
+    if (candidates.size > 0) {
+      const kept = await tagCheck(candidates);
+      result = { ...result, metadata: { ...result.metadata, tagChecked: true } };
+      if (kept.size > 0) {
+        // Keeping a word drops no term: the term is outside the tags.
+        result = { ...result, ...postprocess(attempt.raw, kept), metadata: { ...result.metadata, keptWord: true } };
+        forced = substitutesTerm(attempt.raw, targetTerms, forms, kept);
+      }
+    }
+    return forced ? repairAgreement(result) : result;
+  }
+
+  /**
+   * One extra model call with the code-switched source (the target terms in
+   * place of the source words, as the last glossary retry sends it), whose
+   * output is never returned: a candidate's word (tagCheckCandidates) the
+   * model still writes there (checkKeepsWord) translates another source word,
+   * so the tag strip keeps it. Returns those as term → tag inner; none when
+   * the call fails. A cancellation still throws.
+   */
+  async function tagCheck(candidates: Map<string, string>): Promise<Map<string, string>> {
+    if (signal?.aborted) throw cancelledError();
+    let check: string;
+    try {
+      check = (await adapter.translate({ source: codeSwitchedSource, sourceLang, targetLang, glossaryHits: hits, signal, options: { glossaryMode } })).translated;
+    } catch (err) {
+      if (err instanceof TlError && err.tag === "CANCELLED") throw err;
+      if (signal?.aborted) throw cancelledError(err);
+      return new Map();
+    }
+    return new Map([...candidates].filter(([term, inner]) => checkKeepsWord(check, term, inner, forms)));
   }
 
   /**
@@ -189,20 +221,30 @@ export async function runPipeline(
   }
 }
 
+/** One translation attempt: raw model output, postprocessed result, and how it was made. */
+interface Attempt {
+  raw: string;
+  result: TranslationResult;
+  /** A term forced into the output (see `forced` in runPipeline). */
+  forced: boolean;
+  codeSwitched: boolean;
+}
+
 /**
  * Whether the raw output has a term tag for one of `targetTerms` around a
  * different word, which stripGlossaryTags then replaces with the term. A
  * complete tag around the model's own form of the term or of one of its
- * `forms` (keptTermForm) keeps that form, so it is no substitution.
+ * `forms` (keptTermForm), or around the word `kept` maps the term to (the tag
+ * check), keeps that word, so it is no substitution.
  */
-function substitutesTerm(raw: string, targetTerms: string[], forms: ReadonlyMap<string, readonly string[]>): boolean {
+function substitutesTerm(raw: string, targetTerms: string[], forms: ReadonlyMap<string, readonly string[]>, kept?: ReadonlyMap<string, string>): boolean {
   for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
     const [tag, attr, inner] = match;
     // The term exactly as the strip writes it (attribute unescaped).
     const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
     if (!targetTerms.includes(term)) continue;
     const closed = raw.startsWith("</term>", match.index + tag.length);
-    if (closed ? keptTermForm(inner, term, forms.get(term)) === undefined : inner.trim() !== term) return true;
+    if (closed ? keptTermForm(inner, term, forms.get(term)) === undefined && kept?.get(term) !== inner : inner.trim() !== term) return true;
   }
   return false;
 }

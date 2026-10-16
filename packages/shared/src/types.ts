@@ -37,6 +37,10 @@ export interface TranslationResult {
     retries: number;
     /** Set by the pipeline when its agreement repair pass changed the text. */
     repaired?: boolean;
+    /** Set by the pipeline when it made a tag check call (see tagCheckCandidates). */
+    tagChecked?: boolean;
+    /** Set by the pipeline when the tag check kept the model's word in a term tag. */
+    keptWord?: boolean;
   };
 }
 
