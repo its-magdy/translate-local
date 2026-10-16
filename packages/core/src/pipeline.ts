@@ -1,10 +1,9 @@
 import type { Adapter, TranslationRequest, TranslationResult, AdapterResponse, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
-import { langFallbackChain } from "@translate-local/shared/utils/language";
 import { PLACEHOLDER_SENTINEL_PREFIX, PLACEHOLDER_SENTINEL_SUFFIX } from "@translate-local/shared/constants";
 import { matchTerms, type GlossaryStore } from "./glossary";
-import { arabicLamMerge, escapeRegExp, fixTermAgreement } from "./agreement";
+import { appendsEndPunctuation } from "./punctuation";
+import { TermSet, type KeptWords } from "./terms";
 
 /**
  * Retries prefer mode makes for a missed glossary term (strict uses maxRetries):
@@ -16,9 +15,6 @@ const PREFER_RETRIES = 2;
 const REPAIR_MAX_LENGTH_RATIO = 1.3;
 
 const SENTINEL_RE = new RegExp(`${PLACEHOLDER_SENTINEL_PREFIX}\\d+${PLACEHOLDER_SENTINEL_SUFFIX}`, "g");
-// A term tag in model output, closed or not: [, translation attribute, inner text].
-// Doesn't match code-switched tags with a source attribute; that attempt counts as forced anyway.
-const OUTPUT_TAG_RE = /<term\s+translation="([^"]*)">([^<]*)/g;
 
 export interface PipelineOptions {
   glossaryMode?: "strict" | "prefer";
@@ -61,17 +57,7 @@ export async function runPipeline(
     : glossaryEntries
       ? matchTerms(text, glossaryEntries)
       : glossaryStore.findMatches(text, sourceLang, targetLang);
-  const hits = [...realHits, ...extraGlossaryHits].sort((a, b) => a.startIndex - b.startIndex);
-  const taggedSource = hits.length > 0 ? injectGlossaryTags(text, hits) : text;
-  const codeSwitchedSource = realHits.length > 0 ? injectGlossaryTags(text, hits, realHits) : taggedSource;
-  // Real hits only: placeholder sentinels need no agreement fix-up.
-  const targetTerms = [...new Set(realHits.map((h) => h.entry.targetTerm))];
-  // Each target term's other forms, which the tag strip keeps like the term.
-  const forms = new Map<string, string[]>();
-  for (const { entry } of realHits) forms.set(entry.targetTerm, [...new Set([...(forms.get(entry.targetTerm) ?? []), ...(entry.forms ?? [])])]);
-  // Fix-ups and the Arabic coverage split also apply to the one-piece forms.
-  const agreementTerms = [...new Set([...targetTerms, ...contiguousForms([...forms.values()].flat())])];
-  const glossaryTerms = new Set(realHits.map((h) => h.entry.sourceTerm)).size;
+  const terms = new TermSet(text, realHits, extraGlossaryHits, targetLang, isImageMode);
 
   const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
@@ -89,11 +75,11 @@ export async function runPipeline(
     // writes the sentence around the term itself.
     const codeSwitched = retries > 0 && retries === retryLimit;
     const request: TranslationRequest = {
-      source: isImageMode ? "" : codeSwitched ? codeSwitchedSource : taggedSource,
+      source: isImageMode ? "" : codeSwitched ? terms.codeSwitchedSource : terms.taggedSource,
       sourceLang,
       targetLang,
       imageBase64,
-      glossaryHits: hits,
+      glossaryHits: terms.hits,
       contextSnippets,
       glossaryReminder: codeSwitched ? undefined : glossaryReminder,
       // Stream on first attempt only — retries silent to avoid concatenating partial outputs.
@@ -104,19 +90,17 @@ export async function runPipeline(
 
     const raw = await adapter.translate(request);
     if (codeSwitched) codeSwitchedRaw = raw.translated;
-    // A target term the model did not choose itself: the code-switched source
-    // put it there, or the model echoed a term tag around its own word and the
-    // tag strip below swaps in the term (a tag around the model's own form of
-    // the term keeps that form, so it is not forced). The words around it may still agree
-    // with the model's word, so such a result gets an agreement repair.
-    const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, forms);
-
-    const post = postprocess(raw.translated);
+    const reading = terms.read(raw.translated);
     const result: TranslationResult = {
-      translated: post.translated, sourceLang, targetLang, glossaryCoverage: post.glossaryCoverage, missingTerms: post.missingTerms,
-      glossaryTerms, metadata: { ...raw.metadata, retries },
+      translated: reading.translated, sourceLang, targetLang, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+      glossaryTerms: terms.count, metadata: { ...raw.metadata, retries },
     };
-    const attempt: Attempt = { raw: raw.translated, result, forced, codeSwitched };
+    // A target term the model did not choose itself: the code-switched source
+    // put it there, or the model echoed a term tag around its own word, which
+    // the tag strip swapped for the term (see Reading.forced). The words around
+    // it may still agree with the model's word, so such a result gets an
+    // agreement repair.
+    const attempt: Attempt = { raw: raw.translated, result, forced: codeSwitched || reading.forced, codeSwitched };
     const { missingTerms } = result;
 
     if (missingTerms.length === 0) return finish(attempt);
@@ -124,10 +108,7 @@ export async function runPipeline(
 
     if (retries < retryLimit) {
       // missingTerms are source terms; the model needs their target translations.
-      glossaryReminder = missingTerms.map((term) => ({
-        source: term,
-        target: realHits.find((h) => h.entry.sourceTerm === term)!.entry.targetTerm,
-      }));
+      glossaryReminder = terms.reminder(missingTerms);
       retries++;
       continue;
     }
@@ -143,18 +124,11 @@ export async function runPipeline(
     return finish({ ...best, result: { ...best.result, metadata: { ...best.result.metadata, retries } } });
   }
 
-  /** Raw model output after the tag strip (keeping the `kept` words) and fix-ups, with its coverage. */
-  function postprocess(raw: string, kept?: ReadonlyMap<string, string>) {
-    const postprocessed = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw, forms, kept)), targetLang, agreementTerms);
-    const translated = isImageMode ? postprocessed : dropAddedFullStop(postprocessed, text, agreementTerms);
-    return { translated, ...computeGlossaryCoverage(realHits, splitArabicArticles(translated, targetLang, agreementTerms)) };
-  }
-
   /** The attempt to return, after the tag check and, for a forced term, the agreement repair. */
   async function finish(attempt: Attempt): Promise<TranslationResult> {
     let { result, forced } = attempt;
     // The code-switched attempt was already sent the check's source.
-    const candidates = attempt.codeSwitched ? new Map<string, string>() : tagCheckCandidates(attempt.raw, realHits, forms);
+    const candidates: KeptWords = attempt.codeSwitched ? new Map() : terms.tagCheckCandidates(attempt.raw);
     if (candidates.size > 0) {
       // Prefer mode's code-switched retry already sent the check's source: reuse its output.
       let check = codeSwitchedRaw;
@@ -162,11 +136,15 @@ export async function runPipeline(
         check = await tagCheckCall();
         result = { ...result, metadata: { ...result.metadata, tagChecked: true } };
       }
-      const kept = new Map([...candidates].filter(([term, inner]) => check !== undefined && checkKeepsWord(check, term, inner, forms)));
+      const kept = check === undefined ? new Map() : terms.keptWords(candidates, check);
       if (kept.size > 0) {
         // The term stays covered by its occurrence outside the tags; coverage is recomputed anyway.
-        result = { ...result, ...postprocess(attempt.raw, kept), metadata: { ...result.metadata, keptWord: true } };
-        forced = substitutesTerm(attempt.raw, targetTerms, forms, kept);
+        const reading = terms.read(attempt.raw, kept);
+        result = {
+          ...result, translated: reading.translated, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+          metadata: { ...result.metadata, keptWord: true },
+        };
+        forced = reading.forced;
       }
     }
     return forced ? repairAgreement(result) : result;
@@ -183,7 +161,7 @@ export async function runPipeline(
   async function tagCheckCall(): Promise<string | undefined> {
     if (signal?.aborted) throw cancelledError();
     try {
-      return (await adapter.translate({ source: codeSwitchedSource, sourceLang, targetLang, glossaryHits: hits, signal, options: { glossaryMode } })).translated;
+      return (await adapter.translate({ source: terms.codeSwitchedSource, sourceLang, targetLang, glossaryHits: terms.hits, signal, options: { glossaryMode } })).translated;
     } catch (err) {
       if (err instanceof TlError && err.tag === "CANCELLED") throw err;
       if (signal?.aborted) throw cancelledError(err);
@@ -199,29 +177,22 @@ export async function runPipeline(
    * cancellation still throws.
    */
   async function repairAgreement(draft: TranslationResult): Promise<TranslationResult> {
-    // The form of each covered term the draft has (a split form's parts), which the repair must keep as written.
-    const terms = [...new Set(realHits
-      .filter((h) => !draft.missingTerms.includes(h.entry.sourceTerm))
-      .flatMap((h) => {
-        const found = foundForm(draft.translated, h.entry.targetTerm, forms.get(h.entry.targetTerm)) ?? h.entry.targetTerm;
-        return found === h.entry.targetTerm ? [found] : formParts(found);
-      }))];
-    if (terms.length === 0) return draft;
+    const repairTerms = terms.repairTerms(draft);
+    if (repairTerms.length === 0) return draft;
     if (signal?.aborted) throw cancelledError();
     let raw: AdapterResponse;
     try {
-      raw = await adapter.translate({ source: draft.translated, sourceLang, targetLang, repairTerms: terms, signal, options: { glossaryMode } });
+      raw = await adapter.translate({ source: draft.translated, sourceLang, targetLang, repairTerms, signal, options: { glossaryMode } });
     } catch (err) {
       if (err instanceof TlError && err.tag === "CANCELLED") throw err;
       if (signal?.aborted) throw cancelledError(err);
       return draft;
     }
-    const repaired = dropAddedFullStop(fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw.translated, forms)), targetLang, agreementTerms), text, agreementTerms);
-    const coverage = computeGlossaryCoverage(realHits, splitArabicArticles(repaired, targetLang, agreementTerms));
+    const { translated: repaired, glossaryCoverage, missingTerms } = terms.read(raw.translated);
     const ratio = repaired.length / draft.translated.length;
     const accepted =
       repaired !== draft.translated &&
-      coverage.missingTerms.every((term) => draft.missingTerms.includes(term)) &&
+      missingTerms.every((term) => draft.missingTerms.includes(term)) &&
       sentinels(repaired) === sentinels(draft.translated) &&
       // The proofreading prompt sometimes bolds the term (`**الكاش**`).
       count(repaired, "*") <= count(draft.translated, "*") &&
@@ -229,7 +200,7 @@ export async function runPipeline(
       ratio <= REPAIR_MAX_LENGTH_RATIO &&
       ratio >= 1 / REPAIR_MAX_LENGTH_RATIO;
     if (!accepted) return draft;
-    return { ...draft, translated: repaired, ...coverage, metadata: { ...draft.metadata, repaired: true } };
+    return { ...draft, translated: repaired, glossaryCoverage, missingTerms, metadata: { ...draft.metadata, repaired: true } };
   }
 }
 
@@ -240,138 +211,6 @@ interface Attempt {
   /** A term forced into the output (see `forced` in runPipeline). */
   forced: boolean;
   codeSwitched: boolean;
-}
-
-/**
- * Whether the raw output has a term tag for one of `targetTerms` around a
- * different word, which stripGlossaryTags then replaces with the term. A
- * complete tag around the model's own form of the term or of one of its
- * `forms` (keptTermForm), or around the word `kept` maps the term to (the tag
- * check), keeps that word, so it is no substitution.
- */
-function substitutesTerm(raw: string, targetTerms: string[], forms: ReadonlyMap<string, readonly string[]>, kept?: ReadonlyMap<string, string>): boolean {
-  for (const match of raw.matchAll(OUTPUT_TAG_RE)) {
-    const [tag, attr, inner] = match;
-    // The term exactly as the strip writes it (attribute unescaped).
-    const term = stripGlossaryTags(`<term translation="${attr}"></term>`);
-    if (!targetTerms.includes(term)) continue;
-    const closed = raw.startsWith("</term>", match.index + tag.length);
-    if (closed ? keptTermForm(inner, term, forms.get(term)) === undefined && kept?.get(term) !== inner : inner.trim() !== term) return true;
-  }
-  return false;
-}
-
-/**
- * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`,
- * `للغة` → `لاللغة`) so the exact-substring coverage finds an `ال`-initial
- * term. The merge must not follow `ل` or `ا`, so the misspelt `لللغة` stays a
- * miss. Harakat are dropped first, as coverage drops them anyway, so `للّغة`
- * splits too. Coverage only: the returned text keeps the merge, which is
- * correct grammar (and what `fixTermAgreement()` writes).
- */
-function splitArabicArticles(text: string, targetLang: string, terms: string[]): string {
-  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
-  text = stripCombiningMarks(text);
-  for (const term of terms.map(stripCombiningMarks)) {
-    if (!term.startsWith("ال")) continue;
-    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
-  }
-  return text;
-}
-
-/**
- * Whether `repaired` is `draft` plus sentence-final punctuation the source
- * lacks (`Supprimer cet hôte` → `Supprimer cet hôte.`). That fixes no
- * agreement and UI labels have none; it was 13 of the 56 applied repairs in
- * the file-mode bench, none of them otherwise useful.
- */
-function appendsEndPunctuation(draft: string, repaired: string, source: string): boolean {
-  return (
-    repaired.startsWith(draft) &&
-    /^\s*[.!?…。！？؟]+$/u.test(repaired.slice(draft.length)) &&
-    !endsWithPunctuation(source)
-  );
-}
-
-/**
- * Sentence-final punctuation in a source: `.`, `!`, `?`, `…`, `‼⁉‽`, CJK,
- * Arabic, Urdu, Devanagari, Armenian, Ethiopic, Myanmar, Khmer, Tibetan and
- * the Greek question mark (U+037E, which NFC turns into `;`).
- */
-const END_PUNCTUATION = ".!?…‼⁉‽。．！？؟۔।॥։።။។།;;";
-/** The full stops dropped from a translation. */
-const FULL_STOPS = ".。．۔।";
-/**
- * What may follow a sentence's end punctuation: closing quotes and brackets,
- * markdown emphasis and code closers, and bidi marks (LRM, RLM, ALM).
- */
-const CLOSERS = `"'”’»›)]}」』）*_\`‎‏؜`;
-/** Bidi marks a translation may end with after its full stop. */
-const BIDI_MARKS = "‎‏؜";
-/** Abbreviations a translation can end with although the source has no full stop (lowercase). */
-const ABBREVIATIONS = new Set([
-  "etc", "usw", "bzw", "ggf", "inkl", "vgl", "ca", "vs", "cf", "inc", "ltd", "co", "corp", "jr", "sr",
-  "nr", "min", "sek", "std", "mio", "mrd", "tsd", "max", "ex", "env", "dr", "mr", "approx",
-]);
-
-/** The index just before a placeholder sentinel ending at `end` (exclusive), or -1 if none ends there. */
-function sentinelStart(text: string, end: number): number {
-  if (!text.startsWith(PLACEHOLDER_SENTINEL_SUFFIX, end - PLACEHOLDER_SENTINEL_SUFFIX.length)) return -1;
-  let i = end - PLACEHOLDER_SENTINEL_SUFFIX.length;
-  const digitsEnd = i;
-  while (i > 0 && text[i - 1] >= "0" && text[i - 1] <= "9") i--;
-  if (i === digitsEnd || !text.startsWith(PLACEHOLDER_SENTINEL_PREFIX, i - PLACEHOLDER_SENTINEL_PREFIX.length)) return -1;
-  return i - PLACEHOLDER_SENTINEL_PREFIX.length;
-}
-
-/**
- * Whether `source` ends with sentence-final punctuation, maybe followed by
- * whitespace, closers (see CLOSERS) and placeholder sentinels
- * (`Read the __TLPH_0__docs.__TLPH_1__`, `**Saved.**`).
- */
-function endsWithPunctuation(source: string): boolean {
-  let end = source.length;
-  while (end > 0) {
-    const ch = source[end - 1];
-    if (/\s/u.test(ch) || CLOSERS.includes(ch)) {
-      // A sentinel ends with `_`, so try it first: it is skipped whole.
-      const start = sentinelStart(source, end);
-      end = start >= 0 ? start : end - 1;
-      continue;
-    }
-    const start = sentinelStart(source, end);
-    if (start < 0) break;
-    end = start;
-  }
-  return end > 0 && END_PUNCTUATION.includes(source[end - 1]);
-}
-
-/**
- * Drops the full stop the model put at the end of `translated` when the
- * source has no sentence-final punctuation (`Save changes` →
- * `Enregistrer les modifications.`): UI labels have none, and the model added
- * one to about 6 of 131 catalog labels per language in the file-mode bench.
- * Trailing bidi marks after the stop are kept. A `.` is kept when the last
- * word has any other dot (`..`, `z.B.`), is one letter (`z. B.`) or a common
- * abbreviation (`etc.`, `Bestell-Nr.`), or when a glossary target term or
- * form ends with it. `translated` is already trimmed.
- */
-function dropAddedFullStop(translated: string, source: string, terms: string[]): string {
-  if (translated === "" || source.trim() === "" || endsWithPunctuation(source)) return translated;
-  let end = translated.length;
-  while (end > 0 && BIDI_MARKS.includes(translated[end - 1])) end--;
-  if (end === 0 || !FULL_STOPS.includes(translated[end - 1])) return translated;
-  const head = translated.slice(0, end);
-  const body = translated.slice(0, end - 1);
-  if (head.endsWith(".")) {
-    let start = body.length;
-    while (start > 0 && !/\s/u.test(body[start - 1])) start--;
-    const word = body.slice(start).toLowerCase();
-    if (word === "" || word.includes(".") || /^\p{L}$/u.test(word)) return translated;
-    if (ABBREVIATIONS.has(word) || ABBREVIATIONS.has(word.slice(word.lastIndexOf("-") + 1))) return translated;
-    if (terms.some((term) => term.endsWith(".") && head.endsWith(term))) return translated;
-  }
-  return body + translated.slice(end);
 }
 
 /** How many times `char` occurs in `text`. */
