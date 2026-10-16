@@ -340,8 +340,15 @@ function sentences(text: string): string[] {
  * order, within one sentence (see `sentences`).
  */
 export function foundForm(text: string, term: string, forms: readonly string[] = []): string | undefined {
+  return findForm(text, term, forms, false);
+}
+
+/** foundForm, with the term and one-piece forms as whole words when `wholeWord` (see wordFinder). */
+function findForm(text: string, term: string, forms: readonly string[], wholeWord: boolean): string | undefined {
   const plain = stripCombiningMarks(text);
-  const contains = (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
+  const contains = wholeWord
+    ? (s: string) => wordFinder(s)(plain, 0) !== undefined
+    : (s: string) => plain.includes(s) || plain.includes(capitalizeTerm(s));
   if (contains(stripCombiningMarks(term))) return term;
   let split: string[] | undefined;
   return forms.find((form) => {
@@ -360,6 +367,9 @@ export function foundForm(text: string, term: string, forms: readonly string[] =
   });
 }
 
+/** A letter of a script written without spaces between words. */
+const NO_SPACE_RE = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]/u;
+
 /** The unescaped translation attribute of opening tag `openTag`, if any. */
 function termAttr(openTag: string): string | undefined {
   const attr = /\btranslation="([^"]*)"/.exec(openTag);
@@ -370,7 +380,8 @@ function termAttr(openTag: string): string | undefined {
  * The complete term tags of model output `raw` that get the pipeline's tag
  * check: a tag for real glossary target term T around a word X that
  * keptTermForm rejects (so the strip would replace X with T) while T or one of
- * its `forms` (foundForm) occurs outside every tag, as in de
+ * its `forms` occurs outside every tag as a whole word (foundForm with word
+ * edges checked, so `hôtel` is not `hôte`), as in de
  * `<term translation="bereitstellen">Automatisch</term> nach jedem Commit
  * bereitstellen.`: the model may have placed the term itself and tagged a word
  * that translates another source word. Returned as T → the tag's inner text
@@ -380,7 +391,9 @@ function termAttr(openTag: string): string | undefined {
  * one tag in `raw`: with two source occurrences, T outside the tags may
  * translate the other one. Not for placeholder sentinels, an X with no letter
  * or with `<`/`>`, or an X that is the hit's source word (an untranslated
- * leak, `<term …>Deploy</term>`). Outside excludes all the strip replaces:
+ * leak, `<term …>Deploy</term>`). Never when X, T or a form has a CJK, kana,
+ * Thai, Lao, Khmer or Myanmar letter: with no word edges to check, T could be
+ * part of another word (`キー` in `キーボード`), and X too. Outside excludes all the strip replaces:
  * complete tags, and an unclosed tag with the text after it. Linear in `raw`
  * per distinct term of `hits`.
  */
@@ -428,8 +441,10 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
     if (termSources?.length !== 1 || tagCount.get(term) !== 1 || SENTINEL_TERM_RE.test(term)) continue;
     const word = unquote(inner);
     if (!/\p{L}/u.test(word) || /[<>]/.test(word) || fold(word) === fold(termSources[0])) continue;
-    if (keptTermForm(inner, term, forms?.get(term)) !== undefined) continue;
-    if (foundForm(outside, term, forms?.get(term)) !== undefined) candidates.set(term, inner);
+    const termForms = forms?.get(term) ?? [];
+    if ([word, term, ...termForms].some((s) => NO_SPACE_RE.test(s))) continue;
+    if (keptTermForm(inner, term, termForms) !== undefined) continue;
+    if (findForm(outside, term, termForms, true) !== undefined) candidates.set(term, inner);
   }
   return candidates;
 }
@@ -441,14 +456,20 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
  * one of its `forms` and X as a whole word, case-insensitively, after the tag
  * strip with combining marks dropped. X then translates another source word;
  * when the model wrote X for the glossary source word, the check's tag strip
- * puts T there and X is gone. Word edges are checked as for split forms (not
- * at a CJK or punctuation edge).
+ * puts T there and X is gone. X is looked for outside every occurrence of T
+ * and its one-piece forms (any case), so a part of a multi-word term does not
+ * count (`Request` in `Pull Request`). Word edges are checked as for split
+ * forms (not at a punctuation edge).
  */
 export function checkKeepsWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
   const stripped = stripGlossaryTags(check, forms);
   if (foundForm(stripped, term, forms?.get(term)) === undefined) return false;
-  const word = stripCombiningMarks(unquote(inner)).toLowerCase();
-  return wordFinder(word)(stripCombiningMarks(stripped).toLowerCase(), 0) !== undefined;
+  const fold = (s: string) => stripCombiningMarks(s).toLowerCase();
+  // Longest first, so a form inside another is blanked with it.
+  const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
+  // A NUL where T was, as tagCheckCandidates blanks tags (split/join: linear, no regex).
+  const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripped));
+  return wordFinder(fold(unquote(inner)))(rest, 0) !== undefined;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

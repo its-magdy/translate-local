@@ -501,9 +501,24 @@ describe("tag check", () => {
     expect(tagCheckCandidates('<term translation="bereitstellen"><b>x</term> bereitstellen', [deploy]).size).toBe(0);
   });
 
-  test("a CJK term counts as a substring outside the tags", () => {
+  test("needs the term outside the tags as a whole word, and never fires for no-space scripts", () => {
+    // No word edges to check in CJK: the term may be part of another word (キーボード), the word too (鍵盤).
     const key = makeHit("key", "キー", 0);
-    expect(tagCheckCandidates('<term translation="キー">鍵</term>を押してキーボード', [key])).toEqual(new Map([["キー", "鍵"]]));
+    expect(tagCheckCandidates('<term translation="キー">鍵</term>を押してキーボード', [key]).size).toBe(0);
+    expect(tagCheckCandidates('<term translation="キー">鍵</term>を押してキー', [key]).size).toBe(0);
+    // A Latin-script term with a CJK word in the tag.
+    expect(tagCheckCandidates('<term translation="API">接口</term>を使う API', [makeHit("api", "API", 0)]).size).toBe(0);
+    const host = makeHit("server", "hôte", 0);
+    expect(tagCheckCandidates('Le <term translation="hôte">serveur</term> de l\'hôtel', [host]).size).toBe(0);
+    expect(tagCheckCandidates('Le <term translation="hôte">serveur</term> et l\'hôte', [host])).toEqual(new Map([["hôte", "serveur"]]));
+    expect(tagCheckCandidates('Le <term translation="hôte">serveur</term> et l\'Hôte', [host]).size).toBe(1);
+    // Forms count as whole words too.
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> nach jeder Bereitstellungsrunde.', [deploy], deployForms).size).toBe(0);
+  });
+
+  test("two terms can both be candidates", () => {
+    const raw = '<term translation="hôte">serveur</term> hôte, <term translation="jeton">clé</term> jeton';
+    expect(tagCheckCandidates(raw, [makeHit("server", "hôte", 0), makeHit("token", "jeton", 10)])).toEqual(new Map([["hôte", "serveur"], ["jeton", "clé"]]));
   });
 
   test("an unclosed tag and the text after it are not outside", () => {
@@ -535,6 +550,15 @@ describe("tag check", () => {
     expect(checkKeepsWord("Envoyez la validation vers la branche d'origine.", "branche", "d'origine")).toBe(true);
     expect(checkKeepsWord("Envoyez la validation vers la branche d'origine.", "branche", "« origine »")).toBe(true);
     expect(checkKeepsWord("Deploiement automatique, puis depot.", "dépôt", "Déploiement")).toBe(true);
+  });
+
+  test("a word inside a multi-word term or form in the check does not count", () => {
+    expect(checkKeepsWord("Öffnen Sie einen Pull Request.", "Pull Request", "Request")).toBe(false);
+    expect(checkKeepsWord("Öffnen Sie einen Pull Request.", "Pull Request", "Pull")).toBe(false);
+    expect(checkKeepsWord("Öffnen Sie einen PULL REQUEST.", "Pull Request", "pull")).toBe(false);
+    expect(checkKeepsWord("Pull Request: Request prüfen.", "Pull Request", "Request")).toBe(true);
+    const forms = new Map([["Merge-Anfrage", ["Zusammenführungs Anfrage"]]]);
+    expect(checkKeepsWord("Eine Zusammenführungs Anfrage öffnen.", "Merge-Anfrage", "Anfrage", forms)).toBe(false);
   });
 
   test("runs in linear time on many tags", () => {
