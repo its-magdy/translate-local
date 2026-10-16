@@ -1,5 +1,5 @@
 import { langFallbackChain } from "@translate-local/shared/utils/language";
-import { capitalizeTerm } from "@translate-local/shared/utils/text";
+import { capitalizeTerm, stripCombiningMarks } from "@translate-local/shared/utils/text";
 
 /**
  * Deterministic fix-ups the pipeline applies around glossary target terms
@@ -8,13 +8,13 @@ import { capitalizeTerm } from "@translate-local/shared/utils/text";
  * Only the text directly around a target term is touched.
  */
 
-export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Quote pairs (and em dashes) the model wraps around a substituted term. */
 const QUOTE_PAIRS: [string, string][] = [["«", "»"], ['"', '"'], ["“", "”"], ["„", "“"], ["—", "—"]];
 
 /** Drop quotes or em dashes wrapped directly around a term (`« hôte »` → `hôte`). */
-export function unquoteTerms(text: string, terms: string[]): string {
+function unquoteTerms(text: string, terms: string[]): string {
   for (const term of terms) {
     const t = escapeRegExp(term);
     for (const [open, close] of QUOTE_PAIRS) {
@@ -82,7 +82,7 @@ function takesElision(term: string, lang: "fr" | "it"): boolean {
  * `cet hôte`; it `il host` → `l'host`. A lone em dash right before the term
  * is dropped first (`il —host` → `l'host`). Other target languages are returned as is.
  */
-export function elideBeforeTerms(text: string, targetLang: string, terms: string[]): string {
+function elideBeforeTerms(text: string, targetLang: string, terms: string[]): string {
   const base = langFallbackChain(targetLang).at(-1);
   if (base !== "fr" && base !== "it") return text;
   const rules = base === "fr" ? FR_RULES : IT_RULES;
@@ -106,7 +106,7 @@ export function elideBeforeTerms(text: string, targetLang: string, terms: string
  * Arabic: drop a detached article (`الـ` / `ال`) the model puts before a term
  * that already starts with `ال`: `من الـ الكاش` → `من الكاش`.
  */
-export function dropDoubledArabicArticle(text: string, targetLang: string, terms: string[]): string {
+function dropDoubledArabicArticle(text: string, targetLang: string, terms: string[]): string {
   if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
   for (const term of terms) {
     if (!term.startsWith("ال")) continue;
@@ -121,7 +121,7 @@ export function dropDoubledArabicArticle(text: string, targetLang: string, terms
  * `قم بالـ نشر` → `قم بالنشر`, `للـ كوميت` → `للكوميت`. The detached form is
  * for foreign-script words, so a Latin-script term (`الـ API`) keeps it.
  */
-export function attachArabicArticle(text: string, targetLang: string, terms: string[]): string {
+function attachArabicArticle(text: string, targetLang: string, terms: string[]): string {
   if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
   for (const term of terms) {
     if (term.startsWith("ال") || !/^\p{Script=Arabic}/u.test(term)) continue;
@@ -134,7 +134,7 @@ export function attachArabicArticle(text: string, targetLang: string, terms: str
  * The preposition `ل` merged with an `ال`-initial term, as Arabic writes it:
  * `للكاش`, and `للغة` when the stem starts with `ل` (the article's lam merges too).
  */
-export function arabicLamMerge(term: string): string {
+function arabicLamMerge(term: string): string {
   const stem = term.slice(2);
   return (stem.startsWith("ل") ? "ل" : "لل") + stem;
 }
@@ -143,9 +143,9 @@ export function arabicLamMerge(term: string): string {
  * Arabic: merge a detached or doubled `ل` (after an optional و/ف) into an
  * `ال`-initial term: `لـ الكاش` / `للـ الكاش` / `لالكاش` → `للكاش`,
  * `للاللغة` → `للغة`. Coverage counts the merge as the term (see
- * `splitArabicArticles()` in pipeline.ts).
+ * `splitArabicArticles()` below).
  */
-export function mergeArabicLam(text: string, targetLang: string, terms: string[]): string {
+function mergeArabicLam(text: string, targetLang: string, terms: string[]): string {
   if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
   for (const term of terms) {
     if (!term.startsWith("ال")) continue;
@@ -163,4 +163,22 @@ export function fixTermAgreement(text: string, targetLang: string, terms: string
   const elided = elideBeforeTerms(unquoted, targetLang, forms);
   const merged = mergeArabicLam(dropDoubledArabicArticle(elided, targetLang, forms), targetLang, forms);
   return attachArabicArticle(merged, targetLang, forms);
+}
+
+/**
+ * Splits the Arabic `ل` + `ال` merge back apart (`للتوكن` → `لالتوكن`,
+ * `للغة` → `لاللغة`) so the exact-substring coverage finds an `ال`-initial
+ * term. The merge must not follow `ل` or `ا`, so the misspelt `لللغة` stays a
+ * miss. Harakat are dropped first, as coverage drops them anyway, so `للّغة`
+ * splits too. Coverage only: the returned text keeps the merge, which is
+ * correct grammar (and what `fixTermAgreement()` writes).
+ */
+export function splitArabicArticles(text: string, targetLang: string, terms: string[]): string {
+  if (langFallbackChain(targetLang).at(-1) !== "ar") return text;
+  text = stripCombiningMarks(text);
+  for (const term of terms.map(stripCombiningMarks)) {
+    if (!term.startsWith("ال")) continue;
+    text = text.replace(new RegExp(`(?<![لا])${escapeRegExp(arabicLamMerge(term))}`, "gu"), "ل" + term);
+  }
+  return text;
 }
