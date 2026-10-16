@@ -52,6 +52,17 @@ once, so pipes and `$(tl ...)` substitution are always safe. The
 `Glossary: N% covered` line appears only when a glossary term matched the
 input.
 
+**Added end punctuation:** models like to end a translation with a full stop
+even when the source has none — a habit that shows up on UI labels
+(`Save changes` → `Enregistrer les modifications.`). When the source ends
+without sentence-final punctuation, `tl` drops one trailing full stop
+(`.`, `。`, `．`, `۔`, `।`) from the translation. It keeps the stop when the last
+word is an abbreviation (`etc.`, `Bestell-Nr.`), a single letter (`z. B.`),
+already contains a dot (`z.B.`), or is a glossary term that ends in one. The
+source counts as punctuated even behind closing quotes, brackets, markdown
+closers and placeholders (`**Saved.**`, `Read the __TLPH_0__docs.__TLPH_1__`).
+Image translations are left alone.
+
 **Ctrl+C:** interrupting a translation (`SIGINT`, or `SIGTERM`) cancels the
 request, unloads the model (waiting at most 3 s) and exits `130` (`143` for
 `SIGTERM`). A second Ctrl+C exits immediately. In file mode the keys finished
@@ -62,14 +73,23 @@ so far are written first and the rest are left for the next run (see
 
 ```json
 {
-  "translated": "...",
+  "translated": "صباح الخير",
   "sourceLang": "en",
   "targetLang": "ar",
-  "glossaryCoverage": 1.0,
+  "glossaryCoverage": 1,
   "missingTerms": [],
   "metadata": { "adapter": "translate-gemma-local", "durationMs": 420, "retries": 0 }
 }
 ```
+
+`metadata` carries three more fields when the corresponding pass ran, all
+described in the [glossary guide](glossary-guide.md):
+
+| Field | Meaning |
+|---|---|
+| `repaired` | The [agreement repair](glossary-guide.md#agreement-repair) call changed the text and was kept. |
+| `tagChecked` | An extra [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word) call was made (also when it did not keep the word). |
+| `keptWord` | The tag check kept the model's own word inside a term tag. |
 
 #### File mode
 
@@ -110,7 +130,7 @@ tl translate --file en.arb --to ar --format raw-json --out ar.arb
 tl translate --file en.json --to ar --strict
 ```
 
-**Supported formats (Phase A — JSON only; YAML in Phase B):**
+**Supported formats:**
 
 | Format | Status | Notes |
 |---|---|---|
@@ -298,12 +318,16 @@ Configure the adapter backend.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--backend <type>` | `local` | `local` (Ollama) |
 | `--model <name>` | `translategemma:latest` | Model name |
 | `--endpoint <url>` | `http://localhost:11434` | Ollama API URL |
 
+Each flag is optional and only the ones you pass are changed. The backend is
+always `local` (Ollama); `TL_ADAPTER=mock` swaps in the deterministic mock
+adapter for tests and smoke runs.
+
 ```bash
-tl config connect --backend local --model translategemma:latest
+tl config connect --model translategemma:latest
+tl config connect --endpoint http://192.168.1.10:11434
 ```
 
 #### `tl config status`
@@ -426,6 +450,7 @@ Fish auto-loads completion files from that directory. Open a new shell or
 | Variable | Description |
 |----------|-------------|
 | `TL_CONFIG` | Path to a custom config file. Overrides the default `~/.config/tl/config.jsonc`. |
+| `TL_ADAPTER` | `mock` runs the deterministic mock adapter (no Ollama needed) — intended for tests and smoke runs. `ollama` or unset uses Ollama; any other value warns and falls back to Ollama. |
 
 ---
 
