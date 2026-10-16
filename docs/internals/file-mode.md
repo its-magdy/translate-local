@@ -4,7 +4,7 @@ Read before changing `packages/core/src/files/`. User-facing behaviour is in `do
 
 ## Overview
 
-**File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__` — prefix/suffix are shared constants; core exposes `sentinelFor()`, and the adapter prompt builder derives its enforcement regexes from the same constants), runs the per-leaf pipeline, validates placeholders survived (multiset equality; sentinels reach `runPipeline` as `extraGlossaryHits`, which are tagged but never count toward glossary retries (either mode), reminders or coverage, so a dropped sentinel is retried by `translateLeaf`'s placeholder loop in both glossary modes), then atomic-writes (tmp+rename) to the output path.
+**File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__` — prefix/suffix are shared constants; core exposes `sentinelFor()`, and the adapter prompt builder derives its enforcement regexes from the same constants), runs the per-leaf pipeline, validates placeholders survived (multiset equality; sentinels reach `runPipeline` as `extraGlossaryHits` (deliberately, see `docs/adr/0002-sentinels-ride-the-glossary-tag-channel.md`), which are tagged but never count toward glossary retries (either mode), reminders or coverage, so a dropped sentinel is retried by `translateLeaf`'s placeholder loop in both glossary modes), then atomic-writes (tmp+rename) to the output path.
 
 ## Refused formats
 
