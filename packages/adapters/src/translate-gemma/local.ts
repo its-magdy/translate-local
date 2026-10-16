@@ -1,4 +1,4 @@
-import type { Adapter, TranslationRequest, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, AdapterResponse } from "@translate-local/shared/types";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { DEFAULT_OLLAMA_TIMEOUT_MS } from "@translate-local/shared/constants";
 import { buildStructuredPrompt } from "../base";
@@ -29,7 +29,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
     private readonly timeoutMs: number = DEFAULT_OLLAMA_TIMEOUT_MS
   ) {}
 
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     // Idle timeout: bounds how long we wait for Ollama to send *something*
     // (headers, then each body chunk), not the total generation time, so a
     // long translation that keeps streaming tokens is never cut off.
@@ -70,7 +70,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
     signal: AbortSignal,
     resetTimer: () => void,
     timedOut: () => boolean
-  ): Promise<TranslationResult> {
+  ): Promise<AdapterResponse> {
     const start = Date.now();
     const { prompt, system } = buildStructuredPrompt(request);
 
@@ -181,17 +181,7 @@ export class TranslateGemmaLocalAdapter implements Adapter {
 
     return {
       translated,
-      sourceLang: request.sourceLang,
-      targetLang: request.targetLang,
-      // Real coverage is computed by the pipeline on the postprocessed text;
-      // an adapter only sees the pre-strip output.
-      glossaryCoverage: 1,
-      missingTerms: [],
-      metadata: {
-        adapter: this.name,
-        durationMs: Date.now() - start,
-        retries: 0,
-      },
+      metadata: { adapter: this.name, durationMs: Date.now() - start },
     };
   }
 

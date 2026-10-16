@@ -17,8 +17,6 @@ describe.if(RUN)("TranslateGemmaLocalAdapter (real Ollama)", () => {
       targetLang: "ar",
     });
     expect(result.translated).toBeTruthy();
-    expect(result.sourceLang).toBe("en");
-    expect(result.targetLang).toBe("ar");
     await adapter.dispose();
   }, 30_000);
 });

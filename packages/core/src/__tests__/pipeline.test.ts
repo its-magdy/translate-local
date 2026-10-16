@@ -34,6 +34,15 @@ describe("runPipeline", () => {
     expect(result.metadata.retries).toBe(0);
   });
 
+  it("counts the distinct glossary terms matched in the source", async () => {
+    expect((await runPipeline("Hello world", "en", "ar", adapter, store)).glossaryTerms).toBe(0);
+    store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
+    store.add({ sourceTerm: "cache", targetTerm: "الكاش", sourceLang: "en", targetLang: "ar" });
+    expect((await runPipeline("The API cache and the API", "en", "ar", adapter, store)).glossaryTerms).toBe(2);
+    // Images skip the glossary, so no term counts as matched.
+    expect((await runPipeline("API", "en", "ar", adapter, store, { imageBase64: "dGVzdA==" })).glossaryTerms).toBe(0);
+  });
+
   it("injects and covers glossary terms", async () => {
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
     const result = await runPipeline("The API is fast", "en", "ar", adapter, store);

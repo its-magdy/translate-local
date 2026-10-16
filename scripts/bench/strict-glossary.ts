@@ -24,7 +24,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
+import type { Adapter, AdapterResponse, TranslationRequest } from "../../packages/shared/src/types";
 import { TlError } from "../../packages/shared/src/errors";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
 import { stripGlossaryTags, normalizeWhitespace, computeGlossaryCoverage } from "../../packages/shared/src/utils/text";
@@ -118,7 +118,7 @@ const SENT_RE = /__TLPH_\d+__/g;
 class RecordingAdapter implements Adapter {
   calls: Call[] = [];
   constructor(private readonly inner: Adapter) {}
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     const { prompt } = buildStructuredPrompt(request);
     const t0 = performance.now();
     try {

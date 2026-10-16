@@ -1,4 +1,4 @@
-import type { Adapter, TranslationRequest, TranslationResult, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest, TranslationResult, AdapterResponse, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, stripCombiningMarks, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
 import { TlError, cancelledError } from "@translate-local/shared/errors";
 import { langFallbackChain } from "@translate-local/shared/utils/language";
@@ -71,6 +71,7 @@ export async function runPipeline(
   for (const { entry } of realHits) forms.set(entry.targetTerm, [...new Set([...(forms.get(entry.targetTerm) ?? []), ...(entry.forms ?? [])])]);
   // Fix-ups and the Arabic coverage split also apply to the one-piece forms.
   const agreementTerms = [...new Set([...targetTerms, ...contiguousForms([...forms.values()].flat())])];
+  const glossaryTerms = new Set(realHits.map((h) => h.entry.sourceTerm)).size;
 
   const retryLimit = glossaryMode === "strict" ? maxRetries : PREFER_RETRIES;
   let retries = 0;
@@ -110,7 +111,11 @@ export async function runPipeline(
     // with the model's word, so such a result gets an agreement repair.
     const forced = codeSwitched || substitutesTerm(raw.translated, targetTerms, forms);
 
-    const result: TranslationResult = { ...raw, ...postprocess(raw.translated), metadata: { ...raw.metadata, retries } };
+    const post = postprocess(raw.translated);
+    const result: TranslationResult = {
+      translated: post.translated, sourceLang, targetLang, glossaryCoverage: post.glossaryCoverage, missingTerms: post.missingTerms,
+      glossaryTerms, metadata: { ...raw.metadata, retries },
+    };
     const attempt: Attempt = { raw: raw.translated, result, forced, codeSwitched };
     const { missingTerms } = result;
 
@@ -203,7 +208,7 @@ export async function runPipeline(
       }))];
     if (terms.length === 0) return draft;
     if (signal?.aborted) throw cancelledError();
-    let raw: TranslationResult;
+    let raw: AdapterResponse;
     try {
       raw = await adapter.translate({ source: draft.translated, sourceLang, targetLang, repairTerms: terms, signal, options: { glossaryMode } });
     } catch (err) {

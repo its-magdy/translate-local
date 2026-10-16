@@ -14,26 +14,16 @@ describe("MockAdapter", () => {
     const adapter = new MockAdapter();
     const result = await adapter.translate(makeRequest());
     expect(result.translated).toBe("[ar] Hello world");
-    expect(result.sourceLang).toBe("en");
-    expect(result.targetLang).toBe("ar");
   });
 
-  test("metadata includes adapter name and retries=0", async () => {
+  test("metadata includes adapter name and duration", async () => {
     const adapter = new MockAdapter();
     const result = await adapter.translate(makeRequest());
     expect(result.metadata.adapter).toBe("mock");
-    expect(result.metadata.retries).toBe(0);
     expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  test("glossaryCoverage is 1 when no hits", async () => {
-    const adapter = new MockAdapter();
-    const result = await adapter.translate(makeRequest());
-    expect(result.glossaryCoverage).toBe(1);
-    expect(result.missingTerms).toHaveLength(0);
-  });
-
-  test("substitutes glossary terms and reports full coverage", async () => {
+  test("substitutes glossary terms", async () => {
     const entry: GlossaryEntry = {
       id: "1",
       sourceTerm: "world",
@@ -45,8 +35,6 @@ describe("MockAdapter", () => {
     const adapter = new MockAdapter();
     const result = await adapter.translate(makeRequest({ glossaryHits: [hit] }));
     expect(result.translated).toContain("عالم");
-    expect(result.glossaryCoverage).toBe(1);
-    expect(result.missingTerms).toHaveLength(0);
   });
 
   test("returns [image] prefix when imageBase64 is set", async () => {

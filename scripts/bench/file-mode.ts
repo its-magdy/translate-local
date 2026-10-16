@@ -33,7 +33,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { Adapter, TranslationRequest, TranslationResult } from "../../packages/shared/src/types";
+import type { Adapter, AdapterResponse, TranslationRequest } from "../../packages/shared/src/types";
 import { DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../../packages/shared/src/constants";
 import { computeGlossaryCoverage, normalizeWhitespace, stripGlossaryTags } from "../../packages/shared/src/utils/text";
 import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translate-gemma/local";
@@ -99,7 +99,7 @@ class CountingAdapter implements Adapter {
   leaf = "";
   calls = new Map<string, Call[]>();
   constructor(private readonly inner: Adapter) {}
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
+  async translate(request: TranslationRequest): Promise<AdapterResponse> {
     const res = await this.inner.translate(request);
     const list = this.calls.get(this.leaf) ?? [];
     list.push({ repair: !!request.repairTerms, source: request.source, raw: res.translated });
