@@ -77,6 +77,8 @@ export async function runPipeline(
   let glossaryReminder: TranslationRequest["glossaryReminder"];
   // Prefer mode returns the attempt with the highest coverage; ties keep the earlier one.
   let best: Attempt | undefined;
+  // The code-switched attempt's raw output, once it ran: the tag check's answer.
+  let codeSwitchedRaw: string | undefined;
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
@@ -100,6 +102,7 @@ export async function runPipeline(
     };
 
     const raw = await adapter.translate(request);
+    if (codeSwitched) codeSwitchedRaw = raw.translated;
     // A target term the model did not choose itself: the code-switched source
     // put it there, or the model echoed a term tag around its own word and the
     // tag strip below swaps in the term (a tag around the model's own form of
@@ -147,10 +150,15 @@ export async function runPipeline(
     // The code-switched attempt was already sent the check's source.
     const candidates = attempt.codeSwitched ? new Map<string, string>() : tagCheckCandidates(attempt.raw, realHits, forms);
     if (candidates.size > 0) {
-      const kept = await tagCheck(candidates);
-      result = { ...result, metadata: { ...result.metadata, tagChecked: true } };
+      // Prefer mode's code-switched retry already sent the check's source: reuse its output.
+      let check = codeSwitchedRaw;
+      if (check === undefined) {
+        check = await tagCheckCall();
+        result = { ...result, metadata: { ...result.metadata, tagChecked: true } };
+      }
+      const kept = new Map([...candidates].filter(([term, inner]) => check !== undefined && checkKeepsWord(check, term, inner, forms)));
       if (kept.size > 0) {
-        // Keeping a word drops no term: the term is outside the tags.
+        // The term stays covered by its occurrence outside the tags; coverage is recomputed anyway.
         result = { ...result, ...postprocess(attempt.raw, kept), metadata: { ...result.metadata, keptWord: true } };
         forced = substitutesTerm(attempt.raw, targetTerms, forms, kept);
       }
@@ -159,24 +167,22 @@ export async function runPipeline(
   }
 
   /**
-   * One extra model call with the code-switched source (the target terms in
-   * place of the source words, as the last glossary retry sends it), whose
-   * output is never returned: a candidate's word (tagCheckCandidates) the
-   * model still writes there (checkKeepsWord) translates another source word,
-   * so the tag strip keeps it. Returns those as term → tag inner; none when
-   * the call fails. A cancellation still throws.
+   * The tag check's extra model call: the code-switched source (the target
+   * terms in place of the source words, as the last glossary retry sends it),
+   * whose output is never returned, only read by checkKeepsWord: a candidate's
+   * word (tagCheckCandidates) the model still writes there translates another
+   * source word, so the tag strip keeps it. Undefined when the call fails; a
+   * cancellation still throws.
    */
-  async function tagCheck(candidates: Map<string, string>): Promise<Map<string, string>> {
+  async function tagCheckCall(): Promise<string | undefined> {
     if (signal?.aborted) throw cancelledError();
-    let check: string;
     try {
-      check = (await adapter.translate({ source: codeSwitchedSource, sourceLang, targetLang, glossaryHits: hits, signal, options: { glossaryMode } })).translated;
+      return (await adapter.translate({ source: codeSwitchedSource, sourceLang, targetLang, glossaryHits: hits, signal, options: { glossaryMode } })).translated;
     } catch (err) {
       if (err instanceof TlError && err.tag === "CANCELLED") throw err;
       if (signal?.aborted) throw cancelledError(err);
-      return new Map();
+      return undefined;
     }
-    return new Map([...candidates].filter(([term, inner]) => checkKeepsWord(check, term, inner, forms)));
   }
 
   /**

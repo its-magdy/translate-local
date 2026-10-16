@@ -854,17 +854,27 @@ describe("runPipeline", () => {
       expect(covered[1].glossaryReminder).toEqual([{ source: "branch", target: "Zweig" }]);
       expect(second.metadata.tagChecked).toBeUndefined();
 
-      // The first attempt wins on coverage after both retries: it is checked, with its coverage unchanged.
+      // The first attempt wins on coverage after both retries (the code-switched one ties):
+      // the code-switched attempt's output, which had the check's source, decides with no extra call.
       const best: any[] = [];
-      const kept = await runPipeline(text, "en", "de", checkAdapter([raw, "miss", "miss", KEPT], best), store, opts);
-      expect(best).toHaveLength(4);
-      expect(best[3].source).toBe(best[2].source);
-      expect(best[3].source).toBe('<term translation="bereitstellen">bereitstellen</term> the <term translation="Zweig">Zweig</term> automatically after each commit.');
+      const kept = await runPipeline(text, "en", "de", checkAdapter([raw, "miss", KEPT], best), store, opts);
+      expect(best).toHaveLength(3);
+      expect(best[2].source).toBe('<term translation="bereitstellen">bereitstellen</term> the <term translation="Zweig">Zweig</term> automatically after each commit.');
       expect(kept.translated).toBe(KEPT);
       expect(kept.glossaryCoverage).toBe(0.5);
       expect(kept.missingTerms).toEqual(["branch"]);
       expect(kept.metadata.retries).toBe(2);
       expect(kept.metadata.keptWord).toBe(true);
+      expect(kept.metadata.tagChecked).toBeUndefined();
+
+      // When that output lacks the word, the tag is stripped and the forced term repaired.
+      const stripped: any[] = [];
+      const strip = await runPipeline(text, "en", "de", checkAdapter([raw, "miss", "miss"], stripped), store, opts);
+      expect(stripped).toHaveLength(4);
+      expect(stripped[3].repairTerms).toEqual(["bereitstellen"]);
+      expect(strip.translated).toBe(STRIPPED);
+      expect(strip.glossaryCoverage).toBe(0.5);
+      expect(strip.metadata.keptWord).toBeUndefined();
 
       // The code-switched attempt had the check's source: no check, it is repaired as forced.
       const switched: any[] = [];
@@ -872,6 +882,32 @@ describe("runPipeline", () => {
       expect(switched).toHaveLength(4);
       expect(switched[3].repairTerms).toEqual(["bereitstellen"]);
       expect(last.metadata.tagChecked).toBeUndefined();
+    });
+
+    it("one check decides each candidate on its own", async () => {
+      const host = { id: "h", sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" };
+      const token = { id: "t", sourceTerm: "token", targetTerm: "jeton", sourceLang: "en", targetLang: "fr" };
+      const raw = 'Redémarrez le <term translation="hôte">serveur</term> de l\'hôte et renouvelez la <term translation="jeton">clé</term> du jeton.';
+      const requests: any[] = [];
+      const result = await runPipeline("Restart the host server and renew the token key.", "en", "fr", checkAdapter([raw, "Redémarrez le serveur de l'hôte et renouvelez le jeton."], requests), store, { glossaryEntries: [host, token] });
+      // serveur is kept, clé is replaced: the jeton tag is still a substitution, so the repair runs.
+      expect(requests).toHaveLength(3);
+      expect(requests[2].repairTerms).toEqual(["hôte", "jeton"]);
+      expect(result.translated).toBe("Redémarrez le serveur de l'hôte et renouvelez la jeton du jeton.");
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.keptWord).toBe(true);
+    });
+
+    it("a word of a multi-word term in the check does not keep the tagged word", async () => {
+      const pr = { id: "p", sourceTerm: "pull request", targetTerm: "Pull Request", sourceLang: "en", targetLang: "de" };
+      const raw = 'Öffnen Sie einen Pull Request für die <term translation="Pull Request">Request</term>-Prüfung.';
+      for (const [check, translated] of [
+        ["Öffnen Sie einen Pull Request zur Prüfung.", "Öffnen Sie einen Pull Request für die Pull Request-Prüfung."],
+        ["Öffnen Sie einen Pull Request für die Request-Prüfung.", "Öffnen Sie einen Pull Request für die Request-Prüfung."],
+      ]) {
+        const result = await runPipeline("Open a pull request for review.", "en", "de", checkAdapter([raw, check], []), store, { glossaryEntries: [pr] });
+        expect(result.translated).toBe(translated);
+      }
     });
 
     it("no check for a term hit twice, or with MockAdapter", async () => {
