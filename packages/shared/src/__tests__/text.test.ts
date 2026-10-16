@@ -141,17 +141,24 @@ describe("stripGlossaryTags", () => {
   });
 
   test("writes any other case variant of a kept form's matched part as the term", () => {
-    expect(stripGlossaryTags('<term translation="hôte">HÔTE</term> en ligne')).toBe("hôte en ligne");
+    expect(stripGlossaryTags('Le <term translation="hôte">HÔTE</term> en ligne')).toBe("Le hôte en ligne");
     expect(stripGlossaryTags('<term translation="API">api</term> key')).toBe("API key");
     expect(stripGlossaryTags('<term translation="API">Api</term> key')).toBe("API key");
     expect(stripGlossaryTags('<term translation="iOS">IOS</term> app')).toBe("iOS app");
     expect(stripGlossaryTags('<term translation="iOS">Système</term> mis à jour')).toBe("iOS mis à jour");
   });
 
-  test("lowercases the rest of an all-caps word whose matched part is written as the term", () => {
+  test("lowercases the letters glued after an all-caps match written as the term", () => {
     expect(stripGlossaryTags('Les <term translation="hôte">HÔTES</term> sont prêts')).toBe("Les hôtes sont prêts");
-    expect(stripGlossaryTags("<term translation=\"hôte\">L'HÔTE</term>")).toBe("l'hôte");
     expect(stripGlossaryTags('<term translation="Zweig">ZWEIGE</term>')).toBe("Zweige");
+    // Text before the match, or after a non-letter, stays as written.
+    expect(stripGlossaryTags("<term translation=\"hôte\">L'HÔTE</term> est prêt")).toBe("L'hôte est prêt");
+    expect(stripGlossaryTags('Voir <term translation="Zweig">GIT-ZWEIGE</term>')).toBe("Voir GIT-Zweige");
+    expect(stripGlossaryTags('Les <term translation="hôte">API-HÔTES</term>')).toBe("Les API-hôtes");
+    expect(stripGlossaryTags('<term translation="iOS">IOS-APPS</term>')).toBe("iOS-APPS");
+    expect(stripGlossaryTags('Les <term translation="hôte">__TLPH_0__HÔTES</term>')).toBe("Les __TLPH_0__hôtes");
+    // Lowercased with the match for context: Greek final sigma.
+    expect(stripGlossaryTags('Ο <term translation="χρήστη">ΧΡΉΣΤΗΣ</term> συνδέθηκε')).toBe("Ο χρήστης συνδέθηκε");
     // Capital sharp s folds to ß, so the span and the rest are sliced from the model's word.
     expect(stripGlossaryTags('<term translation="Straße">STRAẞEN</term>')).toBe("Straßen");
     // SS does not fold to ß: no match, so the term replaces the word.
@@ -162,6 +169,17 @@ describe("stripGlossaryTags", () => {
     // A word with a lowercase letter keeps the rest as written.
     expect(stripGlossaryTags('<term translation="Zweig">ZWEIGe</term>')).toBe("Zweige");
     expect(stripGlossaryTags('<term translation="الكاش">والكاش</term>')).toBe("والكاش");
+  });
+
+  test("capitalizes the term of an all-caps match that starts a sentence", () => {
+    expect(stripGlossaryTags('<term translation="hôte">HÔTES</term> sont prêts')).toBe("Hôtes sont prêts");
+    expect(stripGlossaryTags('<term translation="hôte">HÔTE</term> en ligne')).toBe("Hôte en ligne");
+    expect(stripGlossaryTags('Prêt. <term translation="hôte">« HÔTES »</term> actifs')).toBe("Prêt. Hôtes actifs");
+    expect(stripGlossaryTags('Titre\n<term translation="hôte">HÔTES</term>')).toBe("Titre\nHôtes");
+    expect(stripGlossaryTags('<term translation="iOS">IOS</term> prêt')).toBe("iOS prêt");
+    // Not mid-sentence, nor when the match does not start the word.
+    expect(stripGlossaryTags('Les <term translation="hôte">HÔTES</term>')).toBe("Les hôtes");
+    expect(stripGlossaryTags("<term translation=\"hôte\">L'HÔTES</term>")).toBe("L'hôtes");
   });
 
   test("capitalizes a replacing term when the model's word is capitalized at a sentence start", () => {
@@ -246,8 +264,9 @@ describe("stripGlossaryTags", () => {
         out += text.slice(last, m.index);
         const [, open, inner] = m;
         const attr = /\btranslation="([^"]*)"/.exec(open)?.[1];
-        const capitalize = /(?:^\s*|\n\s*|[.!?…]\s+)$/u.test(out) && /^\P{L}*\p{Lu}/u.test(inner);
-        out += attr === undefined ? inner : (keptTermForm(inner, attr) ?? (capitalize ? capitalizeTerm(attr) : attr));
+        const atStart = /(?:^\s*|\n\s*|[.!?…]\s+)$/u.test(out);
+        const capitalize = atStart && /^\P{L}*\p{Lu}/u.test(inner);
+        out += attr === undefined ? inner : (keptTermForm(inner, attr, [], atStart) ?? (capitalize ? capitalizeTerm(attr) : attr));
         last = m.index + m[0].length;
       }
       return out + text.slice(last);

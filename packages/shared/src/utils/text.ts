@@ -128,11 +128,15 @@ export function contiguousForms(forms: readonly string[]): string[] {
  * The matched part is written as that form itself, or as `capitalizeTerm(form)`
  * when the model wrote it that way (de `Bereitstellen` for `bereitstellen`), so
  * the output always contains one of the two exactly (coverage accepts both).
- * When the part is rewritten in a word with no lowercase letter, the rest of the
- * word is lowercased too (`HÔTES` → `hôtes`, not `hôteS`).
+ * When an all-caps match (`HÔTES`) is rewritten as the term, the letters glued
+ * after it are lowercased too (`hôtes`, not `hôteS`); text before it or after a
+ * non-letter stays as written (`L'HÔTE` → `L'hôte`, `IOS-APPS` → `iOS-APPS`).
+ * A rewritten all-caps match that starts the word is written as
+ * `capitalizeTerm(term)` when the tag is at a sentence start (`atSentenceStart`,
+ * see stripGlossaryTags): `HÔTES sont prêts` → `Hôtes sont prêts`.
  * Placeholder sentinel tags always become the attribute.
  */
-export function keptTermForm(inner: string, term: string, forms: readonly string[] = []): string | undefined {
+export function keptTermForm(inner: string, term: string, forms: readonly string[] = [], atSentenceStart = false): string | undefined {
   if (!term.trim() || SENTINEL_TERM_RE.test(term)) return undefined;
   let word = inner.trim();
   if (word.length >= 2 && OPEN_QUOTES.includes(word[0]) && CLOSE_QUOTES.includes(word[word.length - 1])) {
@@ -143,10 +147,18 @@ export function keptTermForm(inner: string, term: string, forms: readonly string
     if (!candidate.trim() || wordCount(word) > wordCount(candidate.trim())) continue;
     const match = new RegExp(escapeRegExp(candidate), "iu").exec(word);
     if (!match) continue;
-    const form = match[0] === capitalizeTerm(candidate) ? match[0] : candidate;
-    // An all-caps word (`HÔTES`) is lowercased around the rewritten part, or it reads `hôteS`.
-    const rest = form === match[0] || /\p{Ll}/u.test(word) ? (s: string) => s : (s: string) => s.toLowerCase();
-    return rest(word.slice(0, match.index)) + form + rest(word.slice(match.index + match[0].length));
+    const kept = match[0] === capitalizeTerm(candidate);
+    const end = match.index + match[0].length;
+    const tail = /^[\p{L}\p{M}]*/u.exec(word.slice(end))![0];
+    if (kept || /\p{Ll}/u.test(match[0] + tail)) return word.slice(0, match.index) + (kept ? match[0] : candidate) + word.slice(end);
+    // All caps: lowercase the glued tail together with the match, so context-dependent
+    // mappings hold (Greek final sigma: `ΧΡΉΣΤΗΣ` → `χρήστης`). Without the target locale,
+    // Turkish `I` / `İ` lowercase as elsewhere (`i`, `i̇`), not as `ı` / `i`.
+    const lower = (match[0] + tail).toLowerCase();
+    const matchLower = match[0].toLowerCase();
+    const lowerTail = lower.startsWith(matchLower) ? lower.slice(matchLower.length) : tail.toLowerCase();
+    const form = atSentenceStart && match.index === 0 ? capitalizeTerm(candidate) : candidate;
+    return word.slice(0, match.index) + form + lowerTail + word.slice(end + tail.length);
   }
   return undefined;
 }
@@ -222,7 +234,7 @@ function removeTermTags(text: string, withClose: boolean, forms?: ReadonlyMap<st
       if (attr) {
         const term = unescapeAttr(attr[1]);
         const capitalize = sentence.atStart() && /^\P{L}*\p{Lu}/u.test(inner);
-        inner = keptTermForm(inner, term, forms?.get(term)) ?? (capitalize ? capitalizeTerm(term) : term);
+        inner = keptTermForm(inner, term, forms?.get(term), sentence.atStart()) ?? (capitalize ? capitalizeTerm(term) : term);
       }
       next = close + "</term>".length;
     }
