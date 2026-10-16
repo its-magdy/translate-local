@@ -243,9 +243,9 @@ function appendsEndPunctuation(draft: string, repaired: string, source: string):
 /**
  * Sentence-final punctuation in a source: `.`, `!`, `?`, `…`, `‼⁉‽`, CJK,
  * Arabic, Urdu, Devanagari, Armenian, Ethiopic, Myanmar, Khmer, Tibetan and
- * the Greek question mark.
+ * the Greek question mark (U+037E, which NFC turns into `;`).
  */
-const END_PUNCTUATION = ".!?…‼⁉‽。．！？؟۔।॥։።။។།;";
+const END_PUNCTUATION = ".!?…‼⁉‽。．！？؟۔।॥։።။។།;;";
 /** The full stops dropped from a translation. */
 const FULL_STOPS = ".。．۔।";
 /**

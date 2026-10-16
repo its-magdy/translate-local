@@ -801,6 +801,7 @@ describe("runPipeline", () => {
         ["Really⁉", "Vraiment."],
         ["Really‽", "Vraiment."],
         ["Αποθηκεύτηκε;", "Enregistré."],
+        ["Τι;", "Quoi."],
         ["تم الحفظ.‏", "Enregistré."],
       ]) {
         const result = await runPipeline(text, "en", "fr", fixedAdapter(output), store);
