@@ -1,251 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+`tl` is an open-source, CLI-first translation tool with an optional TUI. Default model: TranslateGemma via Ollama (local). Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
 
-Guidelines for the `tl` translation CLI tool. Merge with project-specific instructions as needed.
+## ⛔ Git workflow (mandatory, before writing any file)
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+Past agents broke all three of these rules. Check `git status` and `git branch` before writing anything.
 
----
-
-## ⛔ MANDATORY BEFORE WRITING ANY CODE
-
-These are non-negotiable. Do them in order before touching a single file:
-
-1. **Create a feature branch** — `git checkout -b feature/<short-description>` from `main`. No exceptions, not even for "small" tasks.
-2. **Commit after every logical unit** — one file done, one feature complete, tests passing = commit + push. Do NOT accumulate all work into one commit at the end.
-3. **Push after every commit** — `git push` immediately. Never leave commits sitting locally.
-
-Violations of these three rules are not acceptable. Past agents have failed on all three. Do not repeat this.
-
-**Enforce this by checking `git status` and `git branch` before writing any file.**
-
----
-
-## Project Overview
-
-`tl` is an open-source CLI-first translation tool with optional TUI. Default model: TranslateGemma via Ollama (local). Key features: glossary enforcement, context-aware translation, pluggable model adapters, automatic memory management.
+1. **Branch first**: from `main`, create `feature/<desc>`, `fix/<desc>` or `chore/<desc>`. This applies even to one-line changes. `main` only changes through PRs.
+2. **Commit after every logical unit**: a file done, a feature complete, tests passing. Use imperative subjects under 72 chars (`Add MockAdapter with deterministic glossary substitution`).
+3. **Push after every commit**: `git push -u origin <branch>` the first time, then `git push`.
 
 ## Commands
 
 ```bash
-# Install dependencies
 bun install
-
-# Run all tests (all packages via Turborepo)
-bun run test
-
-# Run tests for a single package
-bun test --cwd packages/core
-bun test --cwd packages/shared
-bun test --cwd packages/adapters
-
-# Run a single test file
-bun test packages/core/src/__tests__/pipeline.test.ts
-
-# Real adapter tests (requires running Ollama)
-TEST_ADAPTER=1 bun run test
-
-# Compile the CLI binary to apps/cli/dist/tl (the only build; packages ship no dist/)
-bun run build
-
-# Type-check sources and tests
+bun run test                                  # all packages (Turborepo)
+bun test --cwd packages/core                  # one package
+bun test packages/core/src/__tests__/pipeline.test.ts   # one file
+TEST_ADAPTER=1 bun run test                   # real Ollama adapter tests
+bun run build                                 # compile CLI binary to apps/cli/dist/tl (the only build)
 bun run typecheck
-
-# Run the CLI directly (no build needed)
-bun run apps/cli/src/index.ts "hello" --to ar
-
-# Use the `tl` shorthand (one-time setup)
-cd apps/cli && bun link
-tl "hello" --to ar
+bun run apps/cli/src/index.ts "hello" --to ar # run the CLI without building
 ```
 
-## Tech Stack
+## Stack & layout
 
-- **Runtime**: Bun (not Node.js)
-- **Language**: TypeScript (strict mode)
-- **Monorepo**: Bun workspaces + Turborepo
-- **CLI**: Commander.js
-- **TUI**: OpenTUI (React-based terminal UI)
-- **Validation**: Zod
-- **Testing**: bun:test
-- **Database**: SQLite via `bun:sqlite` (glossary + context storage)
-- **Config**: JSONC at `~/.config/tl/config.jsonc`
-
-## Monorepo Structure
+Bun (not Node), strict TypeScript, Bun workspaces + Turborepo, Commander.js CLI, OpenTUI (React) TUI, Zod, `bun:test`, `bun:sqlite` (glossary + context), JSONC config at `~/.config/tl/config.jsonc`.
 
 ```
-t/
-├── packages/shared/     # Types, errors, constants, utils
-├── packages/core/       # Config, glossary, pipeline, context
-├── packages/adapters/   # TranslateGemma (local), mock
-├── apps/cli/            # Commander.js CLI (`tl` command)
-└── apps/tui/            # Interactive terminal UI
+packages/shared/     # types, errors, constants, utils
+packages/core/       # config, glossary, pipeline, context, session, files/
+packages/adapters/   # TranslateGemma (Ollama), mock
+apps/cli/            # `tl` command
+apps/tui/            # interactive terminal UI
 ```
 
-## npm Scope & Publishing
+## Packages, versioning & releases
 
-- **Scope**: `@translate-local/*`. Only the `tl` wrapper (`packages/npm-tl`) and its per-platform binary packages (`packages/npm-tl-*`) are published. `@translate-local/shared`, `core` and `adapters` are `"private": true`: the CLI bundles them into the binary, and their `exports` (`"bun"` → `src/`) and `workspace:*` peer deps are not publish-ready.
-- **Apps** (`apps/cli`, `apps/tui`) are private, not published
-- **Subpath exports**: Each package uses the `exports` field for granular imports (e.g., `@translate-local/shared/types`, `@translate-local/core/pipeline`)
-- **Peer deps**: `@translate-local/core` and `@translate-local/adapters` peer-depend on `@translate-local/shared`
-- **Bun-first / just-in-time packages**: `shared`, `core` and `adapters` have no build step and no `dist/`. Their `exports` map each subpath to a plain `./src/….ts` string, which Bun (tests, `bun run`, `bun build --compile`) and `tsc` (bundler resolution) both read directly. Keep it that way: adding a `dist`-pointing `import`/`types` condition would make typecheck depend on a build again. `bun run build` compiles the CLI binary only; `test` and `typecheck` don't depend on it. In `turbo.json` they depend on the no-op `transit` task so a change in a dependency's `src/` still invalidates dependents' caches (don't replace it with `^build`)
+- Only `packages/npm-tl` (the `tl` wrapper) and its per-platform binary packages `packages/npm-tl-*` are published. `@translate-local/shared`, `core` and `adapters` are `"private": true` and bundled into the binary. The apps are private too.
+- `shared`, `core` and `adapters` have **no build step**. Each subpath export points at a plain `./src/….ts` file, which Bun and `tsc` both read directly. Keep it that way: a `dist` condition would make typecheck depend on a build. In `turbo.json`, `test` and `typecheck` depend on the no-op `transit` task, not on `^build`.
+- `core` and `adapters` peer-depend on `shared`, and `core` peer-depends on `adapters`.
+- Versioning is unified: every `package.json` shares one version. Feature and fix PRs leave versions and `CHANGELOG.md` alone. A release PR (`chore(release): prepare X.Y.Z`) bumps every `package.json`, refreshes `bun.lock` and adds the root `CHANGELOG.md` entry (`## [X.Y.Z] - YYYY-MM-DD` with Added/Changed/Fixed/Removed). The `vX.Y.Z` tag is pushed after it merges. See CONTRIBUTING.md.
 
-## Versioning & Changelog
+## Key patterns
 
-- **Unified versioning**: all packages share a single version number, bumped together on each release.
-- Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
-- A single root `CHANGELOG.md` tracks all changes (no per-package changelogs).
-- Feature and fix PRs leave versions and `CHANGELOG.md` alone. A release PR (`chore(release): prepare X.Y.Z`) bumps the version in **all** `package.json` files (the CLI reads its `--version` from `apps/cli/package.json`), refreshes `bun.lock` and adds the root `CHANGELOG.md` entry; after it merges, push the `vX.Y.Z` tag. See CONTRIBUTING.md's Releases section.
-- Format for changelog entries: `## [version] - YYYY-MM-DD` with sections `### Added`, `### Changed`, `### Fixed`, `### Removed`.
+**Read the matching internals doc before changing these areas.** Each holds the rules and the bench measurements behind them:
 
-## Key Patterns
+- `docs/internals/pipeline.md`: pipeline, Term Set, glossary retries and code-switching, tag strip, agreement fix-ups and repair, tag check, prompt builders, streaming, image mode
+- `docs/internals/file-mode.md`: `packages/core/src/files/` (sentinels, ICU, sync, locks, prune, abort, locale roots, i18next plurals)
+- `docs/internals/glossary.md`: glossary matching, lookup fallback, term forms
+- `docs/context-guide.md`: context tokenizer, scoring, index layout
+- `docs/adr/`: decisions that look wrong but aren't
 
-- **Adapter interface**: All adapters implement `translate()` and `dispose()`. Use `createAdapter(config)` factory; frontends build the config with `toAdapterConfig(coreConfig, backend?)` from `@translate-local/core/config` instead of hand-mapping fields. `translate()` returns an `AdapterResponse` (raw `translated` + `metadata: { adapter, durationMs }`), nothing else: the pipeline builds the `TranslationResult` (coverage, missing terms, `glossaryTerms`, retries and the repair/tag-check flags) on the postprocessed text. Don't add pipeline-owned fields back to the adapter's return type.
-- **Translation session** (`@translate-local/core/session`): frontends (CLI text/image/file mode, TUI) open a `TranslationSession(config)` instead of wiring adapter + stores by hand. It resolves the backend from `TL_ADAPTER` (`resolveBackend()`: `mock`, else `ollama` with a warning for unknown values), owns the adapter and the glossary + context stores, and `translate(text, src, tgt, { imageBase64?, onChunk?, signal?, glossaryMode? })` does context retrieval + `runPipeline` with the config's `glossary.mode`/`maxRetries` and `context.maxSnippets`/`minRelevance`. File mode passes `session.adapter`/`glossaryStore`/`contextStore` to `translateFile`; `session.adapter` stamps the session's abort signal on every request, so `session.abort()` cancels file mode too. `dispose()` is idempotent, closes the stores and unloads the model only if the session sent a request (a dry run never loads it). Core peer-depends on `@translate-local/adapters` for this.
-- **Config defaults**: live in `@translate-local/shared/constants` (`DEFAULT_MODEL`, `DEFAULT_OLLAMA_URL`, db paths, …). `configSchema` consumes them via per-field `.default()` plus `.prefault({})` on nested objects — never restate a default literal. **Env substitution** (`${VAR}`) always yields a *string*; number fields opt into conversion with the `envNumber()` helper in `config.ts`, so the target type drives coercion rather than the env value's appearance. Don't coerce based on the string's shape — that turns a numeric-looking value on a string field into a number and fails validation.
-- **TaggedError with hints**: Errors use `tag` + `hint` for actionable messages. Follow this pattern for new errors.
-- **Glossary XML tags**: `<term translation="target">source</term>` — TranslateGemma's format. Don't change this. (The code-switched last retry may add a `source="…"` attribute for cross-script terms; see Pipeline flow.)
-- **Pipeline flow**: Preprocess (tag inject) → Context retrieval → Translate → Validate (glossary check) → Postprocess (tag strip) → Agreement repair (gated, see below). **Term Set** (`TermSet`, `packages/core/src/terms.ts`): `runPipeline` matches the hits, then builds one `TermSet(text, realHits, extraGlossaryHits, targetLang, imageMode)` that owns the tagged and code-switched sources and `read(raw, kept?)`, the single postprocess chain every attempt, the kept-word re-read and the repair output go through: tag strip → `normalizeWhitespace` → `fixTermAgreement` → `dropAddedFullStop` → coverage on `splitArabicArticles`' text; `read()` also returns `forced`. It also gives `reminder()`, `tagCheckCandidates()`/`keptWords()` and `repairTerms()`. It takes hits, never the store, so test it on plain strings (`terms.test.ts`); don't call the chain's helpers from the pipeline directly. Its helpers stay in `shared/utils/text.ts` on purpose (the mock adapter needs the tag strip; see `docs/adr/0001-term-helpers-stay-in-shared.md`). `runPipeline` keeps retries, best-attempt choice, streaming, cancellation, the tag-check and repair calls and the repair's acceptance gate. A real glossary term missing from the output triggers a `glossaryReminder` retry: strict mode retries up to `maxRetries` and then throws `GLOSSARY_STRICT_MISS`; prefer mode (the default) retries exactly twice (fixed, `maxRetries` doesn't apply) and returns whichever attempt has the highest coverage (ties keep the earliest; `metadata.retries` counts the retries either way), never throwing for a miss. In both modes the **last** retry is code-switched (`injectGlossaryTags(text, hits, realHits)`): each real hit is sent with its target term in place of the source word, sentinel / `extraGlossaryHits` tags unchanged, and no `glossaryReminder`. When the source word and the term share no writing system and the term is neither Latin-script nor Han/kana/Hangul (`keepsSourceWord()` in `text.ts`), the tag keeps the word as an attribute, `<term translation="الكاش" source="cache">الكاش</term>`; otherwise it is `<term translation="hôte">hôte</term>`. Without the attribute a term that is also another word drifts the meaning (#116: P4 `Cleared the {name} cache.` with `cache → الكاش`, which also reads as "cash", became a payment sentence in 20/20 forced code-switched attempts). Don't add it for same-script pairs: the model then copies the source word (A11 it `server → host` code-switched term 9/20 → 4/20). Nor for CJK terms: it bought no coverage on zh/ja/ko (no English leaked either) but dropped placeholders (ja `Cleared the {name} cache.` → `キャッシュ`: sentinel kept 42/60 → 29/60). Nor for Latin-script terms: from a non-Latin source the model translates the source word itself (ja→en `サーバー → host`: the last retry wrote "server" in 6/16 attempts with the attribute, 0/18 without). The source word in the text (`cache (الكاش)`) or in a prompt line also fixed P4 but made G9 drop `كوميت` (the model translates the English word itself); earlier retries send the tagged source plus the reminder (strict with `maxRetries: 1` code-switches its only retry). `extraGlossaryHits` never trigger either retry. **Tag strip** (`stripGlossaryTags`, `packages/shared/src/utils/text.ts`): a complete `<term translation="X">inner</term>` becomes X unless `keptTermForm(inner, X)` keeps the model's own form (#116): inner (trimmed, one pair of surrounding quotes dropped) contains X case-insensitively, has no more whitespace-separated words than X and no `<`/`>`; the matched span is rewritten as X exactly, or as `capitalizeTerm(X)` when the model wrote that (de `Bereitstellen` for `bereitstellen`, fr `Hôtes`), so coverage still finds it (ar `الكوميت`/`انشر` for `كوميت`/`نشر`). When an all-caps match is rewritten, the letters glued after it are lowercased with it (`HÔTES` → `hôtes`, not `hôteS`; Greek final sigma holds), text before it or after a non-letter stays (`L'HÔTE` → `L'hôte`, `__TLPH_0__HÔTES` keeps its sentinel), and a match starting the word at a sentence start gets `capitalizeTerm(X)` (`HÔTES sont` → `Hôtes sont`). A replaced inner whose first letter is uppercase at the start of the text, a line or a sentence (after `.!?…` + whitespace) gets `capitalizeTerm(X)` (fr `<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`; tracked per segment in `removeTermTags`, still linear). `capitalizeTerm()` only raises the first letter of a term with no uppercase letter (`iOS`, `Zweig` unchanged); coverage accepts X or `capitalizeTerm(X)` (nothing else case-insensitive), and `fixTermAgreement()` runs its fix-ups on both forms. File-mode bench (`lcStart` column: glossary leaves whose source starts uppercase but whose value starts lowercase): fr 21/240 → 1/240, de 12/99 → 0/99; agreement and strict-glossary benches unchanged. Unclosed tags and sentinel attributes always become X. Keep the strip linear-time (`removeTermTags`, no regex rescans). In that chain, after the tag strip, `fixTermAgreement()` (`packages/core/src/agreement.ts`) drops quotes / em dashes wrapped around a real target term, and for fr/it drops a lone em dash before it and applies elision before a vowel- or mute-h-initial term (`le hôte` → `l'hôte`; French aspirated-h and all y-initial words excluded), drops a detached Arabic `الـ` before an `ال`-initial term, merges a detached or doubled `ل` into one (`لـ الكاش` / `للالكاش` → `للكاش`; `للغة` when the stem starts with `ل`, `mergeArabicLam()`), and attaches a detached `الـ` (after an optional proclitic) to any other Arabic-script term (`بالـ نشر` → `بالنشر`; Latin-script terms keep `الـ API`); it never touches sentinels. For Arabic targets, coverage (every attempt and the repair check) counts that `ل` merge as the term (`splitArabicArticles()` in `agreement.ts`; harakat are dropped first, as coverage drops combining marks anyway, so `للّغة` counts; not after `ل`/`ا`, so the misspelt `لللغة` stays a miss): exact coverage scored a correct `للغة` as a miss, so prefer mode retried and returned a broken `للاللغة` instead (agreement bench A12–A15: agree 16/40 → 37/40, mean calls 2.83 → 2.25). Next in the chain, `dropAddedFullStop()` (`punctuation.ts`, not in image mode) drops one trailing full stop (`.。．۔।`, trailing LRM/RLM/ALM skipped and kept) when the source has no sentence-final punctuation (`endsWithPunctuation()`, shared with `appendsEndPunctuation()`; it looks past trailing whitespace, closing quotes/brackets, markdown closers `*` `_` `` ` ``, bidi marks and placeholder sentinels, so `Read the __TLPH_0__docs.__TLPH_1__` and `**Saved.**` count as punctuated): `Save changes` → `Enregistrer les modifications.` (the model did that to ~6 of 131 catalog labels per language per run). A `.` is kept when the last word has any other dot (`..`, `z.B.`), is one letter (`z. B.`) or an `ABBREVIATIONS` entry (`etc.`, also after a hyphen: `Bestell-Nr.`), or when a glossary target term or one-piece form ends with it. Offline replay of every saved file-mode run: 326 leaves changed (fr 64, de 132, ar 130), all period-only. **Tag check** (`finish()` in `pipeline.ts`, before the agreement repair): when the attempt about to be returned (prefer mode's best one included; never the code-switched attempt, which already had this source) has a complete tag for a real term T around a word X that `keptTermForm()` rejects while T or a form is already outside every tag as a whole word (`tagCheckCandidates()` in `text.ts`; de `<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.`), the pipeline makes one extra call with the code-switched source (no reminder, onChunk or context; signal forwarded) whose output is never returned. When prefer mode's code-switched retry already ran (the best attempt is an earlier one), its output is reused as the answer instead (that retry also had context; no extra call). X is kept (`stripGlossaryTags(raw, forms, kept)`) only if that output, tag-stripped with marks dropped, has T (or a form) as a whole word and, outside T's and its one-piece forms' own occurrences (`Request` in `Pull Request` doesn't count), X as a whole word, case-insensitively (`checkKeepsWord()`; an X that is a part of a split form, `Stellen` of `stellen … bereit`, is never kept); otherwise the strip replaces X as before. Each candidate term is decided on its own from the one answer. Only for a T with exactly one real hit and one tag in the output (with two source occurrences, the outside T may translate the other one); never for sentinels, an X equal to the hit's source word, an X without letters, or when X, T or a form has CJK/kana/Thai/Lao/Khmer/Myanmar letters (no word edges: `キー` in `キーボード`). T stays covered by its outside occurrence, so prefer mode's choice is unaffected; coverage is recomputed after a keep anyway. A failed check strips as before; `CANCELLED` / an aborted signal throws, and no check starts once aborted. `metadata.tagChecked` = an extra check call was made (also when it failed; not set when the retry's output was reused), `metadata.keptWord` = a word was kept. In file mode it runs per `runPipeline` call, so a placeholder retry of the leaf can check again (like the repair). Replay of all saved file-mode runs: it fires on 15 of 9,039 leaves (14 `deploy.auto`, 1 fr `repository.mirror`, where the tag is right: `répertoire` is the model's word for "repository" and must be replaced), with strip answers every leaf is identical to main; measure keep rates with `scripts/bench/tag-check-probe.ts`. **Agreement repair** (#115, `repairAgreement()` in `pipeline.ts`): gender/case agreement needs the model, so when the *returned* result holds a forced real term, the pipeline makes one extra call with `TranslationRequest.repairTerms` (the real target terms the draft contains; `source` = the draft; no `onChunk`, hits, reminder or context; `signal` forwarded). Forced = the attempt was the code-switched one, or its raw output echoed a real-term tag around a different word (`substitutesTerm()`; a complete tag whose inner `keptTermForm()` keeps, or the tag check keeps, is not a substitution; Mock writes the target inside the tag, so it never fires there). Not for sentinel tags, image mode, or results without real hits; in prefer mode only the winning attempt's flag counts. The repair goes through `fixTermAgreement()` too and is kept only if it changed the text, every term the draft had is still covered, the sentinel multiset is identical, it adds no `*` (the model sometimes bolds the term: `**الكاش**`), it is not just the draft plus sentence-final punctuation the source lacks (`appendsEndPunctuation()`: 13 of 56 applied repairs in the file-mode bench only added a period to a UI label), and the length ratio is within `REPAIR_MAX_LENGTH_RATIO` (1.3) either way; then `metadata.repaired: true`. Otherwise, or on any adapter error, the draft is returned — except cancellation: a `CANCELLED` error or an aborted signal throws `CANCELLED`, and no repair starts once aborted. It runs per leaf in file mode too (same `runPipeline`). TranslateGemma echoes term tags on most glossary hits, so expect the repair on most glossary-bearing translations, not a rare path. Measure agreement changes with `scripts/bench/agreement.ts` (it reports `repairs` / `applied`).
-- **Image mode**: Pass `imageBase64` in `PipelineOptions` to trigger image translation. In this mode: glossary tag injection is skipped, `source` is set to `""`, and `imageBase64` is forwarded to the adapter unchanged. Context retrieval is also skipped when `queryText` is empty (image-only invocation).
-- **Image validation** (CLI and TUI): Before reading an image file, validate (1) extension against the allowed set (`.png .jpg .jpeg .webp .gif .bmp`) and (2) file size ≤ 10 MB — both defined once in `@translate-local/shared/constants` (`IMAGE_EXT_RE`, `IMAGE_EXT_PATTERN`, `IMAGE_MAX_BYTES`). Both frontends read images with `readImageBase64(path)` from `@translate-local/core/session`, which does these checks (`file.exists()` before `arrayBuffer()`) and throws the typed errors `IMAGE_INVALID_TYPE`, `IMAGE_TOO_LARGE`, `IMAGE_NOT_FOUND`, `IMAGE_READ_FAILED` — don't re-implement it. The TUI shows the error's message and hint in its status line.
-- **Streaming**: `PipelineOptions` accepts `onChunk?: (chunk: string) => void`. When present, the pipeline forwards it on the first attempt only (retries are silent to avoid concatenating tokens across attempts). The final text can therefore differ from what was streamed (postprocessing, or a retry's result): the CLI reprints it when it differs and the TUI replaces the pane with `result.translated`. The adapter sets `stream: true` and calls `onChunk` per token via NDJSON, while still accumulating the full response for postprocessing. Adapters that don't support streaming ignore the field. CLI streams tokens to stdout only when it is a TTY — piped stdout receives exactly the final postprocessed translation once; TUI updates the output pane with a 16ms render throttle.
-- **Cancellation**: `TranslationRequest.signal` / `PipelineOptions.signal` (`AbortSignal`). The pipeline forwards it to every attempt and starts no attempt once it is aborted; the Ollama adapter combines it with its idle-timeout controller (`AbortSignal.any`). A caller abort always surfaces as `cancelledError()` from `@translate-local/shared/errors` (tag `CANCELLED`), never as a timeout or `TRANSLATION_FAILED`; MockAdapter throws it for an already-aborted signal. The TUI aborts a running translation when a new one starts; the CLI aborts on Ctrl+C / SIGTERM.
-- **Memory management**: Adapters call `dispose()` to unload models from VRAM; frontends go through `TranslationSession.dispose()`. CLI calls it after each translation, and on the first SIGINT/SIGTERM (`exitOnInterrupt()` in `apps/cli/src/utils/run.ts`) aborts the request so the action's `finally` still disposes, then exits 130/143 (hung unload cut off after 3 s; a second signal exits at once). TUI on exit: teardown is re-entrancy guarded, aborts in-flight work and destroys the renderer *before* waiting (≤ 3 s) on the unload so the terminal is restored immediately. **Exception:** in file mode (see below) the adapter is disposed exactly once after the entire file completes, not per leaf — otherwise every key pays a cold model-load penalty.
-- **File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__` — prefix/suffix are shared constants; core exposes `sentinelFor()`, and the adapter prompt builder derives its enforcement regexes from the same constants), runs the per-leaf pipeline, validates placeholders survived (multiset equality; sentinels reach `runPipeline` as `extraGlossaryHits` (deliberately, see `docs/adr/0002-sentinels-ride-the-glossary-tag-channel.md`), which are tagged but never count toward glossary retries (either mode), reminders or coverage, so a dropped sentinel is retried by `translateLeaf`'s placeholder loop in both glossary modes), then atomic-writes (tmp+rename) to the output path. **Refuse-by-default** for ARB / xcstrings / Lingui-full — escape hatch is `--format raw-json` with a documented "may corrupt metadata" warning. **ICU MessageFormat** (`files/icu.ts`): values with plural/select/selectordinal/number/date/time, and every FormatJS `defaultMessage` (other FormatJS fields are copied as `metadata`), are parsed with `@formatjs/icu-messageformat-parser` (`ignoreTag: true`, so tags stay literal text for the regular masker) and rebuilt by our own printer — not formatjs's `printAST`, which re-sorts keys and quotes `<tag>` text. Each top-level message and plural/select branch is one translation unit with nested syntax masked as sentinels; adjacent placeholders share one sentinel. Plural branches swap the count for a target-locale sample number (`one`→1, ar `many`→11) and map it back, falling back to a sentinel; categories follow `Intl.PluralRules(target)` (missing ones derived from `other`, unused ones dropped, `other` and `=N` always kept). Escape translated text with `escapeLiteral()` — never concatenate it into ICU unescaped. The result must re-parse with the same argument signature and, when the source is valid rich text, the same tags with tags enabled — or the leaf falls back to source. Fallback routes inside `icu.ts` must rethrow pipeline errors (`pipelineError`), never absorb them. Refuse-by-default also covers compiled FormatJS ASTs (`formatjs-compiled`); i18next catalogs never take the ICU path: a plural/select/selectordinal value there (`containsICUBranching()`) is kept as source and reported as failed with a warning (`FILE_INVALID_FORMAT` under `--strict`, recorded-only in dry runs), since sending it as plain text garbles it. Like every failure fallback, the key is retried (and reported again) by later missing-only runs. `--format raw-json` / `raw-yaml` bypasses detection, so a misdetected ICU catalog takes the ICU path. **Default sync mode** is `missing-only`: translate keys that are absent, empty `""`, `null`, or whitespace-only. `--force` re-translates all leaves. **Changed-source lock:** every non-dry-run writes one lock per target at `<root>/.tl/locks/<target path rel. to root>.lock` (`files/lock.ts`: `{ version: 1, checksums: { <JSON Pointer>: first 16 hex of sha256(source) }, failed?: { <JSON Pointer>: hash of the copied fallback } }`, sorted keys, atomic, written *after* the target). Root: nearest ancestor of the (realpath'd) target containing `.git`, else the target's dir. One file per target so a merge conflict / corrupt lock only blocks that target. **Never put locks beside the target**: Hugo loads every non-dot file under `i18n/` and Vite copies `public/` verbatim. Keys whose recorded hash differs from the current source are re-queued (`PendingTranslation.changed`) only when the existing target value is a string; no lock = trust existing values and just record. Locks are per target, not per source — targets of one source sync at different times. Summary `changed`/`pruned` paths are JSON Pointers; each `failed[]` entry keeps its dotted `path` (kept for --json compatibility, ambiguous for dotted keys) and adds `pointer` (JSON Pointer) and `tag` (the ErrorTag --strict would throw; a failed pipeline call reports its own tag, `TRANSLATION_FAILED` for a non-TlError). Failed keys keep their previous hash so a changed-then-failed key retries, and are listed in `failed`: missing-only runs re-queue them while the target still equals the copied source (a hand-edited value is kept), and a key drops out of `failed` once it is translated or edited (`failed` is omitted when empty, so older readers still parse the lock); **abort:** `FileTranslateOptions.signal` is checked before each leaf — once aborted the loop stops, unreached keys keep their previous hash and their previous target value; ones the target file lacks stay absent, never `""` (apps render `""` blank instead of falling back) — `deletePath()` removes them from the data and `deleteYamlPath()` from the YAML write template (which would otherwise emit source text), pruning containers left empty; the target + lock are still written, and the summary has `aborted: true` (dry runs never write; `--strict` throws stay all-or-nothing). The signal is forwarded to `runPipeline`, so the in-flight leaf is cancelled and counts as unreached; a `CANCELLED` pipeline error (`isCancelled()`, also when wrapped in `UnitFailed`) stops the run the same way, with or without a signal — never let a fallback absorb it as a failed key, or the copied source makes missing-only runs skip the key forever. The CLI passes `session.signal` (Ctrl+C writes the finished leaves, then exits 130/143); corrupt lock → `FILE_PARSE_FAILED`. Use `node:crypto` sha256, not `Bun.hash` (the lock is committed, so the digest must not change across Bun versions or runtimes). `diffForSync`, `pruneTarget` and the lock all read `diffSource` (the source after locale-root re-rooting and plural regeneration), never the raw `sourceData`, or paths stop matching the target. **`--prune`** (`pruneTarget()` in `sync.ts`) deletes target keys/array tail elements absent from the source before write, but never plural forms the target has beyond the source: `stem_<CLDR category>` / `stem_ordinal_<category>` whose stem is in the source, category keys inside a source map whose keys are all categories (Rails nested plurals), and v3 `stem_<n>` / `stem_plural` while the source has `stem` or `stem_plural`. A guard refuses with `PRUNE_REFUSED` when the prune empties the target map (no shared top-level keys, e.g. Rails `en:` vs `ar:` when the root locale is unknown) or removes >50% of target values, unless `allowLargePrune` / `--allow-large-prune`; YAML needs nothing special because `writeYaml` only appends target-only keys that are still in the data. **Skip heuristics** (`packages/core/src/files/skip.ts`) pass through URLs, emails, semver, single chars, and ALL-CAPS short tokens unchanged unless `--translate-all`. **Validate-before-rename:** `writeJson`/`writeYaml` re-parse the tmp file before the rename — a malformed serialization can never replace the existing target. Glossary entries are pre-fetched once per file and threaded through `runPipeline` via `glossaryEntries` so the per-leaf hot path doesn't re-query SQLite. Error tags live in `packages/shared/src/errors.ts`: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `PRUNE_REFUSED`, `SAME_LOCALE`. **Never write over the source:** `sameFile()` compares source and out by realpath (not `resolve()`, which only joins against cwd and leaves symlinked components alone) and refuses with `SAME_LOCALE`, because the language check can't fire when `sourceLang` is `auto`. YAML is fully implemented (`files/yaml.ts`) — comments, scalar styles, and key order round-trip via the `yaml` package's Document API. Update block scalars through `setScalarValue()`, never by assigning `Scalar.value` directly: chomping (`|` vs `|-` vs `|+`) is derived from the value's trailing newlines, and translated text has none. **Locale-rooted catalogs** (Rails `en:` root; logic in `files/locale-root.ts`): when the source root has exactly one key equal to the source locale (`sourceLocale`, defaulting to `sourceLang`; CLI passes the filename token when `--from auto`), the source is re-rooted under the target key before `diffForSync`, so leaf paths start with the target key (`fr.…`), and the YAML pair key is renamed in place before `writeYaml`. An existing target rooted at the source locale is refused. **i18next plurals** (`files/i18next.ts`): before the sync diff (and after locale-root re-rooting, so hint paths match leaf paths), each plural group is rewritten to the target locale's CLDR categories (`regenerateI18nextPlurals` on the data, `regenerateYamlPlurals` on the YAML write template — both driven by one `planKeys()` so they can't disagree); a source `_zero` is always kept (i18next's count===0 override). Each generated leaf carries a sample count that replaces `{{count}}` (or `{{count, number}}`) in the text sent to the model, then is swapped back; categories holding a single number may drop it. No sample is sent for fraction-only categories, samples ≥ 1e6, or samples that already appear as literals in the text (`hints` value `null` = wanted one but collided); those forms translate plainly and are reported in `summary.pluralFallbacks`. Every target category is still generated (i18next does not fall back from `key_many` to `key_other`). Locale-rule helpers (`pluralCategories`, `pluralSample`, `sampleRegex`) live in `files/plurals.ts` and are format-agnostic — reuse them, don't call `Intl.PluralRules` directly (it silently falls back to the runtime locale for unknown tags).
-- **Glossary matching & lookup** (`packages/core/src/glossary.ts`): each term's regex is just the escaped term (`gi`); word boundaries are checked in JS by code point against one precompiled `v`-flag class (`[\p{L}\p{N}\p{M}_\u200C\u200D]` minus no-space scripts) — never `\b` (ASCII-only), and never embed that class in per-term regexes (JSC compiles it at ~10 ms per term). Edges in CJK/kana/Thai/Lao/Khmer/Myanmar match as substrings. Arabic clitics are not stripped. Translation paths (`findMatches`, file mode) get entries via `GlossaryStore.lookup(src, tgt)` (BCP-47 fallback via `langFallbackChain()` in `@translate-local/shared/utils/language`, most specific entry per case-folded source term wins, target depth before source depth; source `auto` matches every source language, ties broken by alphabetically first source tag; file mode looks up with `sourceLocale` when known); `list()` stays exact-match for the `glossary list` command. Output coverage (`computeGlossaryCoverage`) is intentionally a substring check so inflected targets count as covered.
-- **Glossary term forms** (`GlossaryEntry.forms`): other target forms that also count as the term (de `deploy → bereitstellen` with `Bereitstellung|bereitgestellt|stellen … bereit`). Stored as a JSON array in the nullable `glossary.forms` column: `GlossaryStore` adds the column to older dbs (if the `ALTER` fails it re-reads `PRAGMA table_info`, since another process may have added it; a read-only old db reads no forms), and a stored value that isn't a JSON array of strings reads as none. A duplicate `add` with forms replaces them; without forms it keeps (and returns) them; a split form with one part left (`a …`) is stored as that part. CLI `--forms "a|b"`, CSV 7th column `forms` (`|`-joined). Matching lives in `shared/utils/text.ts`: `foundForm(text, term, forms)` checks the term first, exactly as coverage always did (a term containing `…` is never split), then the forms; one-piece forms are substrings, plain or `capitalizeTerm`d, marks dropped; a split form (`formParts()`: `a … b` / `a ... b`) needs each part as a whole word, in order, within one sentence (`sentences()`, a linear scan with no regex over the text: a line break, or `.!?` + CJK/Arabic/Devanagari forms followed by whitespace and a non-lowercase char, not after a one-letter word (`z. B.`) and not after `…`; CodeQL flagged a `\s*`-wrapped gap regex as polynomial, so keep regexes on model output free of ambiguous repetition). Coverage gives each term the forms of every hit with the same target term. Forms count in `computeGlossaryCoverage`, `keptTermForm(inner, term, forms)` (a tag around a one-piece form keeps it; `stripGlossaryTags(text, forms)` takes a target term → forms map that `TermSet` builds from the real hits), `substitutesTerm` (a kept form is not forced), `fixTermAgreement` / `splitArabicArticles` (one-piece forms), and `repairTerms` names the form the draft has (a split form as its parts). A tag around only a split form's first part (`<term …>Stellen</term> Sie … bereit`) is still replaced: 0 of 105 saved `bereitstellen` tags did that. Prompts, reminders and the code-switched retry use `targetTerm` only. Without forms behaviour is unchanged (offline replay of all saved file-mode runs: identical). With the bench's German forms: 32 of 6,681 replayed leaves changed, all German `deploy` leaves, all better or equal, 41 calls fewer. Live file-mode bench (3 runs): `deploy.branch` correct 0/3 → 3/3 (`Bitte stellen Sie den Zweig … bereit.`), `deploy.rollback` 1/3 → 3/3 in 1 call instead of 4; fr/ar, agreement and strict-glossary unchanged (no forms there).
-- **Context tokenizer & scoring** (`packages/core/src/context.ts`): retrieve() returns a cosine score in [0,1] (smoothed idf, unit-length stored weights); `TranslationSession.translate()` and file mode filter through `retrieve(query, maxSnippets, minRelevance)` — don't filter scores in the apps. NFKC + lowercase + Arabic/Hebrew mark stripping and Arabic alef/digit folding, character bigrams for Han/Kana/Hangul runs, `Intl.Segmenter` words (3+ chars) for everything else. Terms are persisted in SQLite — bump `CONTEXT_INDEX_VERSION` whenever `tokenize()` output or stored weights change; sources with an older `context_sources.index_version` are rebuilt on open in one IMMEDIATE transaction (unreachable folders and read-only dbs keep their old index). Schema: `context_docs(id INTEGER PRIMARY KEY, …)` + `context_terms(term, doc_id, weight)` WITHOUT ROWID keyed `(term, doc_id)` — keep retrieval a PK seek (there is an EXPLAIN QUERY PLAN test).
-- **MockAdapter**: Available via `createMockAdapter()` from `@translate-local/adapters`. Performs deterministic glossary substitution — use it in unit/integration tests to avoid needing Ollama. A `repairTerms` request returns `source` unchanged (so the pipeline keeps the draft). To force a glossary miss, construct it with `{ ignoreGlossary: true }` or set `TL_MOCK_IGNORE_GLOSSARY=1` (read only by the mock, at construction): it unwraps `<term>` tags to their source word, emitting the `source` attribute's word for a code-switched tag (the entry's `sourceTerm` when it has none), so every attempt misses (sentinels survive). Use the env var for CLI spawn tests.
-- **CLI command boilerplate**: wrap command actions in `runAction(fn, { json: opts.json })` and open stores with `withStore()` from `apps/cli/src/utils/run.ts` — don't hand-roll try/catch/formatError/exit per command. With `json`, errors print `formatErrorJson()`'s `{ error: <tag>, message, hint }` (keep those key names; consumers parse them). Set `process.exitCode`, not `process.exit()`, so piped output is flushed; `runAction` keeps an exit code already set (130/143 after an interrupt). Glossary coverage (the CLI `Glossary: N% covered` line, the TUI status) is shown only when `result.glossaryTerms > 0` (no hits reports 100%); frontends read that field rather than querying the glossary again. Bulk glossary inserts go through `GlossaryStore.addMany()` (one transaction, not one commit per row).
-- **RTL helpers**: `isRtlLang()` / `hasRtlChars()` / `RTL_LANGS` live in `@translate-local/shared/utils/language` — don't redefine RTL sets or char-class regexes in the apps.
-- **Prompt builders** (`packages/adapters/src/base.ts`): `buildStructuredPrompt(request)` produces the TranslateGemma XML-style prompt and returns `{ prompt, system? }`. `buildNaturalPrompt(request)` produces a generic instruction-style prompt string for non-TranslateGemma models. Everything after the translate line is translated, so instructions never go into `source`: glossary retries (both modes, except the code-switched last one) pass the missing terms as `glossaryReminder` (source → target pairs) and the builders render them before the text. A `sourceLang` of `auto` is never named in the prompt — the builders switch to source-agnostic phrasing. Both builders add a placeholder rule when the source holds `__TLPH_N__` sentinels, sharing one `sentinelTokens()` helper (total occurrences, distinct tokens; tag attributes not double-counted) and asking for each token as many times as in the source. The structured rule's examples are built from the source's own first two distinct tokens (`placeholderExamples()`), so the prompt never names a token the source lacks; fixed example tokens (`…A__`/`…B__`) dropped en→fr placeholder survival from 10/10 to ~4/10 in the bench. Build all token text from the shared prefix/suffix constants, never literals. A `repairTerms` request is not a translation: both builders return `buildRepairPrompt()`, a target-language proofreading prompt (the draft after the template's two blank lines, a short placeholder-copy rule when it has sentinels). It deliberately omits the original source text (the model then re-translated and dropped terms) and term tags (reusing the translate template made it echo tags and mangle the text).
+Rules that apply everywhere:
+
+- **Adapters** implement `translate()` and `dispose()`. Build them with `createAdapter(toAdapterConfig(coreConfig, backend?))`. `translate()` returns only `AdapterResponse` (`translated` + `metadata: { adapter, durationMs }`). The pipeline builds `TranslationResult`, so keep pipeline-owned fields out of the adapter's return type.
+- **Frontends use `TranslationSession`** (`@translate-local/core/session`). It is never wired by hand from an adapter and stores. It resolves the backend from `TL_ADAPTER`, owns the adapter and the stores, and runs context retrieval + `runPipeline`. File mode passes `session.adapter`/`glossaryStore`/`contextStore` to `translateFile`. `dispose()` is idempotent and unloads the model only if a request was sent.
+- **Config defaults** live in `@translate-local/shared/constants`. `configSchema` consumes them via `.default()`/`.prefault({})`; never restate a default literal. `${VAR}` substitution always yields a string. Number fields convert through `envNumber()`, so the field's type drives coercion, not the string's shape.
+- **Errors** are `TaggedError`s with a `tag` + actionable `hint`. Tags live in `packages/shared/src/errors.ts`.
+- **Glossary tags** use TranslateGemma's format, `<term translation="target">source</term>`. Keep it unchanged.
+- **Cancellation**: an `AbortSignal` flows through `TranslationRequest.signal`/`PipelineOptions.signal` to every attempt. A caller abort always surfaces as `cancelledError()` (tag `CANCELLED`), never as a timeout or `TRANSLATION_FAILED`, and no fallback may absorb it.
+- **Memory**: the CLI disposes after each translation. On the first SIGINT/SIGTERM it aborts so `finally` still disposes, then exits 130/143 (`exitOnInterrupt()` in `apps/cli/src/utils/run.ts`). The TUI destroys the renderer before waiting (≤ 3 s) on the unload. File mode disposes once per file, not per leaf.
+- **Images**: both frontends read them with `readImageBase64(path)` from `@translate-local/core/session`. It checks the extension and size (≤ 10 MB) against constants in `shared` and throws the typed `IMAGE_*` errors. Don't re-implement those checks.
+- **Context** (`packages/core/src/context.ts`): filter only through `retrieve(query, maxSnippets, minRelevance)`, never in the apps. Bump `CONTEXT_INDEX_VERSION` whenever `tokenize()` output or stored weights change. Keep retrieval a primary-key seek (an EXPLAIN QUERY PLAN test checks this).
+- **MockAdapter** (`createMockAdapter()`): deterministic glossary substitution for tests. `{ ignoreGlossary: true }` or `TL_MOCK_IGNORE_GLOSSARY=1` (for CLI spawn tests) forces a glossary miss. A `repairTerms` request returns `source` unchanged.
+- **CLI commands**: wrap actions in `runAction(fn, { json: opts.json })` and open stores with `withStore()` (`apps/cli/src/utils/run.ts`). JSON errors print `{ error, message, hint }`, and consumers parse those keys. Set `process.exitCode`, not `process.exit()`. Bulk glossary inserts go through `GlossaryStore.addMany()`. Show glossary coverage only when `result.glossaryTerms > 0`.
+- **RTL**: use `isRtlLang()`/`hasRtlChars()`/`RTL_LANGS` from `@translate-local/shared/utils/language`.
 
 ## Testing
 
-- Unit + integration tests (pipeline, SQLite, MockAdapter) always run: `bun run test`
-- Adapter tests (real Ollama): `TEST_ADAPTER=1 bun run test`
-- Pipeline or postprocess changes, offline: `bun run scripts/bench/replay.ts --out /tmp/before.json` on `main`, then `--diff /tmp/before.json` on the branch. It re-translates every saved file-mode run in `scripts/bench/results/` (gitignored, so only where runs were saved) from the model outputs they recorded, in about a second; a refactor must show 0 differences, and a behaviour change lists exactly the leaves it touches
-- Prompt/glossary/placeholder changes: measure with `bun run scripts/bench/strict-glossary.ts --runs 10` (real Ollama, temp dbs) before and after; output varies per run, so compare success rates, not single outputs. File-mode cost (calls, repairs, applied repairs per language): `bun run scripts/bench/file-mode.ts`
-- CLI tests: spawn binary, assert stdout/exit codes. `apps/cli`'s test script passes `--timeout 30000` because each test cold-starts `bun`, which takes 1-2.5 s on Windows runners (a 5 s default flaked once); keep that flag if you run the CLI suite another way, and don't lower it without checking Windows timings
-- CI (`.github/workflows/ci.yml`) runs tests on Linux, macOS and Windows and smoke-tests the compiled host binary (including that the TUI draws a frame). It compiles with the same flags as `release.yml` and `apps/cli`'s `build` script (`--compile --minify --sourcemap --bytecode --format=esm`): keep all three in sync. `--format=esm` is required because `--bytecode` alone emits cjs, which rejects the CLI's top-level await. `--sourcemap` embeds the map so crash stack traces point at the `.ts` sources. `ci-ok` is the only required check, so add new jobs to its `needs`. For Windows: set `USERPROFILE` wherever a test overrides `HOME`, build expected paths with `join()`, and use `db.query()` rather than unfinalized `db.prepare()` statements (they keep the SQLite file open after `close()`, so deleting it fails with EBUSY)
+- `bun run test` runs everything offline: pipeline, SQLite, MockAdapter. `TEST_ADAPTER=1` adds the real Ollama tests.
+- **Pipeline/postprocess changes**: run `bun run scripts/bench/replay.ts --out /tmp/before.json` on `main`, then `--diff /tmp/before.json` on the branch. A refactor must show 0 differences, and a behaviour change lists exactly the leaves it touches. This only works where runs were saved in the gitignored `scripts/bench/results/`.
+- **Prompt/glossary/placeholder changes**: compare success rates (not single outputs) from `bun run scripts/bench/strict-glossary.ts --runs 10` before and after. For file-mode cost, use `bun run scripts/bench/file-mode.ts`. For agreement, use `scripts/bench/agreement.ts`.
+- **CLI tests** spawn the binary and assert stdout and exit codes. Keep `--timeout 30000` in `apps/cli`'s test script, because Windows cold starts are slow.
+- **CI** runs on Linux, macOS and Windows. `ci-ok` is the only required check, so add new jobs to its `needs`. The compile flags `--compile --minify --sourcemap --bytecode --format=esm` must match across `ci.yml`, `release.yml` and `apps/cli`'s `build` script. On Windows, set `USERPROFILE` wherever a test overrides `HOME`, build paths with `join()`, and use `db.query()` rather than unfinalized `db.prepare()` (open statements cause EBUSY on delete).
 
-## Reference Docs
+## Before every commit
 
-- `docs/cli-reference.md` — full command and flag reference
-- `docs/glossary-guide.md` — CSV format, domain filtering, advanced usage
-- `docs/context-guide.md` — tokenization, relevance score (TF-IDF cosine) and `minRelevance`, index layout and migration
-- `docs/tui-guide.md` — terminal UI keybindings and workflows
-- `docs/adapter-development.md` — guide for adding new model backends
+Run all of these in order. If one fails, fix it and re-run all of them.
 
-## 1. Think Before Coding
+1. `bun run build`
+2. `bun run test`, with 0 failures
+3. A smoke test of the `tl` commands the change touches
+4. `TEST_ADAPTER=1 bun run test` if Ollama-facing adapter code changed
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## How to work
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- State assumptions, and ask when a request has more than one reading. Push back when a simpler approach exists.
+- Write the minimum code for the request, with no speculative options or abstractions. Every changed line should trace to the request. Mention unrelated dead code rather than deleting it, and remove only what your own change orphaned.
+- For a fix, write a failing test first. For a refactor, tests pass before and after.
+- When a change adds or alters a pattern above, update this file or the matching internals doc in the same PR.
 
-## 2. Simplicity First
+## Reference docs
 
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-## 4a. Verification Before Every Commit
-
-**Never commit until all checks pass. Fix, then commit.**
-
-Before committing any change, run all of the following in order:
-
-1. **Build**: `bun run build` — must succeed with no errors
-2. **Tests**: `bun run test` — all tests must pass (0 failures)
-3. **Smoke test the CLI**: run `tl` commands relevant to the changed code and confirm expected output
-   - If the CLI binary isn't built yet for the phase, skip step 3 and note it explicitly
-4. **Adapter tests** (when Ollama-facing adapter code changed): `TEST_ADAPTER=1 bun run test`
-
-If any check fails: fix the issue, re-run all checks, then commit.
-Do not commit with failing tests, build errors, or broken CLI commands.
-
-## 5. Git Workflow
-
-**Use branches. Keep main clean. Write meaningful commits. Commit regularly.**
-
-Branch strategy:
-- `main` is the stable, deployable branch. **Never commit directly to it — not even a single line.**
-- **Always create a feature branch before starting any work**, even small tasks. Do this as the very first step — before reading files, before planning, before writing anything.
-- Create feature branches from `main`: `feature/<short-description>` (e.g., `feature/phase-2-adapters`).
-- Use `fix/<short-description>` for bug fixes, `chore/<short-description>` for non-feature work.
-- Keep branches short-lived. Merge back to `main` promptly via PR.
-
-Commits — commit early and often:
-- **Commit after each logical unit of work** — don't accumulate all changes into one giant commit at the end. Past agents have done this and it is wrong.
-- A "logical unit" can be: one file implemented, one feature complete, tests passing, a bug fixed.
-- After each commit, immediately push. Don't batch pushes.
-- Write clear, concise commit messages: imperative mood, under 72 chars for the subject.
-- If a commit needs a body, separate it from the subject with a blank line.
-- Good: `Add MockAdapter with deterministic glossary substitution`
-- Bad: `updates`, `fix stuff`, `wip`, `done`
-
-Push regularly:
-- **Push your branch to remote after every commit** (or at minimum at the end of each working session). Don't let local commits sit unpushed.
-- Use `git push -u origin <branch>` on first push; `git push` thereafter.
-
-Merging:
-- Merge feature branches into `main` via PR or after verification.
-- Delete branches after merging.
-- Resolve conflicts carefully — investigate before discarding changes.
-
-## 6. Documentation Maintenance
-
-**Keep project docs accurate as the project evolves.**
-
-After completing a feature or significant change:
-- Update `CLAUDE.md` if new patterns, conventions, or guidelines emerged.
-- Don't let docs drift from reality — stale docs are worse than no docs.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, clarifying questions come before implementation rather than after mistakes, and git history is clean and meaningful.
+`docs/cli-reference.md` (commands and flags), `docs/glossary-guide.md`, `docs/file-translate-guide.md`, `docs/context-guide.md`, `docs/tui-guide.md`, `docs/adapter-development.md`.

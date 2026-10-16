@@ -1,0 +1,51 @@
+# File mode internals
+
+Read before changing `packages/core/src/files/`. User-facing behaviour is in `docs/file-translate-guide.md`.
+
+## Overview
+
+**File mode** (`tl translate --file <path>`): translate a JSON or YAML catalog. Orchestrator at `packages/core/src/files/index.ts` walks every string leaf, masks placeholders with ASCII sentinels (`__TLPH_N__` — prefix/suffix are shared constants; core exposes `sentinelFor()`, and the adapter prompt builder derives its enforcement regexes from the same constants), runs the per-leaf pipeline, validates placeholders survived (multiset equality; sentinels reach `runPipeline` as `extraGlossaryHits` (deliberately, see `docs/adr/0002-sentinels-ride-the-glossary-tag-channel.md`), which are tagged but never count toward glossary retries (either mode), reminders or coverage, so a dropped sentinel is retried by `translateLeaf`'s placeholder loop in both glossary modes), then atomic-writes (tmp+rename) to the output path.
+
+## Refused formats
+
+**Refuse-by-default** for ARB / xcstrings / Lingui-full — escape hatch is `--format raw-json` with a documented "may corrupt metadata" warning.
+
+## ICU MessageFormat
+
+**ICU MessageFormat** (`files/icu.ts`): values with plural/select/selectordinal/number/date/time, and every FormatJS `defaultMessage` (other FormatJS fields are copied as `metadata`), are parsed with `@formatjs/icu-messageformat-parser` (`ignoreTag: true`, so tags stay literal text for the regular masker) and rebuilt by our own printer — not formatjs's `printAST`, which re-sorts keys and quotes `<tag>` text. Each top-level message and plural/select branch is one translation unit with nested syntax masked as sentinels; adjacent placeholders share one sentinel. Plural branches swap the count for a target-locale sample number (`one`→1, ar `many`→11) and map it back, falling back to a sentinel; categories follow `Intl.PluralRules(target)` (missing ones derived from `other`, unused ones dropped, `other` and `=N` always kept). Escape translated text with `escapeLiteral()` — never concatenate it into ICU unescaped. The result must re-parse with the same argument signature and, when the source is valid rich text, the same tags with tags enabled — or the leaf falls back to source. Fallback routes inside `icu.ts` must rethrow pipeline errors (`pipelineError`), never absorb them. Refuse-by-default also covers compiled FormatJS ASTs (`formatjs-compiled`); i18next catalogs never take the ICU path: a plural/select/selectordinal value there (`containsICUBranching()`) is kept as source and reported as failed with a warning (`FILE_INVALID_FORMAT` under `--strict`, recorded-only in dry runs), since sending it as plain text garbles it. Like every failure fallback, the key is retried (and reported again) by later missing-only runs. `--format raw-json` / `raw-yaml` bypasses detection, so a misdetected ICU catalog takes the ICU path.
+
+## Sync mode
+
+**Default sync mode** is `missing-only`: translate keys that are absent, empty `""`, `null`, or whitespace-only. `--force` re-translates all leaves.
+
+## Changed-source lock
+
+**Changed-source lock:** every non-dry-run writes one lock per target at `<root>/.tl/locks/<target path rel. to root>.lock` (`files/lock.ts`: `{ version: 1, checksums: { <JSON Pointer>: first 16 hex of sha256(source) }, failed?: { <JSON Pointer>: hash of the copied fallback } }`, sorted keys, atomic, written *after* the target). Root: nearest ancestor of the (realpath'd) target containing `.git`, else the target's dir. One file per target so a merge conflict / corrupt lock only blocks that target.
+
+**Never put locks beside the target**: Hugo loads every non-dot file under `i18n/` and Vite copies `public/` verbatim. Keys whose recorded hash differs from the current source are re-queued (`PendingTranslation.changed`) only when the existing target value is a string; no lock = trust existing values and just record. Locks are per target, not per source — targets of one source sync at different times. Summary `changed`/`pruned` paths are JSON Pointers; each `failed[]` entry keeps its dotted `path` (kept for --json compatibility, ambiguous for dotted keys) and adds `pointer` (JSON Pointer) and `tag` (the ErrorTag --strict would throw; a failed pipeline call reports its own tag, `TRANSLATION_FAILED` for a non-TlError). Failed keys keep their previous hash so a changed-then-failed key retries, and are listed in `failed`: missing-only runs re-queue them while the target still equals the copied source (a hand-edited value is kept), and a key drops out of `failed` once it is translated or edited (`failed` is omitted when empty, so older readers still parse the lock).
+
+## Abort
+
+**Abort:** `FileTranslateOptions.signal` is checked before each leaf — once aborted the loop stops, unreached keys keep their previous hash and their previous target value; ones the target file lacks stay absent, never `""` (apps render `""` blank instead of falling back) — `deletePath()` removes them from the data and `deleteYamlPath()` from the YAML write template (which would otherwise emit source text), pruning containers left empty; the target + lock are still written, and the summary has `aborted: true` (dry runs never write; `--strict` throws stay all-or-nothing). The signal is forwarded to `runPipeline`, so the in-flight leaf is cancelled and counts as unreached; a `CANCELLED` pipeline error (`isCancelled()`, also when wrapped in `UnitFailed`) stops the run the same way, with or without a signal — never let a fallback absorb it as a failed key, or the copied source makes missing-only runs skip the key forever. The CLI passes `session.signal` (Ctrl+C writes the finished leaves, then exits 130/143); corrupt lock → `FILE_PARSE_FAILED`. Use `node:crypto` sha256, not `Bun.hash` (the lock is committed, so the digest must not change across Bun versions or runtimes). `diffForSync`, `pruneTarget` and the lock all read `diffSource` (the source after locale-root re-rooting and plural regeneration), never the raw `sourceData`, or paths stop matching the target.
+
+## Prune
+
+**`--prune`** (`pruneTarget()` in `sync.ts`) deletes target keys/array tail elements absent from the source before write, but never plural forms the target has beyond the source: `stem_<CLDR category>` / `stem_ordinal_<category>` whose stem is in the source, category keys inside a source map whose keys are all categories (Rails nested plurals), and v3 `stem_<n>` / `stem_plural` while the source has `stem` or `stem_plural`. A guard refuses with `PRUNE_REFUSED` when the prune empties the target map (no shared top-level keys, e.g. Rails `en:` vs `ar:` when the root locale is unknown) or removes >50% of target values, unless `allowLargePrune` / `--allow-large-prune`; YAML needs nothing special because `writeYaml` only appends target-only keys that are still in the data.
+
+## Skip heuristics
+
+**Skip heuristics** (`packages/core/src/files/skip.ts`) pass through URLs, emails, semver, single chars, and ALL-CAPS short tokens unchanged unless `--translate-all`.
+
+## Writing
+
+**Validate-before-rename:** `writeJson`/`writeYaml` re-parse the tmp file before the rename — a malformed serialization can never replace the existing target. Glossary entries are pre-fetched once per file and threaded through `runPipeline` via `glossaryEntries` so the per-leaf hot path doesn't re-query SQLite. Error tags live in `packages/shared/src/errors.ts`: `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_PARSE_FAILED`, `FILE_WRITE_FAILED`, `FILE_INVALID_FORMAT`, `PLACEHOLDER_MISMATCH`, `PRUNE_REFUSED`, `SAME_LOCALE`.
+
+**Never write over the source:** `sameFile()` compares source and out by realpath (not `resolve()`, which only joins against cwd and leaves symlinked components alone) and refuses with `SAME_LOCALE`, because the language check can't fire when `sourceLang` is `auto`. YAML is fully implemented (`files/yaml.ts`) — comments, scalar styles, and key order round-trip via the `yaml` package's Document API. Update block scalars through `setScalarValue()`, never by assigning `Scalar.value` directly: chomping (`|` vs `|-` vs `|+`) is derived from the value's trailing newlines, and translated text has none.
+
+## Locale-rooted catalogs
+
+**Locale-rooted catalogs** (Rails `en:` root; logic in `files/locale-root.ts`): when the source root has exactly one key equal to the source locale (`sourceLocale`, defaulting to `sourceLang`; CLI passes the filename token when `--from auto`), the source is re-rooted under the target key before `diffForSync`, so leaf paths start with the target key (`fr.…`), and the YAML pair key is renamed in place before `writeYaml`. An existing target rooted at the source locale is refused.
+
+## i18next plurals
+
+**i18next plurals** (`files/i18next.ts`): before the sync diff (and after locale-root re-rooting, so hint paths match leaf paths), each plural group is rewritten to the target locale's CLDR categories (`regenerateI18nextPlurals` on the data, `regenerateYamlPlurals` on the YAML write template — both driven by one `planKeys()` so they can't disagree); a source `_zero` is always kept (i18next's count===0 override). Each generated leaf carries a sample count that replaces `{{count}}` (or `{{count, number}}`) in the text sent to the model, then is swapped back; categories holding a single number may drop it. No sample is sent for fraction-only categories, samples ≥ 1e6, or samples that already appear as literals in the text (`hints` value `null` = wanted one but collided); those forms translate plainly and are reported in `summary.pluralFallbacks`. Every target category is still generated (i18next does not fall back from `key_many` to `key_other`). Locale-rule helpers (`pluralCategories`, `pluralSample`, `sampleRegex`) live in `files/plurals.ts` and are format-agnostic — reuse them, don't call `Intl.PluralRules` directly (it silently falls back to the runtime locale for unknown tags).
