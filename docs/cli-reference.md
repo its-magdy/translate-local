@@ -332,10 +332,17 @@ tl config connect --endpoint http://192.168.1.10:11434
 
 #### `tl config status`
 
-Print current configuration and test the adapter connection.
+Print the active configuration: model, endpoint, and the glossary and context
+database paths. It does not contact the model — use a short translation for
+that.
 
 ```bash
 tl config status
+# Backend:  local
+# Model:    translategemma:latest
+# Endpoint: http://localhost:11434
+# Glossary: /Users/you/.config/tl/glossary.db
+# Context:  /Users/you/.config/tl/context.db
 ```
 
 #### `tl config path`
