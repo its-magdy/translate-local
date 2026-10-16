@@ -11,7 +11,8 @@ When translating, the pipeline:
 3. Injects XML tags: `<term translation="target">source</term>`
 4. Sends the tagged text to the adapter
 5. Validates that target terms appear in the output (substring check, see [Coverage check](#coverage-check))
-6. Strips the XML tags from the final result (see [Term tags in the output](#term-tags-in-the-output))
+6. Strips the XML tags from the final result (see [Term tags in the output](#term-tags-in-the-output)), checking with the model first when a tag sits on the wrong word (see [Tag check](#tag-check-a-term-tagged-around-the-wrong-word))
+7. Fixes articles, elision and agreement around the term (see [Articles and quotes](#articles-and-quotes-around-terms) and [Agreement repair](#agreement-repair))
 
 ## Enforcement Modes
 
@@ -39,6 +40,37 @@ When the term is written in a different script from the source word (`cache → 
 
 The model often copies the `<term>` tag into its output with a word of its own inside. `tl` replaces each such tag with the glossary term, unless the word inside is the model's own form of the term, which it keeps: one that contains the term (case-insensitive) and has no more words than it, after trimming and dropping surrounding quotes. So `<term translation="كوميت">الكوميت</term>` keeps the article (`الكوميت`), `<term translation="نشر">انشر</term>` keeps the imperative (`انشر`), and `<term translation="hôte">hôtes</term>` keeps the plural, while `<term translation="Zweig">Abteilung</term>` becomes `Zweig`. The part matching the term is written exactly as the glossary has it (`HÔTE` → `hôte`), except that a capital first letter the model gave an all-lowercase term is kept (`Hôtes`, German `Bereitstellen`), so the coverage check always finds it. When a replaced word starts with a capital at the start of the text, a line or a sentence, the term is capitalized too (`<term translation="hôte">Serveur</term> : détails` → `Hôte : détails`). Terms with any capital letter of their own (`iOS`, `Zweig`) are always written as the glossary has them. A tag the model never closed is always replaced by the term.
 
+### Tag check: a term tagged around the wrong word
+
+Sometimes the model writes the glossary term in the right place *and* marks a
+different word as the term. Replacing the marked word then puts the term in
+twice: for "Deploy automatically after each commit." with
+`deploy → bereitstellen`, the output
+`<term translation="bereitstellen">Automatisch</term> nach jedem Commit bereitstellen.`
+became `Bereitstellen nach jedem Commit bereitstellen.`
+
+When a tagged word is not a form of the term **and** the term (or a form)
+already stands outside every tag as a whole word, `tl` asks the model once
+more before replacing: it re-sends the sentence code-switched (the term in
+place of the source word), and keeps the marked word if that answer contains
+both the term and that word. Otherwise the word is replaced as before. The
+example above comes out as `Automatisch nach jedem Commit bereitstellen.`
+
+- The second answer is only used to decide; it is never returned.
+- In prefer mode, when the code-switched retry already ran, its output is
+  reused and the check costs no extra call.
+- The check is skipped for placeholders, for a word that is just the source
+  word, for a word without letters, for terms matched more than once in the
+  text or tagged more than once in the output, and for Chinese, Japanese,
+  Korean, Thai, Lao, Khmer and Myanmar text, where word edges can't be
+  determined.
+- With `--json`, `metadata.tagChecked` marks the extra call and
+  `metadata.keptWord` marks a kept word.
+
+This fires on about 0.1% of keys (15 of 9,039 replayed file-mode leaves). On
+the benchmark the sentence above went from 0/3 to 2/3 correct with no change
+in the total number of model calls.
+
 ### Articles and quotes around terms
 
 After every attempt, `tl` fixes a few deterministic mistakes right around a glossary target term:
@@ -47,6 +79,12 @@ After every attempt, `tl` fixes a few deterministic mistakes right around a glos
 - French and Italian articles and contractions are elided before a term that starts with a vowel or a mute h: `le hôte` → `l'hôte`, `au hôte` → `à l'hôte`, `ce hôte` → `cet hôte`, `il host` → `l'host`. French words with an aspirated h (`héros`, `hasard`, `haut`, …) keep their article;
 - in Arabic, a detached article before a term that already starts with `ال` is dropped (`الـ الكاش` → `الكاش`);
 - in Arabic, a detached article before any other term written in Arabic script is attached to it (`الـ كوميت` → `الكوميت`, `بالـ نشر` → `بالنشر`). A Latin-script term keeps the detached form (`الـ API`).
+
+Independently of the glossary, a full stop the model adds to a source that has
+no sentence-final punctuation is dropped (`Save changes` → `Enregistrer les
+modifications`), unless the last word is an abbreviation, a single letter, or a
+glossary term ending in a period — see the
+[CLI reference](cli-reference.md#tl-translate-text).
 
 ### Agreement repair
 

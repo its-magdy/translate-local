@@ -23,6 +23,7 @@ export interface TranslationRequest {
   imageBase64?: string;     // Base64-encoded image for vision translation
   glossaryHits?: GlossaryHit[];      // Matched glossary entries
   contextSnippets?: string[];        // Relevant context passages
+  glossaryReminder?: { source: string; target: string }[]; // Terms the previous attempt missed
   repairTerms?: string[];            // Agreement repair instead of a translation (see below)
   onChunk?: (chunk: string) => void; // Streaming callback, one call per token
   signal?: AbortSignal;              // Caller cancellation
@@ -46,9 +47,19 @@ export interface TranslationResult {
     durationMs: number;     // Wall-clock time of the translate() call
     retries: number;        // Set by the pipeline, not the adapter
     repaired?: boolean;     // Set by the pipeline when its agreement repair changed the text
+    tagChecked?: boolean;   // Set by the pipeline when it made an extra tag-check call
+    keptWord?: boolean;     // Set by the pipeline when the tag check kept the model's word
   };
 }
 ```
+
+### Glossary retries (`glossaryReminder`)
+
+On a glossary retry the pipeline lists the terms the previous attempt left out
+as `source → target` pairs. Render them as an instruction *before* the text —
+never append them to `source`, which the model would translate. Both prompt
+builders below do this. The last retry sends no reminder: it code-switches the
+source instead, with each target term already in place of its source word.
 
 ### Streaming (`onChunk`)
 

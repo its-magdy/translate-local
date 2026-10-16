@@ -1,6 +1,6 @@
 # File-translate test report — v0.4.0
 
-This document inventories every test case run against the file-translate feature (`tl translate --file <path>`) before merging to `main`. It is descriptive — recording what happened — rather than prescriptive. For the test harness itself, see the test files under `packages/core/src/files/__tests__/`, `packages/core/src/__tests__/files-translate.test.ts`, and `apps/cli/src/__tests__/files-cli.test.ts`.
+This document inventories every test case run against the file-translate feature (`tl translate --file <path>`) before merging to `main`. It is descriptive — recording what happened — rather than prescriptive, and it is a **snapshot of v0.4.0**: later releases changed some of the behavior below. For current behavior, read [`file-translate-guide.md`](file-translate-guide.md). For the test harness itself, see the test files under `packages/core/src/files/__tests__/`, `packages/core/src/__tests__/files-translate.test.ts`, and `apps/cli/src/__tests__/files-cli.test.ts`.
 
 **Scope.** Phase A (JSON catalogs) + Phase B (YAML catalogs). All other formats either shipped as refused-by-default or are explicitly out of scope for v0.4.0.
 
@@ -225,7 +225,7 @@ These are documented behaviors, not bugs. Each is described in `docs/file-transl
 | **Shared YAML anchors refused** | Files using `&anchor` / `*alias` are refused. | Inline the anchor before translating. |
 | **Multi-document YAML refused** | Files with `---` document separators are refused. | Split into separate single-document files. |
 | **Source-changed detection starts at the first locked run** | Changed-source detection relies on the per-target lock in `.tl/locks/`. A target synced before the lock existed (or after the lock was deleted) is trusted as-is on the first run; edits made to the source before that run are not detected. | Run with `--force` once if you suspect existing drift; afterwards the lock catches changes. |
-| **Failed new keys are not retried automatically** | A key that was missing and failed (placeholder mismatch / ICU) gets the source text as fallback; the next run sees a non-empty target and leaves it. (A *changed* key that fails keeps its old lock hash and *is* retried.) | Delete the fallback value from the target, or use `--force`. |
+| **Failed new keys are not retried automatically** (fixed after v0.4.0) | At the time of this report, a key that was missing and failed (placeholder mismatch / ICU) got the source text as fallback, and the next run saw a non-empty target and left it. Failed keys are now recorded in the lock's `failed` map and re-queued by the next missing-only run while the target still holds the copied source. | None needed; a hand-edited value is still kept. |
 | **Stale keys kept unless `--prune`** | Keys present in the target but absent from the source are left in place by default. | Pass `--prune` (combine with `--dry-run` to preview). |
 
 ---

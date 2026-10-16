@@ -2,7 +2,11 @@
 
 > A CLI-first translation tool that enforces glossary terms, pulls context from local files, and runs on a local model — no translation API required.
 
-Most translation tools are black boxes: you send text, you get text back, and you hope your domain-specific terminology survived. `tl` is different. It lets you define term pairs that the model must respect, index your own documents as context, and run everything locally via Ollama — without sending your text to any external service.
+Most translation tools are black boxes: you send text, you get text back, and you hope your domain-specific terminology survived. `tl` is different. It lets you define term pairs that the model must respect, index your own documents as context, and translate whole i18n catalogs key by key — all locally via Ollama, without sending your text to any external service.
+
+[![CI](https://github.com/its-magdy/translate-local/actions/workflows/ci.yml/badge.svg)](https://github.com/its-magdy/translate-local/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@translate-local/tl)](https://www.npmjs.com/package/@translate-local/tl)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -16,6 +20,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
   - [Context sources](#context-sources)
   - [Config](#config)
   - [Interactive TUI](#interactive-tui)
+- [How terms are enforced](#how-terms-are-enforced)
 - [Command reference](#command-reference)
 - [Running tests](#running-tests)
 - [Contributing](#contributing)
@@ -97,6 +102,8 @@ ollama pull translategemma:latest
 tl config connect --model translategemma:latest
 ```
 
+Config lives at `~/.config/tl/config.jsonc` (`tl config path` prints it); the glossary and context databases sit beside it.
+
 ---
 
 ## Usage
@@ -122,9 +129,11 @@ tl "hello world" --from en --to es
 tl translate "hello world" --from en --to es
 ```
 
+The translation goes to **stdout**; timing and glossary coverage go to **stderr**, so `$(tl ...)` and pipes stay clean. Tokens stream live only when stdout is a terminal.
+
 #### Image translation
 
-Pass `--image` with a path to extract and translate text from an image:
+Pass `--image` with a path to extract and translate text from an image (`.png .jpg .jpeg .webp .gif .bmp`, up to 10 MB):
 
 ```bash
 tl translate --image /path/to/sign.jpg --to ar
@@ -134,7 +143,7 @@ tl translate --image /path/to/doc.jpg --to fr --json
 
 #### File translation
 
-Translate a JSON i18n catalog. By default, only missing/empty keys in the target are translated; existing translations are preserved.
+Translate a JSON or YAML i18n catalog. By default, only missing/empty keys in the target are translated; existing translations are preserved.
 
 ```bash
 # en.json → ar.json (auto-inferred output path)
@@ -143,43 +152,59 @@ tl translate --file en.json --to ar
 # Re-translate everything
 tl translate --file en.json --to ar --force
 
-# Preview
+# Preview without writing or calling the model
 tl translate --file en.json --to ar --dry-run
 
 # Remove keys that were deleted from the source
 tl translate --file en.json --to ar --prune
 ```
 
+File-mode flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--out <path>` | inferred | Output path, when no locale token can be inferred from the source filename |
+| `--force` | off | Re-translate every leaf, overwriting existing target values |
+| `--dry-run` | off | Report what would change; write nothing and never contact the model |
+| `--prune` | off | Delete target keys the source no longer has (target-only plural forms are kept) |
+| `--allow-large-prune` | off | Confirm a `--prune` that would remove more than half the target |
+| `--format <fmt>` | `auto` | `auto`, `json`, `yaml`, `raw-json`, `raw-yaml` — `raw-*` bypasses format refusals |
+| `--strict` | off | Abort on the first failed key instead of falling back to the source value |
+| `--translate-all` | off | Bypass the URL / email / semver / ALL-CAPS skip heuristics |
+| `--max-size <mb>` | `20` | Source file size cap |
+
 Keys whose source string changed since the last run are re-translated too: `tl` records a hash per source key in a per-target lock under `.tl/locks/` at your project root (never inside the locale directory). Commit `.tl/`.
 
 Recognized layouts: `en.json` → `ar.json`, `messages.en.yaml` → `messages.ar.yaml`, `locales/en/common.json` → `locales/ar/common.json`. Pass `--out <path>` when no locale token can be inferred.
 
-Supports vanilla JSON (flat or nested), YAML (Rails / Hugo / Symfony), i18next plural-key files, and FormatJS / react-intl catalogs. ICU MessageFormat (`{n, plural, ...}`, `{x, select, ...}`) is translated structure-preserving, with plural branches adjusted to the target locale. ARB and xcstrings are refused by default — use `--format raw-json` to bypass at your own risk.
+Supports vanilla JSON (flat or nested), YAML (Rails / Hugo / Symfony, with comments, key order and block scalars preserved), i18next plural-key files, and FormatJS / react-intl catalogs. ICU MessageFormat (`{n, plural, ...}`, `{x, select, ...}`) is translated structure-preserving, with plural branches regenerated for the target locale's CLDR categories. Placeholders (`{{name}}`, `%{name}`, `%1$s`, `$t(...)`, HTML tags) are masked before translation and verified afterwards. ARB and xcstrings are refused by default — use `--format raw-json` to bypass at your own risk.
 
-See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) for sync semantics, placeholder protection, edge-case behavior, and refused-format rationales.
+See [`docs/file-translate-guide.md`](docs/file-translate-guide.md) for sync semantics, lock files, placeholder protection, edge-case behavior, and refused-format rationales.
 
 #### JSON output
 
 ```bash
-tl "hello" --from en --to ar --json
+tl "good morning" --from en --to ar --json
 ```
 
 ```json
 {
-  "translated": "مرحبا",
+  "translated": "صباح الخير",
   "sourceLang": "en",
   "targetLang": "ar",
-  "glossaryCoverage": 1.0,
+  "glossaryCoverage": 1,
   "missingTerms": [],
-  "metadata": { "adapter": "translate-gemma-local", "durationMs": 312, "retries": 0 }
+  "metadata": { "adapter": "translate-gemma-local", "durationMs": 5065, "retries": 0 }
 }
 ```
 
+`metadata` also carries `repaired`, `tagChecked` and `keptWord` when those passes ran — see [How terms are enforced](#how-terms-are-enforced).
+
 #### Glossary mode
 
-`--glossary prefer` (default) guides the model toward your term pairs but returns the result regardless.
+`--glossary prefer` (default) guides the model toward your term pairs, retries twice when a term is missing, keeps the best attempt, and never fails over a missed term.
 
-`--glossary strict` retries up to 2 times if any glossary term is missing, then exits with code 1:
+`--glossary strict` retries up to `glossary.maxRetries` times (default 2) and exits `1` if a term is still missing:
 
 ```bash
 tl "neural network training" --from en --to ar --glossary strict
@@ -202,6 +227,15 @@ tl glossary add \
   --domain tech
 ```
 
+**Accept the term's other forms** so a correctly inflected translation isn't retried:
+
+```bash
+tl glossary add --source deploy --target bereitstellen --from en --to de \
+  --forms "Bereitstellung|bereitgestellt|stellen … bereit"
+```
+
+A form with `…` is a split form: its parts must appear in order within one sentence.
+
 **List terms:**
 
 ```bash
@@ -214,7 +248,7 @@ tl glossary list --from en --to ar
 tl glossary import ./terms.csv
 ```
 
-CSV format: `source,target,from,to,domain,note`
+CSV columns: `source,target,from,to,domain,note,forms` — the last three are optional, and files without a `forms` column still import.
 
 **Export:**
 
@@ -228,7 +262,7 @@ tl glossary export --from en --to ar > backup.csv
 tl glossary remove <id>
 ```
 
-See [docs/glossary-guide.md](docs/glossary-guide.md) for the full reference.
+See [docs/glossary-guide.md](docs/glossary-guide.md) for matching rules, language fallback, and the full reference.
 
 ---
 
@@ -267,9 +301,20 @@ See [docs/context-guide.md](docs/context-guide.md) for retrieval tuning options.
 ### Config
 
 ```bash
-tl config status          # show current config and adapter health
-tl config path            # print config file location
-tl config connect [...]   # set adapter backend
+tl config status            # show current config and db paths
+tl config path              # print config file location
+tl config connect --model translategemma:latest --endpoint http://localhost:11434
+```
+
+`~/.config/tl/config.jsonc` is JSONC (comments allowed) and supports `${VAR}` environment references inside quoted strings:
+
+```jsonc
+{
+  "adapter": { "local": { "model": "translategemma:latest", "endpoint": "${OLLAMA_URL}" } },
+  "glossary": { "mode": "prefer", "maxRetries": 2 },
+  "context": { "maxSnippets": 3, "minRelevance": 0.09 },
+  "defaults": { "sourceLang": "auto", "targetLang": "ar" }
+}
 ```
 
 ---
@@ -288,6 +333,20 @@ See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 
 ---
 
+## How terms are enforced
+
+A glossary term is not just a prompt hint — `tl` checks the output and fixes what it can:
+
+1. **Coverage check** — the target term (or one of its `--forms`) must appear in the output. Inflections count, so Arabic `الكتاب` covers `كتاب`.
+2. **Retries** — a missed term is retried with a reminder listing the missing terms; the last retry is code-switched, handing the model the target term inside the source sentence.
+3. **Tag repair** — the model usually echoes `<term>` tags. `tl` replaces the tagged word with the glossary term, keeping the model's own form when it is one (`hôtes`, `Bereitstellung`) and its sentence-initial capital. When the tag sits on a different word while the term is already elsewhere in the sentence, one extra model call decides whether to keep that word (`metadata.tagChecked`, `metadata.keptWord`).
+4. **Deterministic fix-ups** — stray quotes around a term are dropped, French/Italian articles are elided (`le hôte` → `l'hôte`), the Arabic article is attached (`بالـ نشر` → `بالنشر`), and a full stop the model added to a source without one is removed (`Save changes` → `Enregistrer les modifications`).
+5. **Agreement repair** — when a term was forced into the output, one extra model call fixes gender/case agreement around it (`eine neue Zweig` → `einen neuen Zweig`). The repair is kept only if every term and placeholder survives (`metadata.repaired`).
+
+Details and benchmark numbers: [docs/glossary-guide.md](docs/glossary-guide.md).
+
+---
+
 ## Command reference
 
 | Command | Description |
@@ -295,43 +354,53 @@ See [docs/tui-guide.md](docs/tui-guide.md) for keybindings and workflows.
 | `tl <text>` | Translate text (shorthand for `tl translate`) |
 | `tl translate <text>` | Translate with explicit subcommand |
 | `tl translate --image <path>` | Extract and translate text from an image |
+| `tl translate --file <path>` | Translate a JSON / YAML i18n catalog |
 | `tl glossary add` | Add a glossary term pair |
 | `tl glossary list` | List glossary entries |
-| `tl glossary remove <id>` | Remove an entry by ID |
+| `tl glossary remove <id>` | Remove an entry by ID (or ID prefix) |
 | `tl glossary import <file>` | Import term pairs from CSV |
 | `tl glossary export` | Export glossary to CSV or JSON |
 | `tl context add <path>` | Register and index a directory |
 | `tl context list` | List registered context sources |
 | `tl context remove <path>` | Remove a context source |
 | `tl context index` | Re-index all context sources |
-| `tl config connect` | Configure the adapter backend |
-| `tl config status` | Show config and test the adapter |
+| `tl config connect` | Configure the model and endpoint |
+| `tl config status` | Show config and database paths |
 | `tl config path` | Print config file path |
 | `tl languages` | List supported language codes |
 | `tl completion <shell>` | Print a shell completion script (`bash`, `zsh`, `fish`) |
 
-**Shared flags for `tl translate`:**
+**Flags shared by every `tl translate` mode:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--from <lang>` | `auto` | Source language (BCP-47) |
-| `--to <lang>` | `ar` | Target language (BCP-47) |
+| `--from <lang>` | config `defaults.sourceLang` (`auto`) | Source language (BCP-47) |
+| `--to <lang>` | config `defaults.targetLang` (`ar`) | Target language (BCP-47) |
 | `--glossary <mode>` | config `glossary.mode` (`prefer`) | `prefer` or `strict` |
-| `--json` | off | Output JSON |
+| `--json` | off | Output JSON (errors become `{ "error", "message", "hint" }` on stderr) |
 
 **Environment variables:**
 
 | Variable | Description |
 |----------|-------------|
 | `TL_CONFIG` | Path to a custom config file |
+| `TL_ADAPTER` | `mock` runs the deterministic mock adapter (tests and smoke runs); anything else uses Ollama |
 
-**Exit codes:** `0` = success, `1` = error.
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Error (adapter failure, strict glossary miss, invalid config, …) |
+| `2` | File mode: some keys failed and fell back to the source value |
+| `130` / `143` | Interrupted by Ctrl+C (`SIGINT`) / `SIGTERM` — finished keys are written first |
 
 **Docs:**
-- [docs/cli-reference.md](docs/cli-reference.md) — full CLI flag reference
-- [docs/tui-guide.md](docs/tui-guide.md) — TUI usage and keybindings
-- [docs/glossary-guide.md](docs/glossary-guide.md) — glossary CSV format and advanced usage
+- [docs/cli-reference.md](docs/cli-reference.md) — full CLI flag reference, shell completion, RTL terminal support
+- [docs/file-translate-guide.md](docs/file-translate-guide.md) — catalog translation, sync semantics, lock files
+- [docs/glossary-guide.md](docs/glossary-guide.md) — glossary CSV format, term matching, enforcement passes
 - [docs/context-guide.md](docs/context-guide.md) — context retrieval tuning
+- [docs/tui-guide.md](docs/tui-guide.md) — TUI usage and keybindings
 - [docs/adapter-development.md](docs/adapter-development.md) — building custom adapters
 
 ---

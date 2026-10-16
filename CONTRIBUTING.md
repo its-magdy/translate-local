@@ -131,6 +131,7 @@ All packages share a unified version. Releases are cut by the maintainer, so fea
 ## Useful Links
 
 - [CLI Reference](docs/cli-reference.md)
+- [File Translation Guide](docs/file-translate-guide.md)
 - [Adapter Development](docs/adapter-development.md)
 - [Glossary Guide](docs/glossary-guide.md)
 - [Context Guide](docs/context-guide.md)
