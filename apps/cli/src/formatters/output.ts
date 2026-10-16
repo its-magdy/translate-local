@@ -17,13 +17,13 @@ function color(s: string, c: string, stream: NodeJS.WriteStream = process.stdout
 // `stream` is the stream the caller will write to — color must gate on ITS
 // TTY-ness (metadata goes to stderr, so gating on stdout would leak ANSI codes
 // into redirected stderr logs). includeTranslation: false emits metadata only,
-// for callers that already streamed the translation to stdout. glossaryMatched:
-// false omits the coverage line (a result with no glossary hits reports 100%).
+// for callers that already streamed the translation to stdout. The coverage
+// line is omitted when no glossary term matched (coverage then reads 100%).
 export function formatTranslationResult(
   result: TranslationResult,
   json: boolean,
   stream: NodeJS.WriteStream = process.stdout,
-  { includeTranslation = true, glossaryMatched = true } = {},
+  { includeTranslation = true } = {},
 ): string {
   if (json) return JSON.stringify(result, null, 2);
 
@@ -35,7 +35,7 @@ export function formatTranslationResult(
   }
   lines.push(color(`  ${result.metadata.adapter} · ${result.metadata.durationMs}ms`, DIM, stream));
 
-  if (glossaryMatched) {
+  if (result.glossaryTerms > 0) {
     const pct = Math.round(result.glossaryCoverage * 100);
     lines.push(result.missingTerms.length === 0
       ? color(`Glossary: ${pct}% covered ✓`, GREEN, stream)

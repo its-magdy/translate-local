@@ -314,6 +314,14 @@ describe("tl CLI", () => {
       expect(r.stderr).toContain("Glossary: 100% covered");
     });
 
+    it("prints no glossary line when no term matched", () => {
+      const env = { TL_ADAPTER: "mock", ...ownHome() };
+      expect(run(["glossary", "add", "--source", "cache", "--target", "ذاكرة", "--from", "en", "--to", "ar"], env).exitCode).toBe(0);
+      const r = run(["translate", "hello world", "--to", "ar"], env);
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).not.toContain("Glossary:");
+    });
+
     it("uses glossary.mode from the config unless --glossary is passed", () => {
       // The mock disregards the glossary tags, so every attempt misses the term.
       const env = { TL_ADAPTER: "mock", TL_MOCK_IGNORE_GLOSSARY: "1", ...ownHome() };
