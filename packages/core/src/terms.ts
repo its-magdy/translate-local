@@ -1,5 +1,5 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, stripCombiningMarks, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
 import { fixTermAgreement, splitArabicArticles } from "./agreement";
 import { dropAddedFullStop } from "./punctuation";
 
@@ -73,11 +73,49 @@ export class TermSet {
   read(raw: string, kept?: KeptWords): Reading {
     const postprocessed = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw, this.forms, kept)), this.targetLang, this.agreementTerms);
     const translated = this.imageMode ? postprocessed : dropAddedFullStop(postprocessed, this.source, this.agreementTerms);
-    return {
-      translated,
-      ...computeGlossaryCoverage(this.realHits, splitArabicArticles(translated, this.targetLang, this.agreementTerms)),
-      forced: substitutesTerm(raw, this.targetTerms, this.forms, kept),
+    return { translated, ...this.coverage(translated), forced: substitutesTerm(raw, this.targetTerms, this.forms, kept) };
+  }
+
+  /**
+   * `translated` with its first letter raised in the target language's casing
+   * (Turkish `i` → `İ`; plain casing for an invalid tag) when `draft`'s first
+   * letter is uppercase and `translated`'s is lowercase: the code-switched
+   * source starts with the lowercase term, so the check's output does too (fr
+   * `antémémoire : taille` for the draft `Antémémoire`). Not when the letter
+   * is inside a term, form or split-form part (`.env`, `iOS`) that
+   * capitalizeTerm would not raise there, nor when the raised text loses a term.
+   */
+  matchStartCase(translated: string, draft: string): string {
+    const start = /^(\P{L}*)(\p{Ll})/u.exec(translated);
+    if (!start || !/^\P{L}*\p{Lu}/u.test(draft)) return translated;
+    // Matched with combining marks dropped, as coverage matches (`re\u0301glages` is `réglages`).
+    const plain = stripCombiningMarks(translated);
+    const at = /^\P{L}*/u.exec(plain)![0].length;
+    const words = [...this.agreementTerms.map(stripCombiningMarks), ...[...this.forms.values()].flat().flatMap((form) => formParts(stripCombiningMarks(form)))];
+    // Only an occurrence starting within its own length before the letter can cover it.
+    const covers = (word: string) => {
+      for (let from = Math.max(0, at - word.length + 1); from <= at; from++) {
+        if (plain.startsWith(word, from) && !(from === at && capitalizeTerm(word) !== word)) return true;
+      }
+      return false;
     };
+    if (words.some(covers)) return translated;
+    let letter: string;
+    try {
+      letter = start[2].toLocaleUpperCase(this.targetLang);
+    } catch {
+      // Not a valid language tag (RangeError).
+      letter = start[2].toUpperCase();
+    }
+    const raised = start[1] + letter + translated.slice(start[0].length);
+    // Coverage also splits Arabic articles and matches split forms by sentence: never lose a term.
+    const missing = this.coverage(translated).missingTerms;
+    return this.coverage(raised).missingTerms.every((term) => missing.includes(term)) ? raised : translated;
+  }
+
+  /** The glossary coverage of a postprocessed translation. */
+  coverage(translated: string): { glossaryCoverage: number; missingTerms: string[] } {
+    return computeGlossaryCoverage(this.realHits, splitArabicArticles(translated, this.targetLang, this.agreementTerms));
   }
 
   /** The target term of each missing source term, for a glossary retry's reminder. */

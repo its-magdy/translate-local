@@ -143,8 +143,10 @@ export async function runPipeline(
       if (check !== undefined && terms.drifted(driftSpans, check)) {
         const reading = terms.read(check);
         if (reading.missingTerms.every((term) => result.missingTerms.includes(term)) && sentinels(reading.translated) === sentinels(result.translated)) {
+          // Start uppercase as the draft does; coverage is then the returned text's.
+          const translated = terms.matchStartCase(reading.translated, result.translated);
           return repairAgreement({
-            ...result, translated: reading.translated, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+            ...result, translated, ...terms.coverage(translated),
             metadata: { ...result.metadata, tagDrift: true },
           });
         }

@@ -967,7 +967,7 @@ describe("runPipeline", () => {
     it("returns the check's output when it still writes the drifted words, then repairs it", async () => {
       const requests: any[] = [];
       const controller = new AbortController();
-      const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests, "Antémémoire : taux de réussite"), store, {
+      const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests, "Antémémoire : le taux de réussite"), store, {
         glossaryEntries: [cache], signal: controller.signal, contextSnippets: ["x"],
       });
       expect(requests).toHaveLength(3);
@@ -975,8 +975,9 @@ describe("runPipeline", () => {
       expect(requests[1].contextSnippets).toBeUndefined();
       expect(requests[1].signal).toBe(controller.signal);
       expect(requests[2].repairTerms).toEqual(["antémémoire"]);
-      expect(requests[2].source).toBe("antémémoire : taux de réussite");
-      expect(result.translated).toBe("Antémémoire : taux de réussite");
+      // The draft (`Antémémoire`) starts uppercase: so does the answer sent to the repair.
+      expect(requests[2].source).toBe("Antémémoire : taux de réussite");
+      expect(result.translated).toBe("Antémémoire : le taux de réussite");
       expect(result.glossaryCoverage).toBe(1);
       expect(result.metadata.tagChecked).toBe(true);
       expect(result.metadata.tagDrift).toBe(true);
@@ -1008,7 +1009,7 @@ describe("runPipeline", () => {
       const sized = `Cache hit rate ${TOK}`;
       const sentinel = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "fr" }, startIndex: sized.indexOf(TOK), endIndex: sized.indexOf(TOK) + TOK.length };
       const tagged = `${RAW} <term translation="${TOK}">${TOK}</term>`;
-      for (const [check, translated] of [[CHECK, `Antémémoire ${TOK}`], [`${CHECK} ${TOK}`, `antémémoire : taux de réussite ${TOK}`]]) {
+      for (const [check, translated] of [[CHECK, `Antémémoire ${TOK}`], [`${CHECK} ${TOK}`, `Antémémoire : taux de réussite ${TOK}`]]) {
         const result = await runPipeline(sized, "en", "fr", driftAdapter([tagged, check], []), store, { glossaryEntries: [cache], extraGlossaryHits: [sentinel] });
         expect(result.translated).toBe(translated);
       }
@@ -1034,10 +1035,80 @@ describe("runPipeline", () => {
         const requests: any[] = [];
         const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests), store, { glossaryEntries: [cache], glossaryMode });
         expect(requests).toHaveLength(3);
-        expect(result.translated).toBe("antémémoire : taux de réussite");
+        expect(result.translated).toBe("Antémémoire : taux de réussite");
         expect(result.metadata.tagDrift).toBe(true);
         expect(result.metadata.repaired).toBeUndefined();
       }
+    });
+
+    it("reports the coverage of the raised answer", async () => {
+      // Raising `cache` makes it the term `Cache`; the retries miss it, so prefer mode returns the first draft.
+      const requests: any[] = [];
+      const covered = await runPipeline("Host status cache", "en", "fr", driftAdapter(['<term translation="hôte">État serveur</term>', "miss", "cache : état serveur hôte"], requests), store, {
+        glossaryEntries: [{ ...host, sourceTerm: "host" }, { ...cache, targetTerm: "Cache" }],
+      });
+      expect(covered.translated).toBe("Cache : état serveur hôte");
+      expect(covered.glossaryCoverage).toBe(1);
+      expect(covered.missingTerms).toEqual([]);
+      expect(requests.at(-1).repairTerms).toEqual(["hôte", "Cache"]);
+    });
+
+    it("starts the check's output uppercase only when the draft does", async () => {
+      // A lowercase drifted span strips to a lowercase draft: the answer keeps its case.
+      const lower = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW.replace("Taux", "taux"), CHECK], []), store, { glossaryEntries: [cache] });
+      expect(lower.translated).toBe("antémémoire : taux de réussite");
+      expect(lower.metadata.tagDrift).toBe(true);
+      // Text before the first letter stays; only that letter is raised.
+      const quoted = await runPipeline(TEXT, "en", "fr", driftAdapter([`« Le ${RAW} »`, `« ${CHECK} »`], []), store, { glossaryEntries: [cache] });
+      expect(quoted.translated).toBe("« Antémémoire : taux de réussite »");
+      expect(quoted.metadata.tagDrift).toBe(true);
+      // A term spelled lowercase-first (`iOS`) is not raised: the answer would lose it.
+      const ios = { ...cache, targetTerm: "iOS" };
+      const kept = await runPipeline(TEXT, "en", "fr", driftAdapter(['Le <term translation="iOS">taux de réussite</term>', "iOS : taux de réussite"], []), store, { glossaryEntries: [ios], glossaryMode: "strict" });
+      expect(kept.translated).toBe("iOS : taux de réussite");
+      expect(kept.glossaryCoverage).toBe(1);
+      expect(kept.metadata.tagDrift).toBe(true);
+      // Not even when another occurrence keeps the term covered.
+      const twice = await runPipeline(TEXT, "en", "fr", driftAdapter(['Le <term translation="iOS">taux de réussite</term>', "iOS : taux de réussite sur iOS"], []), store, { glossaryEntries: [ios] });
+      expect(twice.translated).toBe("iOS : taux de réussite sur iOS");
+      // Nor inside a term that starts with punctuation, or a part of a split form.
+      const env = { ...cache, sourceTerm: "environment", targetTerm: ".env" };
+      const dot = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".env">fichier de configuration</term>', ".env : fichier de configuration"], []), store, { glossaryEntries: [env], glossaryMode: "strict" });
+      expect(dot.translated).toBe(".env : fichier de configuration");
+      expect(dot.glossaryCoverage).toBe(1);
+      // A spelling the guard doesn't match but coverage does (decomposed accent): a raise that loses the term is dropped.
+      const nfd = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".réglages">fichier de configuration</term>', ".re\u0301glages : fichier de configuration"], []), store, {
+        glossaryEntries: [{ ...env, targetTerm: ".réglages" }], glossaryMode: "strict",
+      });
+      expect(nfd.translated).toBe(".re\u0301glages : fichier de configuration");
+      expect(nfd.glossaryCoverage).toBe(1);
+      // Even when another occurrence keeps the term covered.
+      const both = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".réglages">fichier de configuration</term>', ".re\u0301glages : fichier de configuration dans .réglages"], []), store, {
+        glossaryEntries: [{ ...env, targetTerm: ".réglages" }], glossaryMode: "strict",
+      });
+      expect(both.translated).toBe(".re\u0301glages : fichier de configuration dans .réglages");
+      const dev = { ...cache, sourceTerm: "development", targetTerm: "iOS-Entwicklung", targetLang: "de", forms: ["iOS … entwickeln"] };
+      const split = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung"], []), store, { glossaryEntries: [dev], glossaryMode: "strict" });
+      expect(split.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung");
+      expect(split.glossaryCoverage).toBe(1);
+      // A form is split after its marks are dropped, as coverage splits it (a stray leading mark).
+      const marked = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung mit iOS-Entwicklung"], []), store, {
+        glossaryEntries: [{ ...dev, forms: ["\u0301 iOS … entwickeln"] }], glossaryMode: "strict",
+      });
+      expect(marked.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung mit iOS-Entwicklung");
+      // The letter is raised in the target language's casing (Turkish `i` → `İ`).
+      const tr = { ...cache, targetTerm: "önbellek", targetLang: "tr" };
+      const turkish = await runPipeline(TEXT, "en", "tr", driftAdapter(['İşlem: <term translation="önbellek">isabet oranı</term>', "işlem: önbellek isabet oranı"], []), store, { glossaryEntries: [tr] });
+      expect(turkish.translated).toBe("İşlem: önbellek isabet oranı");
+      expect(turkish.metadata.tagDrift).toBe(true);
+      // A term at the start is raised too, and stays covered.
+      const term = { ...tr, targetTerm: "işlem" };
+      const raised = await runPipeline(TEXT, "en", "tr", driftAdapter(['Şu <term translation="işlem">isabet oranı</term>', "işlem isabet oranı"], []), store, { glossaryEntries: [term] });
+      expect(raised.translated).toBe("İşlem isabet oranı");
+      expect(raised.glossaryCoverage).toBe(1);
+      // A target that is not a language tag falls back to plain casing.
+      const odd = await runPipeline(TEXT, "en", "x!", driftAdapter([RAW, CHECK], []), store, { glossaryEntries: [{ ...cache, targetLang: "x!" }] });
+      expect(odd.translated).toBe("Antémémoire : taux de réussite");
     });
 
     it("decides a drifted tag and a tag-check candidate from the one check", async () => {
