@@ -1,5 +1,6 @@
 import type { TranslationResult } from "@translate-local/shared/types";
 import type { GlossaryEntry } from "@translate-local/shared/types";
+import type { FileTranslateSummary } from "@translate-local/core/files";
 
 const RESET = "\x1b[0m";
 const GREEN = "\x1b[32m";
@@ -76,4 +77,47 @@ export function formatErrorJson(err: unknown): string {
     return JSON.stringify({ error: e.tag, message: e.message, hint: e.hint ?? null });
   }
   return JSON.stringify({ error: "TRANSLATION_FAILED", message: String(err), hint: null });
+}
+
+// The human-readable summary of a file run: counts on stdout, per-key failures
+// and warnings on stderr. A dry run lists what would change instead.
+export function formatFileSummary(
+  result: FileTranslateSummary,
+  sourcePath: string,
+  { dryRun, prune }: { dryRun: boolean; prune: boolean },
+): { stdout: string[]; stderr: string[] } {
+  const stdout: string[] = [];
+  const stderr = result.warnings.map((w) => `Warning: ${w}`);
+  if (dryRun) {
+    stdout.push(`[dry-run] Source: ${sourcePath}`);
+    stdout.push(`[dry-run] Target: ${result.outPath} (NOT written)`);
+    stdout.push(`[dry-run] Format: ${result.contentFormat}`);
+    if (result.rootLocaleKey) stdout.push(`[dry-run] Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+    stdout.push(`[dry-run] Would translate: ${result.translated}`);
+    if (result.skipped.count > 0) stdout.push(`[dry-run] Would skip: ${result.skipped.count}`);
+    if (result.changed.length > 0) {
+      stdout.push(`[dry-run] Source changed: ${result.changed.length}`);
+      for (const p of result.changed) stdout.push(`  ${p}`);
+    }
+    if (prune) {
+      stdout.push(`[dry-run] Would prune: ${result.pruned.length}`);
+      for (const p of result.pruned) stdout.push(`  ${p}`);
+    }
+    return { stdout, stderr };
+  }
+  stdout.push(`Wrote ${result.outPath}`);
+  stdout.push(`Format: ${result.contentFormat}`);
+  if (result.rootLocaleKey) stdout.push(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
+  stdout.push(`Translated: ${result.translated} / ${result.totalLeaves}`);
+  if (result.changed.length > 0) stdout.push(`Source changed: ${result.changed.length}`);
+  if (prune) stdout.push(`Pruned: ${result.pruned.length}`);
+  if (result.skipped.count > 0) {
+    const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
+    stdout.push(`Skipped: ${result.skipped.count} (${reasons})`);
+  }
+  if (result.failed.length > 0) {
+    stdout.push(`Failed: ${result.failed.length} (source value used as fallback — search the output for un-translated source text)`);
+    stderr.unshift(...result.failed.map((f) => `  ${f.path}: ${f.reason}`));
+  }
+  return { stdout, stderr };
 }

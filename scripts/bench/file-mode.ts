@@ -40,7 +40,7 @@ import { TranslateGemmaLocalAdapter } from "../../packages/adapters/src/translat
 import { GlossaryStore } from "../../packages/core/src/glossary";
 import { ContextStore } from "../../packages/core/src/context";
 import { fixTermAgreement } from "../../packages/core/src/agreement";
-import { translateFile } from "../../packages/core/src/files/index";
+import { translateFile, pipelineTranslator } from "../../packages/core/src/files/index";
 import { containsICU, mask, unmask } from "../../packages/core/src/files/placeholders";
 
 // ---------- args ----------
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
         const t0 = performance.now();
         const summary = await translateFile({
           sourcePath: FIXTURE, outPath, sourceLang: "en", targetLang: tgt,
-          adapter: rec, glossary, context, glossaryMode: GLOSSARY_MODE,
+          translator: pipelineTranslator(rec, glossary, context, { glossaryMode: GLOSSARY_MODE }),
           onProgress: ({ path }) => { rec.leaf = path; },
         });
         const dt = performance.now() - t0;

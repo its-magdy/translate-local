@@ -32,7 +32,7 @@ import { join } from "path";
 import type { Adapter, AdapterResponse, TranslationRequest } from "../../packages/shared/src/types";
 import { GlossaryStore } from "../../packages/core/src/glossary";
 import { ContextStore } from "../../packages/core/src/context";
-import { translateFile } from "../../packages/core/src/files/index";
+import { translateFile, pipelineTranslator } from "../../packages/core/src/files/index";
 
 type Call = { repair: boolean; source: string; raw: string };
 type SavedRun = { leaves: { path: string; calls: Call[] }[] };
@@ -99,7 +99,7 @@ try {
             const outPath = join(dir, `${name}-${tgt}-${i}${ext}`);
             const summary = await translateFile({
               sourcePath: fixture, outPath, sourceLang: "en", targetLang: tgt,
-              adapter, glossary, context, glossaryMode: saved.mode ?? "prefer",
+              translator: pipelineTranslator(adapter, glossary, context, { glossaryMode: saved.mode ?? "prefer" }),
             });
             const text = readFileSync(outPath, "utf8");
             const key = `${name} ${fixtureName} ${tgt} #${i}`;

@@ -15,25 +15,28 @@ import { diffForSync, pruneTarget, type PendingTranslation, type SyncMode } from
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
 import { planLeaf, translateLeaf, strictError, isCancelled, type LeafOutcome, type TranslateText } from "./leaf";
 import { rebaseLocaleRoot, type RootLocaleRename } from "./locale-root";
+import { inferOutputPath, inferSourceLocale } from "./locale-path";
 import { pathKey } from "./i18next";
 import { walkLeaves, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
   sourcePath: string;
-  outPath: string;
+  /**
+   * Defaults to the source path with its locale token replaced by targetLang
+   * (en.json → ar.json, messages.en.yaml, locales/en/common.json); INVALID_INPUT
+   * when the source path has none.
+   */
+  outPath?: string;
+  /**
+   * With "auto", the locale token in the source filename (if any) stands in for
+   * it where a locale is needed: the glossary lookup and a Rails `en:` root.
+   */
   sourceLang: string;
   targetLang: string;
-  /**
-   * Locale used to recognise a locale-rooted catalog (Rails `en:` root).
-   * Defaults to sourceLang; pass the filename's locale token when sourceLang is "auto".
-   */
-  sourceLocale?: string;
-  adapter: Adapter;
-  glossary: GlossaryStore;
-  context: ContextStore;
+  /** How leaves are translated; a TranslationSession's fileTranslator() in the frontends. */
+  translator: FileTranslator;
   format?: FormatOverride;
   mode?: SyncMode;
-  glossaryMode?: "prefer" | "strict";
   /**
    * Default true. When true, validation failures (e.g. placeholder mismatch
    * after retries) record the key in the summary and fall back to the source
@@ -44,10 +47,6 @@ export type FileTranslateOptions = {
   maxFileBytes?: number;
   /** When true, classify and count leaves without calling the adapter or writing output. */
   dryRun?: boolean;
-  /** Context snippets per leaf (config `context.maxSnippets`). */
-  maxSnippets?: number;
-  /** Minimum context relevance, 0–1 (config `context.minRelevance`). */
-  minRelevance?: number;
   /** When true, remove target keys / array elements that no longer exist in the source. */
   prune?: boolean;
   /**
@@ -67,6 +66,61 @@ export type FileTranslateOptions = {
    */
   signal?: AbortSignal;
 };
+
+/**
+ * Called once per file, after its checks, with the file's languages
+ * (`glossaryLang` picks the glossary entries) and the run's signal. Returns a
+ * function that gives each leaf, by its source, the TranslateText for its
+ * translation units.
+ */
+export type FileTranslator = (file: {
+  sourceLang: string;
+  targetLang: string;
+  glossaryLang: string;
+  signal?: AbortSignal;
+}) => (leafSource: string) => TranslateText;
+
+export type PipelineTranslatorSettings = {
+  glossaryMode?: "prefer" | "strict";
+  /** Strict-mode retries (config `glossary.maxRetries`); runPipeline's default when unset. */
+  maxRetries?: number;
+  /** Context snippets per leaf (config `context.maxSnippets`). */
+  maxSnippets?: number;
+  /** Minimum context relevance, 0–1 (config `context.minRelevance`). */
+  minRelevance?: number;
+};
+
+/**
+ * A FileTranslator that runs the pipeline. The file's glossary entries are
+ * fetched once; runPipeline would otherwise re-query SQLite for every leaf
+ * (N round-trips and N*M row materializations at N leaves and M entries).
+ * Context snippets are retrieved once per leaf.
+ */
+export function pipelineTranslator(
+  adapter: Adapter,
+  glossary: GlossaryStore,
+  context: ContextStore,
+  settings: PipelineTranslatorSettings = {},
+): FileTranslator {
+  const { glossaryMode = "prefer", maxRetries, maxSnippets = DEFAULT_MAX_SNIPPETS, minRelevance = DEFAULT_MIN_RELEVANCE } = settings;
+  return ({ sourceLang, targetLang, glossaryLang, signal }) => {
+    const glossaryEntries = glossary.lookup(glossaryLang, targetLang);
+    return (leafSource) => {
+      const snippets = context.retrieve(leafSource, maxSnippets, minRelevance).map((s) => s.content);
+      return async (text, hits) => {
+        const result = await runPipeline(text, sourceLang, targetLang, adapter, glossary, {
+          glossaryMode,
+          maxRetries,
+          contextSnippets: snippets,
+          extraGlossaryHits: hits,
+          glossaryEntries,
+          signal,
+        });
+        return result.translated;
+      };
+    };
+  };
+}
 
 export type FileTranslateSummary = {
   contentFormat: ContentFormat;
@@ -157,28 +211,33 @@ function guardPrune(removed: number, total: number, topKeysBefore: string[], aft
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
   const {
     sourcePath,
-    outPath,
     sourceLang,
     targetLang,
-    sourceLocale = sourceLang === "auto" ? undefined : sourceLang,
-    adapter,
-    glossary,
-    context,
+    translator,
     format = "auto",
     mode = "missing-only",
-    glossaryMode = "prefer",
     continueOnError = true,
     translateAll = false,
     maxFileBytes = DEFAULT_MAX_BYTES,
     dryRun = false,
-    maxSnippets = DEFAULT_MAX_SNIPPETS,
-    minRelevance = DEFAULT_MIN_RELEVANCE,
     prune = false,
     allowLargePrune = false,
     onProgress,
     signal,
   } = opts;
 
+  if (!existsSync(sourcePath)) {
+    throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
+  }
+
+  const outPath = opts.outPath ?? inferOutputPath(sourcePath, sourceLang, targetLang);
+  if (!outPath) {
+    throw new TlError(
+      "INVALID_INPUT",
+      `Cannot infer output path from "${sourcePath}"`,
+      "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
+    );
+  }
   if (sourceLang !== "auto" && sourceLang === targetLang) {
     throw new TlError(
       "SAME_LOCALE",
@@ -187,9 +246,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  if (!existsSync(sourcePath)) {
-    throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
-  }
+  const sourceLocale = sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang;
 
   // The language check above can't fire when sourceLang is "auto", so an
   // en→en run (or an --out aimed at the input) would write the translation
@@ -304,13 +361,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
   const unsyncedKeys = new Set<string>();
 
-  // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
-  // for every leaf — at N leaves with M entries that's N round-trips and N*M row
-  // materializations. We hand the entries through PipelineOptions and let the
-  // pipeline match them in-process. Same lang-fallback lookup as findMatches uses.
-  // With --from auto, the filename's locale (sourceLocale) narrows the lookup
-  // to that source language instead of every source language.
-  const glossaryEntries = glossary.lookup(sourceLocale ?? sourceLang, targetLang);
+  // With --from auto, the filename's locale (sourceLocale) narrows the glossary
+  // lookup to that source language instead of every source language.
+  const translatorFor = translator({ sourceLang, targetLang, glossaryLang: sourceLocale ?? sourceLang, signal });
 
   const summary: FileTranslateSummary = {
     contentFormat: detected.content,
@@ -363,22 +416,6 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     failedKeys[lockKey(p.path)] = hashSource(p.source);
     if (!dryRun) p.set(p.source);
   };
-  // One model call for a translation unit of the leaf at `source`, with that
-  // leaf's context snippets (retrieved once per leaf).
-  const translatorFor = (source: string): TranslateText => {
-    const snippets = context.retrieve(source, maxSnippets, minRelevance).map((s) => s.content);
-    return async (text, hits) => {
-      const result = await runPipeline(text, sourceLang, targetLang, adapter, glossary, {
-        glossaryMode,
-        contextSnippets: snippets,
-        extraGlossaryHits: hits,
-        glossaryEntries,
-        signal,
-      });
-      return result.translated;
-    };
-  };
-
   // Leaves pending[i..] were not reached: keep them out of the target and lock.
   const stopAt = (i: number): void => {
     summary.aborted = true;
