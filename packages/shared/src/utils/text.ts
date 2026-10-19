@@ -506,25 +506,39 @@ export function checkKeepsWord(check: string, term: string, inner: string, forms
 /** Arabic harakat (fathatan … sukun), which the model adds or drops at will. */
 const HARAKAT_RE = /[\u064B-\u0652]/g;
 
+/** `word` without the non-letters at either end, by a code point scan (a `\P{L}+$` regex backtracks). */
+function trimToLetters(word: string): string {
+  const cps = [...word];
+  let start = 0;
+  let end = cps.length;
+  while (start < end && !/\p{L}/u.test(cps[start])) start++;
+  while (end > start && !/\p{L}/u.test(cps[end - 1])) end--;
+  return cps.slice(start, end).join("");
+}
+
 /**
  * The drift check's decision for a driftCandidates entry (term T, tag inner
  * `inner`): whether `check`, the model's output for the code-switched source,
  * still writes the drifted span X, so X translated other source words and the
  * check's output (which places T itself) is the better answer. X counts when,
  * after the tag strip and outside every occurrence of T and its one-piece
- * `forms`, the check has X or one of X's words of four or more letters that is
- * not inside T, as a whole word, case-insensitively (fr `antémémoire : taille`
- * for X `Taille de la mémoire cache :`). Only Arabic harakat are dropped: Latin
- * accents are kept, so `archive` is not the verb `archivé`.
+ * `forms`, the check has X, or at least half of X's distinct words of four or
+ * more letters that are not inside T, as whole words, case-insensitively (fr
+ * `antémémoire : taille` for X `Taille de la mémoire cache :`; one stray
+ * `Ihre` or `الآن` doesn't make `Ihre Daten im Archiv` count). Text is NFC-
+ * normalized and only Arabic harakat are dropped: Latin accents are kept, so
+ * `archive` is not the verb `archivé`.
  */
 export function checkWritesDriftedWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
-  const fold = (s: string) => s.replace(HARAKAT_RE, "").toLowerCase();
+  const fold = (s: string) => s.normalize("NFC").replace(HARAKAT_RE, "").toLowerCase();
   const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
   // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
+  const writes = (w: string) => wordFinder(w)(rest, 0) !== undefined;
   const span = fold(unquote(inner));
-  const words = span.split(/\s+/).map((w) => w.replace(/^\P{L}+|\P{L}+$/gu, "")).filter((w) => [...w].length >= 4 && !fold(term).includes(w));
-  return [span, ...words].some((w) => w.length > 0 && wordFinder(w)(rest, 0) !== undefined);
+  if (span.length > 0 && writes(span)) return true;
+  const words = [...new Set(span.split(/\s+/).map(trimToLetters))].filter((w) => [...w].length >= 4 && !fold(term).includes(w));
+  return words.length > 0 && 2 * words.filter(writes).length >= words.length;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

@@ -84,8 +84,8 @@ hit rate" with `cache → antémémoire`, the output
 When a tag holds more words than the glossary's source term, is not a form
 of the term, and the term appears nowhere outside the tags, `tl` makes the
 same code-switched call as the tag check. If that answer still has the marked
-words (the whole span, or one of its words of four or more letters that isn't
-part of the term), they translated other source words, so that answer is
+words (the whole span, or at least half of its words of four or more letters
+that aren't part of the term), they translated other source words, so that answer is
 returned instead: `antémémoire : taux de réussite`. It must cover every term
 the first translation covered and keep its placeholders; otherwise the marked
 words are replaced as before. The answer then gets the agreement repair like

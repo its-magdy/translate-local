@@ -1029,6 +1029,57 @@ describe("runPipeline", () => {
       expect(switched[3].repairTerms).toBeDefined();
     });
 
+    it("keeps the check's output when the repair is rejected, in strict mode too", async () => {
+      for (const glossaryMode of ["prefer", "strict"] as const) {
+        const requests: any[] = [];
+        const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests), store, { glossaryEntries: [cache], glossaryMode });
+        expect(requests).toHaveLength(3);
+        expect(result.translated).toBe("antémémoire : taux de réussite");
+        expect(result.metadata.tagDrift).toBe(true);
+        expect(result.metadata.repaired).toBeUndefined();
+      }
+    });
+
+    it("decides a drifted tag and a tag-check candidate from the one check", async () => {
+      const text = "Restart the server and check the cache hit rate";
+      const raw = 'Redémarrez le <term translation="hôte">serveur</term> de l\'hôte et vérifiez <term translation="antémémoire">le taux de réussite</term>';
+      const opts = { glossaryEntries: [cache, host] };
+
+      // The check covers both terms: its output is the answer, no word is kept.
+      const swapped: any[] = [];
+      const answer = "Redémarrez le serveur de l'hôte et vérifiez le taux de réussite de l'antémémoire";
+      const swap = await runPipeline(text, "en", "fr", driftAdapter([raw, answer], swapped), store, opts);
+      expect(swapped).toHaveLength(3);
+      expect(swap.translated).toBe(answer);
+      expect(swap.metadata.tagDrift).toBe(true);
+      expect(swap.metadata.keptWord).toBeUndefined();
+
+      // It loses antémémoire: no swap, but it still keeps `serveur`; the drifted tag is replaced and repaired.
+      const kept: any[] = [];
+      const keep = await runPipeline(text, "en", "fr", driftAdapter([raw, "Redémarrez le serveur de l'hôte et vérifiez le taux de réussite"], kept), store, opts);
+      expect(kept).toHaveLength(3);
+      expect(kept[2].repairTerms).toEqual(["hôte", "antémémoire"]);
+      expect(keep.translated).toBe("Redémarrez le serveur de l'hôte et vérifiez antémémoire");
+      expect(keep.metadata.keptWord).toBe(true);
+      expect(keep.metadata.tagDrift).toBeUndefined();
+    });
+
+    it("an abort during the repair of the check's output surfaces as CANCELLED", async () => {
+      const controller = new AbortController();
+      let n = 0;
+      const adapter = {
+        async translate(req: any) {
+          if (req.repairTerms) {
+            controller.abort();
+            throw new Error("socket closed");
+          }
+          return { translated: [RAW, CHECK][n++], metadata: { adapter: "x", durationMs: 0 } };
+        },
+        async dispose() {},
+      } as any;
+      await expect(runPipeline(TEXT, "en", "fr", adapter, store, { glossaryEntries: [cache], signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
+    });
+
     it("reuses the code-switched retry's output, and surfaces a cancellation", async () => {
       // Prefer mode: the first attempt misses `hôte`, both retries too; the first wins and its drift is
       // decided by the code-switched retry's output with no extra call.

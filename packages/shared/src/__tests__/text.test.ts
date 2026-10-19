@@ -611,7 +611,7 @@ describe("drift check", () => {
     expect(driftCandidates('<term translation="キー">鍵 を</term>', [makeHit("key", "キー", 0)]).size).toBe(0);
   });
 
-  test("the check writes the drifted words when it has the span or one of its longer words", () => {
+  test("the check writes the drifted words when it has the span or half of its longer words", () => {
     expect(checkWritesDriftedWord("antémémoire : taux de réussite", "antémémoire", "Taux de réussite")).toBe(true);
     expect(checkWritesDriftedWord("antémémoire : taille : __TLPH_0__", "antémémoire", "Taille de la mémoire cache :")).toBe(true);
     expect(checkWritesDriftedWord('<term translation="الكاش" source="cache">الكاش</term> بعد كل عملية نشر.', "الكاش", "بعد كل عملية نشر")).toBe(true);
@@ -622,15 +622,21 @@ describe("drift check", () => {
     expect(checkWritesDriftedWord("Vider l'antémémoire de la page.", "antémémoire", "la mémoire de")).toBe(false);
     // Latin accents are kept: `archive` is not the verb `archivé`.
     expect(checkWritesDriftedWord("Ce dépôt est archivé.", "dépôt", "cette archive publique")).toBe(false);
-    expect(checkWritesDriftedWord("Ce dépôt est une archive.", "dépôt", "cette archive publique")).toBe(true);
+    expect(checkWritesDriftedWord("Ce dépôt est une archive publique.", "dépôt", "cette archive publique")).toBe(true);
     // Whole words only.
     expect(checkWritesDriftedWord("antémémoire : tauxes", "antémémoire", "taux réussite")).toBe(false);
+    // Half of the long words at least: one stray function word is not enough.
+    expect(checkWritesDriftedWord("Ihre Bereitstellung läuft.", "Bereitstellung", "Ihre Daten im Archiv")).toBe(false);
+    expect(checkWritesDriftedWord("Ihre Daten: Bereitstellung.", "Bereitstellung", "Ihre Daten im Archiv")).toBe(true);
+    // NFC and NFD spellings match.
+    expect(checkWritesDriftedWord("antémémoire : taux de re\u0301ussite", "antémémoire", "Taux de réussite")).toBe(true);
   });
 
   test("runs in linear time", () => {
     const start = performance.now();
     driftCandidates('<term translation="antémémoire">a b</term> '.repeat(50_000), [cache]);
     checkWritesDriftedWord("taux ".repeat(100_000), "antémémoire", "réussite de taux");
+    checkWritesDriftedWord("antémémoire", "antémémoire", `a${"-".repeat(40_000)}a b`);
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });

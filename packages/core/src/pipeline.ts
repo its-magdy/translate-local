@@ -129,8 +129,8 @@ export async function runPipeline(
     let { result, forced } = attempt;
     // The code-switched attempt was already sent the check's source.
     const candidates: KeptWords = attempt.codeSwitched ? new Map() : terms.tagCheckCandidates(attempt.raw);
-    const drift: KeptWords = attempt.codeSwitched ? new Map() : terms.driftCandidates(attempt.raw);
-    if (candidates.size > 0 || drift.size > 0) {
+    const driftSpans: KeptWords = attempt.codeSwitched ? new Map() : terms.driftCandidates(attempt.raw);
+    if (candidates.size > 0 || driftSpans.size > 0) {
       // Prefer mode's code-switched retry already sent the check's source: reuse its output.
       let check = codeSwitchedRaw;
       if (check === undefined) {
@@ -140,7 +140,7 @@ export async function runPipeline(
       // The check still writes the words a tag drifted onto: they translate other source
       // words, which the strip would drop. Its output, which places the term itself, is the
       // answer, if it covers every term the draft does and keeps its placeholders.
-      if (check !== undefined && terms.drifted(drift, check)) {
+      if (check !== undefined && terms.drifted(driftSpans, check)) {
         const reading = terms.read(check);
         if (reading.missingTerms.every((term) => result.missingTerms.includes(term)) && sentinels(reading.translated) === sentinels(result.translated)) {
           return repairAgreement({
