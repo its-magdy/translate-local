@@ -83,8 +83,7 @@ export class TermSet {
    * source starts with the lowercase term, so the check's output does too (fr
    * `antémémoire : taille` for the draft `Antémémoire`). Not when the letter
    * is inside a term, form or split-form part (`.env`, `iOS`) that
-   * capitalizeTerm would not raise there: coverage accepts each as written or
-   * capitalized, so a raise never loses a term.
+   * capitalizeTerm would not raise there, nor when the raised text loses a term.
    */
   matchStartCase(translated: string, draft: string): string {
     const start = /^(\P{L}*)(\p{Ll})/u.exec(translated);
@@ -106,7 +105,10 @@ export class TermSet {
       // Not a valid language tag (RangeError).
       letter = start[2].toUpperCase();
     }
-    return start[1] + letter + translated.slice(start[0].length);
+    const raised = start[1] + letter + translated.slice(start[0].length);
+    // Coverage drops combining marks, the guard above doesn't (`re\u0301glages`): never lose a term.
+    const missing = this.coverage(translated).missingTerms;
+    return this.coverage(raised).missingTerms.every((term) => missing.includes(term)) ? raised : translated;
   }
 
   /** The glossary coverage of a postprocessed translation. */

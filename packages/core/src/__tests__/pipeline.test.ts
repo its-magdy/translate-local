@@ -1076,6 +1076,12 @@ describe("runPipeline", () => {
       const dot = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".env">fichier de configuration</term>', ".env : fichier de configuration"], []), store, { glossaryEntries: [env], glossaryMode: "strict" });
       expect(dot.translated).toBe(".env : fichier de configuration");
       expect(dot.glossaryCoverage).toBe(1);
+      // A spelling the guard doesn't match but coverage does (decomposed accent): a raise that loses the term is dropped.
+      const nfd = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".réglages">fichier de configuration</term>', ".re\u0301glages : fichier de configuration"], []), store, {
+        glossaryEntries: [{ ...env, targetTerm: ".réglages" }], glossaryMode: "strict",
+      });
+      expect(nfd.translated).toBe(".re\u0301glages : fichier de configuration");
+      expect(nfd.glossaryCoverage).toBe(1);
       const dev = { ...cache, sourceTerm: "development", targetTerm: "iOS-Entwicklung", targetLang: "de", forms: ["iOS … entwickeln"] };
       const split = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung"], []), store, { glossaryEntries: [dev], glossaryMode: "strict" });
       expect(split.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung");
