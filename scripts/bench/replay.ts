@@ -9,12 +9,19 @@
  * bench fixture, the run's glossary and glossary mode, and an adapter that
  * answers every request with the raw output the model gave to the same
  * request (same `source`, translation or repair) in that run, in call order.
+ * Every run is replayed on each fixture: the JSON catalog the runs were made
+ * on, a YAML copy with comments, scalar styles, block scalars and an i18next
+ * plural group, and a Rails-style YAML copy rooted at `en:`. Saved answers are
+ * keyed by request text, so the YAML copies reuse them (requests whose text
+ * differs, like the plural forms and the `|` block scalar, are unanswered).
  * A request with no saved answer is echoed back and counted as `unanswered`;
  * saved answers the code never asked for are counted as `unused`.
  *
- * The output (every leaf's value plus those counts) depends only on the
- * pipeline's code, so running this before and after a change and comparing
- * the digests shows exactly which leaves the change affects. A refactor that
+ * The output (every leaf's value and every line of the written file, plus
+ * those counts) depends only on the code, so running this before and after a
+ * change and comparing the digests shows exactly which leaves the change
+ * affects, including changes to formatting alone (key order, comments, scalar
+ * styles). A refactor that
  * must not change behaviour has to print the same digest. `--diff` lists the
  * leaves (and counts) that differ from a digest saved earlier with `--out`.
  */
@@ -37,7 +44,7 @@ const OUT = outIdx >= 0 ? argv.splice(outIdx, 2)[1] : undefined;
 const diffIdx = argv.indexOf("--diff");
 const DIFF = diffIdx >= 0 ? argv.splice(diffIdx, 2)[1] : undefined;
 const RESULTS = join(import.meta.dir, "results");
-const FIXTURE = join(import.meta.dir, "fixtures", "dashboard.en.json");
+const FIXTURES = ["dashboard.en.json", "dashboard.en.yaml", "dashboard-rails.en.yml"].map((f) => join(import.meta.dir, "fixtures", f));
 const files = argv.length > 0 ? argv : readdirSync(RESULTS).filter((f) => f.endsWith(".json")).sort().map((f) => join(RESULTS, f));
 
 /** Answers each request from the saved calls of one run, per (kind, source), in order. */
@@ -83,17 +90,22 @@ try {
         const [sourceLang, targetLang] = pair.split("-");
         glossary.addMany(entries.map(([sourceTerm, targetTerm, forms]) => ({ sourceTerm, targetTerm, sourceLang, targetLang, forms })));
       }
-      for (const [tgt, runs] of Object.entries(saved.all)) {
-        for (const [i, run] of runs.entries()) {
-          const adapter = new ReplayAdapter(run);
-          const outPath = join(dir, `${name}-${tgt}-${i}.json`);
-          const summary = await translateFile({
-            sourcePath: FIXTURE, outPath, sourceLang: "en", targetLang: tgt,
-            adapter, glossary, context, glossaryMode: saved.mode ?? "prefer",
-          });
-          const key = `${name} ${tgt} #${i}`;
-          digest[key] = { out: JSON.parse(readFileSync(outPath, "utf8")), failed: summary.failed.map((f) => f.pointer), unanswered: adapter.unanswered, unused: adapter.unused };
-          leafCount += summary.totalLeaves; unanswered += adapter.unanswered; unused += adapter.unused;
+      for (const fixture of FIXTURES) {
+        const fixtureName = fixture.split(/[\\/]/).pop()!;
+        const ext = fixtureName.slice(fixtureName.lastIndexOf("."));
+        for (const [tgt, runs] of Object.entries(saved.all)) {
+          for (const [i, run] of runs.entries()) {
+            const adapter = new ReplayAdapter(run);
+            const outPath = join(dir, `${name}-${tgt}-${i}${ext}`);
+            const summary = await translateFile({
+              sourcePath: fixture, outPath, sourceLang: "en", targetLang: tgt,
+              adapter, glossary, context, glossaryMode: saved.mode ?? "prefer",
+            });
+            const text = readFileSync(outPath, "utf8");
+            const key = `${name} ${fixtureName} ${tgt} #${i}`;
+            digest[key] = { out: ext === ".json" ? JSON.parse(text) : Bun.YAML.parse(text), lines: text.split("\n"), failed: summary.failed.map((f) => f.pointer), unanswered: adapter.unanswered, unused: adapter.unused };
+            leafCount += summary.totalLeaves; unanswered += adapter.unanswered; unused += adapter.unused;
+          }
         }
       }
     } finally {
