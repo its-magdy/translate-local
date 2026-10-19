@@ -1,10 +1,9 @@
 // Rails-style catalogs wrap every key in a root named after the locale
 // (`en:` in config/locales/en.yml), and Rails reads the locale from that key,
 // not from the filename. Writing fr.yml with root `en:` would load the French
-// strings as English. These helpers detect such a root and rename it to the
-// target locale.
+// strings as English. rebaseLocaleRoot detects such a root and plans its rename
+// to the target locale (the YAML format renames the key in its document).
 
-import { Document, isMap, isScalar, Scalar } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
 
@@ -73,15 +72,4 @@ export function rebaseLocaleRoot(
   }
 
   return { source: { [to]: source[from] }, rename: { from, to }, ...(warning && { warning }) };
-}
-
-/** Rename the root pair's key in place so its comments and styles survive. */
-export function renameYamlRootKey(doc: Document.Parsed, rename: RootLocaleRename): void {
-  if (!isMap(doc.contents)) return;
-  for (const pair of doc.contents.items) {
-    if (isScalar(pair.key) && String((pair.key as Scalar).value) === rename.from) {
-      (pair.key as Scalar).value = rename.to;
-      return;
-    }
-  }
 }

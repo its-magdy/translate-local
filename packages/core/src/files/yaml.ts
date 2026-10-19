@@ -2,23 +2,18 @@
 // scalar style (block `|`, folded `>`, quoting). Refuses files with anchors/aliases,
 // custom tags, multi-document streams, or YAML 1.1 directives.
 
-import { readFileSync } from "fs";
 import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
-import { atomicWriteFile } from "./atomic";
 import { detectEol } from "./json";
+import { sourceCatalog, type CatalogFormat, type Path } from "./catalog";
+import type { RootLocaleRename } from "./locale-root";
+import { regenerateYamlPlurals } from "./i18next";
 
-export type YamlMeta = {
+type YamlMeta = {
   indent: number;
   trailingNewline: boolean;
   eol: "\n" | "\r\n";
-};
-
-export type YamlReadResult = {
-  data: JsonValue;
-  doc: Document.Parsed;
-  meta: YamlMeta;
 };
 
 function detectIndent(text: string): number {
@@ -84,8 +79,7 @@ function refuseIfDocumentHas(doc: Document.Parsed, src: string): void {
   }
 }
 
-export function readYaml(path: string): YamlReadResult {
-  const raw = readFileSync(path, "utf8");
+function parse(raw: string): { data: JsonValue; doc: Document.Parsed; meta: YamlMeta } {
 
   if (/^---\s*$/m.test(raw) && /^---/m.test(raw.split(/^---/m).slice(1).join(""))) {
     throw new TlError(
@@ -205,12 +199,12 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
 }
 
 /**
- * Removes the node at `path` from the write template, then any map or sequence
- * left empty above it. writeYaml keeps the template's (source) value for a key
- * the data lacks, so a key that must stay absent has to go from the template.
+ * Removes the node at `path` from the source document, then any map or sequence
+ * left empty above it. serialize() keeps the document's (source) value for a key
+ * the data lacks, so a key that must stay absent has to go from the document.
  * Keys match by String(key), as in apply().
  */
-export function deleteYamlPath(doc: Document.Parsed, path: (string | number)[]): void {
+function deletePath(doc: Document.Parsed, path: Path): void {
   const chain: unknown[] = [doc.contents];
   for (const seg of path.slice(0, -1)) {
     const node = chain[chain.length - 1];
@@ -240,7 +234,18 @@ function keyString(key: unknown): string {
   return isScalar(key) ? String((key as Scalar).value) : String(key);
 }
 
-export function writeYaml(path: string, doc: Document.Parsed, meta: YamlMeta, data: JsonValue): void {
+/** Rename the root pair's key in place so its comments and styles survive. */
+function renameRootKey(doc: Document.Parsed, rename: RootLocaleRename): void {
+  if (!isMap(doc.contents)) return;
+  for (const pair of doc.contents.items) {
+    if (isScalar(pair.key) && String((pair.key as Scalar).value) === rename.from) {
+      (pair.key as Scalar).value = rename.to;
+      return;
+    }
+  }
+}
+
+function serialize(doc: Document.Parsed, meta: YamlMeta, data: JsonValue): string {
   applyToDoc(doc, data);
   let text = doc.toString({ indent: meta.indent, lineWidth: 0 });
   if (meta.eol === "\r\n") text = text.replace(/\n/g, "\r\n");
@@ -248,5 +253,26 @@ export function writeYaml(path: string, doc: Document.Parsed, meta: YamlMeta, da
     if (text.endsWith("\r\n")) text = text.slice(0, -2);
     else if (text.endsWith("\n")) text = text.slice(0, -1);
   }
-  atomicWriteFile(path, text, (tmp) => { readYaml(tmp); });
+  return text;
 }
+
+// The output is the source document with the target data applied, so the
+// document follows every change the data side makes: renamed root, regenerated
+// plural groups (generated keys sit where the group was), and removed keys.
+export const yamlFormat: CatalogFormat = {
+  open(raw) {
+    const { data, doc, meta } = parse(raw);
+    return sourceCatalog(data, [], {
+      retarget(r) {
+        if (r.localeRoot) renameRootKey(doc, r.localeRoot.rename);
+        if (r.plurals) regenerateYamlPlurals(doc, r.plurals.sourceLang, r.plurals.targetLang);
+      },
+      // The document's value would be written wherever the data has none (null included).
+      revertLeaf(path, existing) {
+        if (existing === undefined || existing === null) deletePath(doc, path);
+      },
+      serialize: (output) => serialize(doc, meta, output),
+    });
+  },
+  read: (raw) => parse(raw).data,
+};

@@ -1960,7 +1960,7 @@ describe("translateFile", () => {
       ...abortAfter(0),
     });
     expect(summary.aborted).toBe(true);
-    // The write template is the source document: unreached keys are removed from it
+    // The output is written onto the source document: unreached keys are removed from it
     // (with the containers left empty), never written with their source text.
     expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", empty: "" });
 

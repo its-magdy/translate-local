@@ -1,6 +1,5 @@
-import { readFileSync } from "fs";
 import type { JsonValue } from "./walk";
-import { atomicWriteFile } from "./atomic";
+import { sourceCatalog, type CatalogFormat } from "./catalog";
 
 const BOM = "﻿";
 
@@ -9,12 +8,6 @@ export type JsonMeta = {
   trailingNewline: boolean;
   eol: "\n" | "\r\n";
   hadBOM: boolean;
-};
-
-export type ReadResult = {
-  data: JsonValue;
-  meta: JsonMeta;
-  duplicateKeys: DuplicateKey[];
 };
 
 export function detectIndent(text: string): string {
@@ -31,8 +24,7 @@ export function detectEol(text: string): "\n" | "\r\n" {
   return "\n";
 }
 
-export function readJson(path: string): ReadResult {
-  const raw = readFileSync(path, "utf8");
+function parse(raw: string): { data: JsonValue; meta: JsonMeta; text: string } {
   const hadBOM = raw.startsWith(BOM);
   const text = hadBOM ? raw.slice(1) : raw;
   const data = JSON.parse(text) as JsonValue;
@@ -42,7 +34,7 @@ export function readJson(path: string): ReadResult {
     eol: detectEol(text),
     hadBOM,
   };
-  return { data, meta, duplicateKeys: findDuplicateKeys(text) };
+  return { data, meta, text };
 }
 
 export function serializeJson(data: JsonValue, meta: JsonMeta): string {
@@ -52,10 +44,13 @@ export function serializeJson(data: JsonValue, meta: JsonMeta): string {
   return text;
 }
 
-export function writeJson(path: string, data: JsonValue, meta: JsonMeta): void {
-  const text = serializeJson(data, meta);
-  atomicWriteFile(path, text, (tmp) => { readJson(tmp); });
-}
+export const jsonFormat: CatalogFormat = {
+  open(raw) {
+    const { data, meta, text } = parse(raw);
+    return sourceCatalog(data, findDuplicateKeys(text), { serialize: (output) => serializeJson(output, meta) });
+  },
+  read: (raw) => parse(raw).data,
+};
 
 export type DuplicateKey = { path: string; line: number };
 

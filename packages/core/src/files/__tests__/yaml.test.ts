@@ -1,105 +1,61 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { readYaml, writeYaml } from "../yaml";
+import { describe, test, expect } from "bun:test";
+import { yamlFormat } from "../yaml";
 
-let dir: string;
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "tl-yaml-test-"));
-});
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
-});
-
-function w(name: string, body: string): string {
-  const p = join(dir, name);
-  writeFileSync(p, body);
-  return p;
-}
-
-describe("readYaml", () => {
+describe("yamlFormat.read", () => {
   test("parses simple YAML", () => {
-    const p = w("a.yml", "hello: world\nfoo: bar\n");
-    const r = readYaml(p);
-    expect(r.data).toEqual({ hello: "world", foo: "bar" });
-    expect(r.meta.indent).toBe(2);
-    expect(r.meta.trailingNewline).toBe(true);
-    expect(r.meta.eol).toBe("\n");
+    expect(yamlFormat.read("hello: world\nfoo: bar\n")).toEqual({ hello: "world", foo: "bar" });
   });
 
   test("nested structure", () => {
-    const p = w("a.yml", "auth:\n  login: Login\n  signup: Sign up\n");
-    const r = readYaml(p);
-    expect(r.data).toEqual({ auth: { login: "Login", signup: "Sign up" } });
+    expect(yamlFormat.read("auth:\n  login: Login\n  signup: Sign up\n")).toEqual({ auth: { login: "Login", signup: "Sign up" } });
   });
 
   test("Rails i18n shape with %{name}", () => {
-    const p = w("en.yml", "en:\n  greeting: \"Hello, %{name}!\"\n  notifications:\n    one: \"1 message\"\n    other: \"%{count} messages\"\n");
-    const r = readYaml(p);
-    expect((r.data as never as { en: { greeting: string } }).en.greeting).toBe("Hello, %{name}!");
+    const data = yamlFormat.read("en:\n  greeting: \"Hello, %{name}!\"\n  notifications:\n    one: \"1 message\"\n    other: \"%{count} messages\"\n");
+    expect((data as never as { en: { greeting: string } }).en.greeting).toBe("Hello, %{name}!");
   });
 
-  test("4-space indent detection", () => {
-    const p = w("a.yml", "outer:\n    inner: x\n");
-    const r = readYaml(p);
-    expect(r.meta.indent).toBe(4);
-  });
-
-  test("missing trailing newline", () => {
-    const p = w("a.yml", "k: v");
-    const r = readYaml(p);
-    expect(r.meta.trailingNewline).toBe(false);
+  test("parses the source catalog's data the same way", () => {
+    expect(yamlFormat.open("auth:\n  login: Login\n").data).toEqual({ auth: { login: "Login" } });
   });
 });
 
-describe("readYaml refusals", () => {
+describe("yamlFormat refusals", () => {
   test("refuses anchors", () => {
-    const p = w("a.yml", "shared: &s hello\nx: *s\n");
-    expect(() => readYaml(p)).toThrow(/anchors|alias/i);
+    expect(() => yamlFormat.open("shared: &s hello\nx: *s\n")).toThrow(/anchors|alias/i);
   });
 
   test("refuses YAML 1.1 directive", () => {
-    const p = w("a.yml", "%YAML 1.1\n---\nk: v\n");
-    expect(() => readYaml(p)).toThrow(/YAML 1\.1/);
+    expect(() => yamlFormat.open("%YAML 1.1\n---\nk: v\n")).toThrow(/YAML 1\.1/);
   });
 
   test("refuses multi-document streams", () => {
-    const p = w("a.yml", "k: v\n---\nk2: v2\n");
-    expect(() => readYaml(p)).toThrow(/multiple documents|Multi-document/i);
+    expect(() => yamlFormat.open("k: v\n---\nk2: v2\n")).toThrow(/multiple documents|Multi-document/i);
   });
 });
 
-describe("writeYaml round-trip", () => {
+describe("yamlFormat round-trip", () => {
   test("byte-identical when no leaf changes", () => {
     const original = "hello: world\nfoo: bar\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, r.data);
-    expect(readFileSync(out, "utf8")).toBe(original);
+    const r = yamlFormat.open(original);
+    const written = r.retarget({ existing: r.data }).serialize();
+    expect(written).toBe(original);
   });
 
   test("preserves comments above keys", () => {
     const original = "# greeting in user's language\nhello: world\n# unread count\ncount: 5\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, r.data);
-    const written = readFileSync(out, "utf8");
+    const r = yamlFormat.open(original);
+    const written = r.retarget({ existing: r.data }).serialize();
     expect(written).toContain("# greeting in user's language");
     expect(written).toContain("# unread count");
   });
 
   test("preserves key order when modifying values", () => {
     const original = "z_first: 1\na_second: 2\nm_third: 3\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
+    const r = yamlFormat.open(original);
     // Mutate one value
     const data = r.data as { [k: string]: number };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, { z_first: 1, a_second: 2, m_third: 3 } as never);
-    const written = readFileSync(out, "utf8");
+    const written = r.retarget({ existing: { z_first: 1, a_second: 2, m_third: 3 } as never }).serialize();
     const lines = written.trim().split("\n");
     expect(lines[0]).toMatch(/^z_first:/);
     expect(lines[1]).toMatch(/^a_second:/);
@@ -108,137 +64,108 @@ describe("writeYaml round-trip", () => {
 
   test("translated string values are written back", () => {
     const original = "greeting: hello\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
+    const r = yamlFormat.open(original);
     const data = { greeting: "مرحبا" };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    const written = readFileSync(out, "utf8");
+    const written = r.retarget({ existing: data as never }).serialize();
     expect(written).toContain("مرحبا");
   });
 
   test("keys present only in data survive the write (existing-target sync)", () => {
     const original = "# top comment\ngreeting: hi\nnested:\n  a: one\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
+    const r = yamlFormat.open(original);
     const data = {
       greeting: "marhaba",
       nested: { a: "wahid", b: "extra-nested" },
       legacy: "kept",
     };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    const written = readFileSync(out, "utf8");
+    const written = r.retarget({ existing: data as never }).serialize();
     expect(written).toContain("legacy: kept");
     expect(written).toContain("b: extra-nested");
     expect(written).toContain("# top comment");
-    const roundTrip = readYaml(out);
-    expect(roundTrip.data).toEqual(data as never);
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("array elements beyond the doc's length survive the write", () => {
     const original = "items:\n  - one\n  - two\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
+    const r = yamlFormat.open(original);
     const data = { items: ["uno", "dos", "tres"] };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    expect(readYaml(out).data).toEqual(data as never);
+    const written = r.retarget({ existing: data as never }).serialize();
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("comments-only source doc (contents === null): data survives the write", () => {
-    const p = w("in.yml", "# nothing here yet\n");
-    const r = readYaml(p);
+    const r = yamlFormat.open("# nothing here yet\n");
     const data = { legacy: "kept", nested: { a: "one" } };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    const written = readFileSync(out, "utf8");
+    const written = r.retarget({ existing: data as never }).serialize();
     expect(written).toContain("# nothing here yet");
-    expect(readYaml(out).data).toEqual(data as never);
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("shape mismatch: source scalar vs data map is replaced, not dropped", () => {
-    const p = w("in.yml", "title: My Title\ngreeting: hi\n");
-    const r = readYaml(p);
+    const r = yamlFormat.open("title: My Title\ngreeting: hi\n");
     const data = { title: { one: "un titre", other: "des titres" }, greeting: "marhaba" };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    expect(readYaml(out).data).toEqual(data as never);
+    const written = r.retarget({ existing: data as never }).serialize();
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("shape mismatch: source map vs data string is replaced, not dropped", () => {
-    const p = w("in.yml", "title:\n  one: a\n  other: b\n");
-    const r = readYaml(p);
+    const r = yamlFormat.open("title:\n  one: a\n  other: b\n");
     const data = { title: "flattened" };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    expect(readYaml(out).data).toEqual(data as never);
+    const written = r.retarget({ existing: data as never }).serialize();
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("empty `key:` (null value node) accepts a string", () => {
-    const p = w("in.yml", "greeting:\n");
-    const r = readYaml(p);
+    const r = yamlFormat.open("greeting:\n");
     const data = { greeting: "marhaba" };
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, data as never);
-    expect(readYaml(out).data).toEqual(data as never);
+    const written = r.retarget({ existing: data as never }).serialize();
+    expect(yamlFormat.read(written)).toEqual(data as never);
   });
 
   test("preserves block scalar style |", () => {
     const original = "longtext: |\n  line one\n  line two\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
+    const r = yamlFormat.open(original);
     // Translate the block scalar value
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, { longtext: "line one\nline two\n" } as never);
-    const written = readFileSync(out, "utf8");
+    const written = r.retarget({ existing: { longtext: "line one\nline two\n" } as never }).serialize();
     expect(written).toContain("longtext: |");
   });
 
   test("block scalar chomping survives a value with no trailing newline", () => {
     // Translation returns text without the trailing newline; `|` must not
     // silently become `|-`.
-    const p = w("in.yml", "longtext: |\n  line one\n  line two\n");
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد\nسطر اثنان" } as never);
-    const written = readFileSync(out, "utf8");
+    const r = yamlFormat.open("longtext: |\n  line one\n  line two\n");
+    const written = r.retarget({ existing: { longtext: "سطر واحد\nسطر اثنان" } as never }).serialize();
     expect(written).toContain("longtext: |\n");
     expect(written).not.toContain("|-");
   });
 
   test("block scalar keep indicator |+ survives", () => {
-    const p = w("in.yml", "longtext: |+\n  line one\n\n");
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
-    expect(readFileSync(out, "utf8")).toContain("|+");
+    const r = yamlFormat.open("longtext: |+\n  line one\n\n");
+    const written = r.retarget({ existing: { longtext: "سطر واحد" } as never }).serialize();
+    expect(written).toContain("|+");
   });
 
   test("strip indicator |- is not turned into |", () => {
-    const p = w("in.yml", "longtext: |-\n  line one\n");
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, { longtext: "سطر واحد" } as never);
-    expect(readFileSync(out, "utf8")).toContain("|-");
+    const r = yamlFormat.open("longtext: |-\n  line one\n");
+    const written = r.retarget({ existing: { longtext: "سطر واحد" } as never }).serialize();
+    expect(written).toContain("|-");
   });
 
   test("CRLF preserved", () => {
     const original = "a: 1\r\nb: 2\r\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
-    expect(r.meta.eol).toBe("\r\n");
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, r.data);
-    expect(readFileSync(out, "utf8")).toContain("\r\n");
+    const r = yamlFormat.open(original);
+    expect(r.retarget({ existing: r.data }).serialize()).toBe(original);
   });
 
   test("4-space indent preserved", () => {
     const original = "outer:\n    inner: x\n";
-    const p = w("in.yml", original);
-    const r = readYaml(p);
-    const out = join(dir, "out.yml");
-    writeYaml(out, r.doc, r.meta, r.data);
-    expect(readFileSync(out, "utf8")).toContain("    inner");
+    const r = yamlFormat.open(original);
+    const written = r.retarget({ existing: r.data }).serialize();
+    expect(written).toBe(original);
+  });
+
+  test("missing trailing newline preserved", () => {
+    const r = yamlFormat.open("k: v");
+    expect(r.retarget({ existing: { k: "w" } }).serialize()).toBe("k: w");
   });
 });
