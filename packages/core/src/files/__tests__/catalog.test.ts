@@ -125,6 +125,16 @@ const scenarios: Scenario[] = [
     yamlOut: "count: Bonjour # note\ntitle: \"[ar] Hello\"\n",
   },
   {
+    // A section where the target has a scalar is translated: the target is
+    // most likely stale, and a number can't hold the section's strings.
+    name: "translates a source section over a target number",
+    source: { section: { title: "Hello" } },
+    yaml: "# Section\nsection:\n  title: Hello\n",
+    existing: { section: 42 },
+    json: '{\n  "section": {\n    "title": "[ar] Hello"\n  }\n}\n',
+    yamlOut: "# Section\nsection:\n  title: \"[ar] Hello\"\n",
+  },
+  {
     name: "keeps the source document's style for equal non-string values",
     source: { size: 16, on: true, none: null },
     yaml: "size: 0x10 # hex\non: true\nnone: ~\n",

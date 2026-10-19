@@ -344,7 +344,8 @@ Long translated strings are not reflowed — the writer is configured with `line
 | Source file does not exist | Refused with `FILE_NOT_FOUND`. |
 | Existing target is invalid JSON | Refused with `FILE_PARSE_FAILED`. Fix or delete the target before re-running. |
 | Source YAML is empty or comments-only | The existing target's keys are preserved in the output (nothing to translate). |
-| Key shape differs between source and target (e.g. source string vs target plural map) | The target's value wins and its structure is kept in the output. |
+| Key shape differs between source and target, target holds a map or list (e.g. source string vs target plural map) | The target's value wins and its structure is kept in the output. |
+| Source has a section (map or list of strings) where the target holds a number, boolean or string | The section is translated and replaces the target's value: the target is treated as out of date. |
 | Duplicate keys in JSON source | Last value wins (same as `JSON.parse`); a warning names each repeated key path and line. |
 | Duplicate keys in YAML source | Rejected as a parse error: the `yaml` package's `uniqueKeys` option defaults to `true`. |
 | Keys with dots (`"section.title"`) | Treated as opaque string keys, not split paths. |
