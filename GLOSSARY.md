@@ -52,6 +52,14 @@ _Avoid_: proofreading pass, fix-up (fix-ups are the tool's own rule-based correc
 A JSON or YAML file of translatable strings that an app loads at runtime.
 _Avoid_: locale file, resource file
 
+**Source catalog**:
+The catalog being translated, as it is read: its data and, for YAML, the document it was parsed from.
+_Avoid_: input file
+
+**Target catalog**:
+The catalog being written for one target locale: the source catalog re-rooted and with its plural groups regenerated for that locale, filled with the existing target's values and the new translations. YAML writes it onto the source catalog's document, so comments and styles come from the source.
+_Avoid_: write template, output document
+
 **Leaf**:
 One string value in a catalog, addressed by its path of keys.
 _Avoid_: key (the key is only the last segment of the path), entry
