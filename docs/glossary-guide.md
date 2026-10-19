@@ -56,7 +56,8 @@ place of the source word), and keeps the marked word if that answer contains
 both the term and that word. Otherwise the word is replaced as before. The
 example above comes out as `Automatisch nach jedem Commit bereitstellen.`
 
-- The second answer is only used to decide; it is never returned.
+- The second answer is only used to decide; the tag check never returns it
+  (the [drift check](#drift-check-a-term-tag-around-the-words-next-to-it) below can).
 - In prefer mode, when the code-switched retry already ran, its output is
   reused and the check costs no extra call.
 - The check is skipped for placeholders, for a word that is just the source
@@ -70,6 +71,34 @@ example above comes out as `Automatisch nach jedem Commit bereitstellen.`
 This fires on about 0.1% of keys (15 of 9,039 replayed file-mode leaves). On
 the benchmark the sentence above went from 0/3 to 2/3 correct with no change
 in the total number of model calls.
+
+### Drift check: a term tag around the words next to it
+
+The model also sometimes marks the words *next to* the term and writes the
+term nowhere. Replacing the marked words then drops their meaning: for "Cache
+hit rate" with `cache → antémémoire`, the output
+`<term translation="antémémoire">Taux de réussite</term>` became just
+`Antémémoire`, and Arabic `… الذاكرة المؤقتة <term translation="الكاش">بعد كل عملية نشر</term>`
+("… the cache after each deployment") lost "after each deployment".
+
+When a tag holds more words than the glossary's source term, is not a form
+of the term, and the term appears nowhere outside the tags, `tl` makes the
+same code-switched call as the tag check. If that answer still has the marked
+words (the whole span, or at least half of its words of four or more letters
+that aren't part of the term), they translated other source words, so that answer is
+returned instead: `antémémoire : taux de réussite`. It must cover every term
+the first translation covered and keep its placeholders; otherwise the marked
+words are replaced as before. The answer then gets the agreement repair like
+any code-switched translation.
+
+- One marked word for a one-word term is not checked: that is almost always
+  the model's own word for the term (`serveur` for `hôte`), which `tl`
+  rightly replaces. So a single drifted word (`<term …>Message</term> de commit`
+  for "Commit message") is still replaced.
+- The same limits as the tag check apply, and both share one call.
+- Accents are compared exactly (`archive` is not `archivé`); Arabic harakat
+  are ignored.
+- With `--json`, `metadata.tagDrift` marks a result taken from that answer.
 
 ### Articles and quotes around terms
 

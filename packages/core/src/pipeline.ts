@@ -124,17 +124,30 @@ export async function runPipeline(
     return finish({ ...best, result: { ...best.result, metadata: { ...best.result.metadata, retries } } });
   }
 
-  /** The attempt to return, after the tag check and, for a forced term, the agreement repair. */
+  /** The attempt to return, after the tag and drift checks and, for a forced term, the agreement repair. */
   async function finish(attempt: Attempt): Promise<TranslationResult> {
     let { result, forced } = attempt;
     // The code-switched attempt was already sent the check's source.
     const candidates: KeptWords = attempt.codeSwitched ? new Map() : terms.tagCheckCandidates(attempt.raw);
-    if (candidates.size > 0) {
+    const driftSpans: KeptWords = attempt.codeSwitched ? new Map() : terms.driftCandidates(attempt.raw);
+    if (candidates.size > 0 || driftSpans.size > 0) {
       // Prefer mode's code-switched retry already sent the check's source: reuse its output.
       let check = codeSwitchedRaw;
       if (check === undefined) {
         check = await tagCheckCall();
         result = { ...result, metadata: { ...result.metadata, tagChecked: true } };
+      }
+      // The check still writes the words a tag drifted onto: they translate other source
+      // words, which the strip would drop. Its output, which places the term itself, is the
+      // answer, if it covers every term the draft does and keeps its placeholders.
+      if (check !== undefined && terms.drifted(driftSpans, check)) {
+        const reading = terms.read(check);
+        if (reading.missingTerms.every((term) => result.missingTerms.includes(term)) && sentinels(reading.translated) === sentinels(result.translated)) {
+          return repairAgreement({
+            ...result, translated: reading.translated, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+            metadata: { ...result.metadata, tagDrift: true },
+          });
+        }
       }
       const kept = check === undefined ? new Map() : terms.keptWords(candidates, check);
       if (kept.size > 0) {
@@ -152,11 +165,11 @@ export async function runPipeline(
 
   /**
    * The tag check's extra model call: the code-switched source (the target
-   * terms in place of the source words, as the last glossary retry sends it),
-   * whose output is never returned, only read by checkKeepsWord: a candidate's
-   * word (tagCheckCandidates) the model still writes there translates another
-   * source word, so the tag strip keeps it. Undefined when the call fails; a
-   * cancellation still throws.
+   * terms in place of the source words, as the last glossary retry sends it).
+   * A candidate's word (tagCheckCandidates) the model still writes there
+   * translates another source word, so the tag strip keeps it; a drifted span
+   * (driftCandidates) it still writes makes its output the answer. Undefined
+   * when the call fails; a cancellation still throws.
    */
   async function tagCheckCall(): Promise<string | undefined> {
     if (signal?.aborted) throw cancelledError();

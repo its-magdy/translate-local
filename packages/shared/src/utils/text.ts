@@ -274,26 +274,54 @@ const SPACED_WORD_RE =
   /^[[\p{L}\p{N}\p{M}_\u200C\u200D]--[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]]$/v;
 const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
 
+/** The KMP failure table of `part`: for each prefix, its longest proper border. */
+function kmpTable(part: string): number[] {
+  const fail = new Array<number>(part.length).fill(0);
+  for (let i = 1, k = 0; i < part.length; i++) {
+    while (k > 0 && part[i] !== part[k]) k = fail[k - 1];
+    if (part[i] === part[k]) k++;
+    fail[i] = k;
+  }
+  return fail;
+}
+
 /**
  * A finder for whole word `part` (or `capitalizeTerm(part)`): where it first
  * occurs in a text at or after `from`, as [start, end], or undefined. An edge of
  * `part` that is not a spaced-script word character (CJK, punctuation) is not
- * checked, as in core's glossary matcher.
+ * checked, as in core's glossary matcher. KMP over UTF-16 code units: linear even
+ * when `part` overlaps itself at every period and each match fails an edge check,
+ * where an indexOf loop is quadratic.
  */
 function wordFinder(part: string): (text: string, from: number) => [number, number] | undefined {
   const checkStart = isWordChar(part.codePointAt(0));
   const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
-  const variants = [...new Set([part, capitalizeTerm(part)])];
+  const variants = [...new Set([part, capitalizeTerm(part)])].map((p) => [p, kmpTable(p)] as const);
+  const whole = (text: string, i: number, end: number) => {
+    // The code point ending at i: step back over a surrogate pair.
+    const low = text.charCodeAt(i - 1);
+    const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+    return !(checkStart && isWordChar(before)) && !(checkEnd && isWordChar(text.codePointAt(end)));
+  };
   return (text, from) => {
     let best: [number, number] | undefined;
-    for (const p of variants) {
-      for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
-        // The code point ending at i: step back over a surrogate pair.
-        const low = text.charCodeAt(i - 1);
-        const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
-        if ((checkStart && isWordChar(before)) || (checkEnd && isWordChar(text.codePointAt(i + p.length)))) continue;
-        best = [i, i + p.length];
-        break;
+    for (const [p, fail] of variants) {
+      // As indexOf coerces `from`: truncated, NaN as 0, clamped to the text.
+      const first = Math.min(Math.max(Math.trunc(from) || 0, 0), text.length);
+      if (p.length === 0) {
+        if ((!best || first < best[0]) && whole(text, first, first)) best = [first, first];
+        continue;
+      }
+      // Only a match starting before the best one so far can replace it.
+      for (let j = first, k = 0; j < text.length && (!best || j + 1 - p.length < best[0]); j++) {
+        while (k > 0 && text[j] !== p[k]) k = fail[k - 1];
+        if (text[j] === p[k]) k++;
+        if (k < p.length) continue;
+        k = fail[k - 1];
+        if (whole(text, j + 1 - p.length, j + 1)) {
+          best = [j + 1 - p.length, j + 1];
+          break;
+        }
       }
     }
     return best;
@@ -398,11 +426,37 @@ function termAttr(openTag: string): string | undefined {
  * per distinct term of `hits`.
  */
 export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
-  const candidates = new Map<string, string>();
+  return new Map(replacedTags(raw, hits, forms).filter((t) => t.outside).map((t) => [t.term, t.inner]));
+}
+
+/**
+ * The complete term tags of model output `raw` that get the pipeline's drift
+ * check: a tag for real glossary target term T around a span X that
+ * keptTermForm rejects, while neither T nor a form occurs outside every tag
+ * (where tagCheckCandidates doesn't look), and X has more words than the hit's
+ * source term, as in fr `<term translation="antémémoire">Taux de réussite</term>`
+ * for `Cache hit rate`: the tag drifted onto the words around the term, which
+ * the strip would replace. A one-word X for a one-word source term is most
+ * often the model's own word for it (`serveur` for `hôte`), which the strip
+ * replaces rightly. Same limits as tagCheckCandidates (one hit, one tag, no
+ * sentinel, source word or no-space script). Returned as T → the tag's inner
+ * text exactly as written.
+ */
+export function driftCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
+  return new Map(replacedTags(raw, hits, forms).filter((t) => !t.outside && wordCount(unquote(t.inner)) > wordCount(t.sourceTerm.trim())).map((t) => [t.term, t.inner]));
+}
+
+/**
+ * The complete tags of `raw` for a real term T (one of `hits`, exactly one hit
+ * and one tag) around a word keptTermForm rejects, with whether T or a form is
+ * outside every tag as a whole word: what tagCheckCandidates and driftCandidates
+ * choose from.
+ */
+function replacedTags(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): { term: string; inner: string; sourceTerm: string; outside: boolean }[] {
+  const found: { term: string; inner: string; sourceTerm: string; outside: boolean }[] = [];
   const sources = new Map<string, string[]>();
   for (const { entry } of hits) sources.set(entry.targetTerm, [...(sources.get(entry.targetTerm) ?? []), entry.sourceTerm]);
-  if (sources.size === 0) return candidates;
-
+  if (sources.size === 0) return found;
   const tagCount = new Map<string, number>();
   const count = (term: string | undefined) => {
     if (term !== undefined) tagCount.set(term, (tagCount.get(term) ?? 0) + 1);
@@ -444,9 +498,9 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
     const termForms = forms?.get(term) ?? [];
     if ([word, term, ...termForms].some((s) => NO_SPACE_RE.test(s))) continue;
     if (keptTermForm(inner, term, termForms) !== undefined) continue;
-    if (findForm(outside, term, termForms, true) !== undefined) candidates.set(term, inner);
+    found.push({ term, inner, sourceTerm: termSources[0], outside: findForm(outside, term, termForms, true) !== undefined });
   }
-  return candidates;
+  return found;
 }
 
 /**
@@ -475,6 +529,92 @@ export function checkKeepsWord(check: string, term: string, inner: string, forms
   // A NUL where T was, as tagCheckCandidates blanks tags (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripped));
   return wordFinder(word)(rest, 0) !== undefined;
+}
+
+/** Arabic harakat (fathatan … sukun), which the model adds or drops at will. */
+const HARAKAT_RE = /[\u064B-\u0652]/g;
+
+/** The maximal runs of spaced-script word characters in `text` (see isWordChar), in one scan. */
+function wordTokens(text: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  for (const ch of text) {
+    if (isWordChar(ch.codePointAt(0))) {
+      current += ch;
+    } else if (current) {
+      tokens.push(current);
+      current = "";
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+/**
+ * A test for whether a string is a substring of `text`: a suffix automaton
+ * built once in linear time, so each test costs only the tested string's length
+ * (one `text.includes` per word of a long span would be quadratic).
+ */
+function substringTest(text: string): (part: string) => boolean {
+  const next: Map<string, number>[] = [new Map()];
+  const link = [-1];
+  const len = [0];
+  let last = 0;
+  for (const ch of text) {
+    const cur = next.push(new Map()) - 1;
+    len[cur] = len[last] + 1;
+    let p = last;
+    for (; p !== -1 && !next[p].has(ch); p = link[p]) next[p].set(ch, cur);
+    if (p === -1) {
+      link[cur] = 0;
+    } else {
+      const q = next[p].get(ch)!;
+      if (len[p] + 1 === len[q]) {
+        link[cur] = q;
+      } else {
+        const clone = next.push(new Map(next[q])) - 1;
+        len[clone] = len[p] + 1;
+        link[clone] = link[q];
+        for (; p !== -1 && next[p].get(ch) === q; p = link[p]) next[p].set(ch, clone);
+        link[q] = link[cur] = clone;
+      }
+    }
+    last = cur;
+  }
+  return (part) => {
+    let state: number | undefined = 0;
+    for (const ch of part) if ((state = next[state].get(ch)) === undefined) return false;
+    return true;
+  };
+}
+
+/**
+ * The drift check's decision for a driftCandidates entry (term T, tag inner
+ * `inner`): whether `check`, the model's output for the code-switched source,
+ * still writes the drifted span X, so X translated other source words and the
+ * check's output (which places T itself) is the better answer. X counts when,
+ * after the tag strip and outside every occurrence of T and its one-piece
+ * `forms`, the check has X, or at least half of X's distinct words (runs of
+ * word characters, so `Commit-Operation` is two) of four or more characters
+ * that are not inside T or a placeholder, as whole words, case-insensitively (fr
+ * `antémémoire : taille` for X `Taille de la mémoire cache :`; one stray
+ * `Ihre` or `الآن` doesn't make `Ihre Daten im Archiv` count). Text is NFC-
+ * normalized and only Arabic harakat are dropped: Latin accents are kept, so
+ * `archive` is not the verb `archivé`.
+ */
+export function checkWritesDriftedWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
+  const fold = (s: string) => s.normalize("NFC").replace(HARAKAT_RE, "").toLowerCase();
+  const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
+  // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
+  const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
+  const span = fold(unquote(inner));
+  if (span.length > 0 && wordFinder(span)(rest, 0) !== undefined) return true;
+  // The check's words once, as a set: one search per word of X would be quadratic.
+  const written = new Set(wordTokens(rest));
+  const sentinel = PLACEHOLDER_SENTINEL_PREFIX.toLowerCase();
+  const inTerm = substringTest(fold(term));
+  const words = [...new Set(wordTokens(span))].filter((w) => [...w].length >= 4 && !inTerm(w) && !w.startsWith(sentinel));
+  return words.length > 0 && 2 * words.filter((w) => written.has(w)).length >= words.length;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

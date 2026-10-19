@@ -46,7 +46,7 @@ apps/tui/            # interactive terminal UI
 
 **Read the matching internals doc before changing these areas.** Each holds the rules and the bench measurements behind them:
 
-- `docs/internals/pipeline.md`: pipeline, Term Set, glossary retries and code-switching, tag strip, agreement fix-ups and repair, tag check, prompt builders, streaming, image mode
+- `docs/internals/pipeline.md`: pipeline, Term Set, glossary retries and code-switching, tag strip, agreement fix-ups and repair, tag check, drift check, prompt builders, streaming, image mode
 - `docs/internals/file-mode.md`: `packages/core/src/files/` (sentinels, ICU, sync, locks, prune, abort, locale roots, i18next plurals)
 - `docs/internals/glossary.md`: glossary matching, lookup fallback, term forms
 - `docs/context-guide.md`: context tokenizer, scoring, index layout

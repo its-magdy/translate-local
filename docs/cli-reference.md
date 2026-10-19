@@ -88,7 +88,7 @@ so far are written first and the rest are left for the next run (see
 `glossaryTerms` is the number of distinct glossary terms found in the source; at
 0 no term matched, so `glossaryCoverage` reads 1 without meaning anything.
 
-`metadata` carries three more fields when the corresponding pass ran, all
+`metadata` carries four more fields when the corresponding pass ran, all
 described in the [glossary guide](glossary-guide.md):
 
 | Field | Meaning |
@@ -96,6 +96,7 @@ described in the [glossary guide](glossary-guide.md):
 | `repaired` | The [agreement repair](glossary-guide.md#agreement-repair) call changed the text and was kept. |
 | `tagChecked` | An extra [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word) call was made (also when it did not keep the word). |
 | `keptWord` | The tag check kept the model's own word inside a term tag. |
+| `tagDrift` | A term tag had drifted onto the words next to the term, so the result is the [drift check](glossary-guide.md#drift-check-a-term-tag-around-the-words-next-to-it)'s answer. |
 
 #### File mode
 

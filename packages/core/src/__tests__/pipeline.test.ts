@@ -942,6 +942,168 @@ describe("runPipeline", () => {
     });
   });
 
+  describe("drift check", () => {
+    const cache = { id: "c", sourceTerm: "cache", targetTerm: "antémémoire", sourceLang: "en", targetLang: "fr" };
+    const host = { id: "h", sourceTerm: "server", targetTerm: "hôte", sourceLang: "en", targetLang: "fr" };
+    const TEXT = "Cache hit rate";
+    const RAW = '<term translation="antémémoire">Taux de réussite</term>';
+    const CHECK_SOURCE = '<term translation="antémémoire">antémémoire</term> hit rate';
+    const CHECK = '<term translation="antémémoire">antémémoire</term> : taux de réussite';
+
+    function driftAdapter(translations: string[], requests: any[], repair?: string) {
+      let n = 0;
+      return {
+        name: "drift",
+        async translate(req: any) {
+          requests.push(req);
+          const translated = req.repairTerms ? (repair ?? req.source) : translations[n++];
+          if (translated === undefined) throw new Error(`unexpected request ${requests.length}`);
+          return { translated, metadata: { adapter: "drift", durationMs: 0 } };
+        },
+        async dispose() {},
+      } as any;
+    }
+
+    it("returns the check's output when it still writes the drifted words, then repairs it", async () => {
+      const requests: any[] = [];
+      const controller = new AbortController();
+      const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests, "Antémémoire : taux de réussite"), store, {
+        glossaryEntries: [cache], signal: controller.signal, contextSnippets: ["x"],
+      });
+      expect(requests).toHaveLength(3);
+      expect(requests[1].source).toBe(CHECK_SOURCE);
+      expect(requests[1].contextSnippets).toBeUndefined();
+      expect(requests[1].signal).toBe(controller.signal);
+      expect(requests[2].repairTerms).toEqual(["antémémoire"]);
+      expect(requests[2].source).toBe("antémémoire : taux de réussite");
+      expect(result.translated).toBe("Antémémoire : taux de réussite");
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.tagChecked).toBe(true);
+      expect(result.metadata.tagDrift).toBe(true);
+      expect(result.metadata.repaired).toBe(true);
+    });
+
+    it("strips as before when the check doesn't write the drifted words or lacks the term", async () => {
+      for (const check of ["antémémoire", "Taux de réussite"]) {
+        const requests: any[] = [];
+        const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, check], requests), store, { glossaryEntries: [cache] });
+        expect(requests).toHaveLength(3);
+        expect(requests[2].repairTerms).toEqual(["antémémoire"]);
+        expect(result.translated).toBe("Antémémoire");
+        expect(result.metadata.tagChecked).toBe(true);
+        expect(result.metadata.tagDrift).toBeUndefined();
+      }
+    });
+
+    it("keeps the draft when the check's output loses another term or a placeholder", async () => {
+      const text = "Restart the server and check the cache hit rate";
+      const raw = 'Redémarrez l\'hôte et vérifiez <term translation="antémémoire">le taux de réussite</term>';
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "fr", driftAdapter([raw, "Redémarrez et vérifiez le taux de réussite de l'antémémoire"], requests), store, { glossaryEntries: [cache, host] });
+      expect(requests).toHaveLength(3);
+      expect(result.translated).toBe("Redémarrez l'hôte et vérifiez antémémoire");
+      expect(result.metadata.tagDrift).toBeUndefined();
+
+      const TOK = "__TLPH_0__";
+      const sized = `Cache hit rate ${TOK}`;
+      const sentinel = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "fr" }, startIndex: sized.indexOf(TOK), endIndex: sized.indexOf(TOK) + TOK.length };
+      const tagged = `${RAW} <term translation="${TOK}">${TOK}</term>`;
+      for (const [check, translated] of [[CHECK, `Antémémoire ${TOK}`], [`${CHECK} ${TOK}`, `antémémoire : taux de réussite ${TOK}`]]) {
+        const result = await runPipeline(sized, "en", "fr", driftAdapter([tagged, check], []), store, { glossaryEntries: [cache], extraGlossaryHits: [sentinel] });
+        expect(result.translated).toBe(translated);
+      }
+    });
+
+    it("no check for one drifted word, or for the code-switched attempt", async () => {
+      const requests: any[] = [];
+      const result = await runPipeline("Commit message", "en", "fr", driftAdapter(['<term translation="validation">Message</term> de commit'], requests), store, {
+        glossaryEntries: [{ id: "v", sourceTerm: "commit", targetTerm: "validation", sourceLang: "en", targetLang: "fr" }],
+      });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].repairTerms).toBeDefined();
+      expect(result.metadata.tagChecked).toBeUndefined();
+
+      const switched: any[] = [];
+      await runPipeline(TEXT, "en", "fr", driftAdapter(["miss", "miss", RAW], switched), store, { glossaryEntries: [cache] });
+      expect(switched).toHaveLength(4);
+      expect(switched[3].repairTerms).toBeDefined();
+    });
+
+    it("keeps the check's output when the repair is rejected, in strict mode too", async () => {
+      for (const glossaryMode of ["prefer", "strict"] as const) {
+        const requests: any[] = [];
+        const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests), store, { glossaryEntries: [cache], glossaryMode });
+        expect(requests).toHaveLength(3);
+        expect(result.translated).toBe("antémémoire : taux de réussite");
+        expect(result.metadata.tagDrift).toBe(true);
+        expect(result.metadata.repaired).toBeUndefined();
+      }
+    });
+
+    it("decides a drifted tag and a tag-check candidate from the one check", async () => {
+      const text = "Restart the server and check the cache hit rate";
+      const raw = 'Redémarrez le <term translation="hôte">serveur</term> de l\'hôte et vérifiez <term translation="antémémoire">le taux de réussite</term>';
+      const opts = { glossaryEntries: [cache, host] };
+
+      // The check covers both terms: its output is the answer, no word is kept.
+      const swapped: any[] = [];
+      const answer = "Redémarrez le serveur de l'hôte et vérifiez le taux de réussite de l'antémémoire";
+      const swap = await runPipeline(text, "en", "fr", driftAdapter([raw, answer], swapped), store, opts);
+      expect(swapped).toHaveLength(3);
+      expect(swap.translated).toBe(answer);
+      expect(swap.metadata.tagDrift).toBe(true);
+      expect(swap.metadata.keptWord).toBeUndefined();
+
+      // It loses antémémoire: no swap, but it still keeps `serveur`; the drifted tag is replaced and repaired.
+      const kept: any[] = [];
+      const keep = await runPipeline(text, "en", "fr", driftAdapter([raw, "Redémarrez le serveur de l'hôte et vérifiez le taux de réussite"], kept), store, opts);
+      expect(kept).toHaveLength(3);
+      expect(kept[2].repairTerms).toEqual(["hôte", "antémémoire"]);
+      expect(keep.translated).toBe("Redémarrez le serveur de l'hôte et vérifiez antémémoire");
+      expect(keep.metadata.keptWord).toBe(true);
+      expect(keep.metadata.tagDrift).toBeUndefined();
+    });
+
+    it("an abort during the repair of the check's output surfaces as CANCELLED", async () => {
+      const controller = new AbortController();
+      let n = 0;
+      const adapter = {
+        async translate(req: any) {
+          if (req.repairTerms) {
+            controller.abort();
+            throw new Error("socket closed");
+          }
+          return { translated: [RAW, CHECK][n++], metadata: { adapter: "x", durationMs: 0 } };
+        },
+        async dispose() {},
+      } as any;
+      await expect(runPipeline(TEXT, "en", "fr", adapter, store, { glossaryEntries: [cache], signal: controller.signal })).rejects.toMatchObject({ tag: "CANCELLED" });
+    });
+
+    it("reuses the code-switched retry's output, and surfaces a cancellation", async () => {
+      // Prefer mode: the first attempt misses `hôte`, both retries too; the first wins and its drift is
+      // decided by the code-switched retry's output with no extra call.
+      const text = "Restart the server and check the cache hit rate";
+      const raw = 'Redémarrez et vérifiez <term translation="antémémoire">le taux de réussite</term>';
+      const requests: any[] = [];
+      const result = await runPipeline(text, "en", "fr", driftAdapter([raw, "miss", "Redémarrez et vérifiez le taux de réussite de l'antémémoire."], requests), store, { glossaryEntries: [cache, host] });
+      expect(requests).toHaveLength(4);
+      expect(requests[3].repairTerms).toEqual(["antémémoire"]);
+      expect(result.translated).toBe("Redémarrez et vérifiez le taux de réussite de l'antémémoire");
+      expect(result.metadata.tagDrift).toBe(true);
+      expect(result.metadata.tagChecked).toBeUndefined();
+
+      const cancelling = {
+        async translate(req: any) {
+          if (req.source === CHECK_SOURCE) throw new TlError("CANCELLED", "Translation cancelled", "hint");
+          return { translated: RAW, metadata: { adapter: "x", durationMs: 0 } };
+        },
+        async dispose() {},
+      } as any;
+      await expect(runPipeline(TEXT, "en", "fr", cancelling, store, { glossaryEntries: [cache] })).rejects.toMatchObject({ tag: "CANCELLED" });
+    });
+  });
+
   describe("a full stop the source lacks", () => {
     function fixedAdapter(output: string, requests: any[] = []) {
       return {
