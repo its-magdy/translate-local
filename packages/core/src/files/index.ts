@@ -411,7 +411,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     if (plan.kind === "refuse") {
       if (!continueOnError && !dryRun) throw strictError(plan.failure);
       if (plan.icuInI18next) icuInI18next++;
-      fail(p, pathStr, dryRun ? plan.reason : plan.failure.message, plan.failure.tag);
+      fail(p, pathStr, plan.failure.message, plan.failure.tag);
       continue;
     }
     if (dryRun) {

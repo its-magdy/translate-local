@@ -40,8 +40,8 @@ export type LeafFailure = {
 export type LeafPlan =
   /** Copied verbatim: FormatJS metadata (`metadata`) or a skip heuristic's reason. */
   | { kind: "keep"; reason: string }
-  /** Fails without a model call. `reason` is what a dry run reports. */
-  | { kind: "refuse"; failure: LeafFailure; reason: string; icuInI18next: boolean }
+  /** Fails without a model call, in a dry run too. */
+  | { kind: "refuse"; failure: LeafFailure; icuInI18next: boolean }
   | { kind: "translate"; icu: boolean };
 
 export type LeafOutcome =
@@ -76,7 +76,7 @@ export function planLeaf(
   // text and come back garbled, so keep the source and report it.
   if (opts.content === "i18next-plurals" && containsICUBranching(source)) {
     const reason = `ICU MessageFormat in an i18next catalog at ${pathStr}`;
-    return { kind: "refuse", reason, icuInI18next: true, failure: { message: reason, tag: "FILE_INVALID_FORMAT", hint: I18NEXT_ICU_HINT } };
+    return { kind: "refuse", icuInI18next: true, failure: { message: reason, tag: "FILE_INVALID_FORMAT", hint: I18NEXT_ICU_HINT } };
   }
 
   if (icu) {
@@ -84,8 +84,7 @@ export function planLeaf(
       parseICU(source);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const reason = `Invalid ICU MessageFormat at ${pathStr}`;
-      return { kind: "refuse", reason, icuInI18next: false, failure: { message: `${reason}: ${msg}`, tag: "FILE_INVALID_FORMAT", hint: INVALID_ICU_HINT } };
+      return { kind: "refuse", icuInI18next: false, failure: { message: `Invalid ICU MessageFormat at ${pathStr}: ${msg}`, tag: "FILE_INVALID_FORMAT", hint: INVALID_ICU_HINT } };
     }
   }
 
