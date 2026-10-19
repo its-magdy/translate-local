@@ -306,7 +306,8 @@ function wordFinder(part: string): (text: string, from: number) => [number, numb
   return (text, from) => {
     let best: [number, number] | undefined;
     for (const [p, fail] of variants) {
-      const first = Math.min(Math.max(from, 0), text.length);
+      // As indexOf coerces `from`: truncated, NaN as 0, clamped to the text.
+      const first = Math.min(Math.max(Math.trunc(from) || 0, 0), text.length);
       if (p.length === 0) {
         if ((!best || first < best[0]) && whole(text, first, first)) best = [first, first];
         continue;
