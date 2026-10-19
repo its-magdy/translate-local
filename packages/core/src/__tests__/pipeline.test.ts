@@ -1050,6 +1050,20 @@ describe("runPipeline", () => {
       const quoted = await runPipeline(TEXT, "en", "fr", driftAdapter([`« Le ${RAW} »`, `« ${CHECK} »`], []), store, { glossaryEntries: [cache] });
       expect(quoted.translated).toBe("« Antémémoire : taux de réussite »");
       expect(quoted.metadata.tagDrift).toBe(true);
+      // A term spelled lowercase-first (`iOS`) is not raised: the answer would lose it.
+      const ios = { ...cache, targetTerm: "iOS" };
+      const kept = await runPipeline(TEXT, "en", "fr", driftAdapter(['Le <term translation="iOS">taux de réussite</term>', "iOS : taux de réussite"], []), store, { glossaryEntries: [ios], glossaryMode: "strict" });
+      expect(kept.translated).toBe("iOS : taux de réussite");
+      expect(kept.glossaryCoverage).toBe(1);
+      expect(kept.metadata.tagDrift).toBe(true);
+      // The letter is raised in the target language's casing (Turkish `i` → `İ`).
+      const tr = { ...cache, targetTerm: "önbellek", targetLang: "tr" };
+      const turkish = await runPipeline(TEXT, "en", "tr", driftAdapter(['İşlem: <term translation="önbellek">isabet oranı</term>', "işlem: önbellek isabet oranı"], []), store, { glossaryEntries: [tr] });
+      expect(turkish.translated).toBe("İşlem: önbellek isabet oranı");
+      expect(turkish.metadata.tagDrift).toBe(true);
+      // A target that is not a language tag falls back to plain casing.
+      const odd = await runPipeline(TEXT, "en", "x!", driftAdapter([RAW, CHECK], []), store, { glossaryEntries: [{ ...cache, targetLang: "x!" }] });
+      expect(odd.translated).toBe("Antémémoire : taux de réussite");
     });
 
     it("decides a drifted tag and a tag-check candidate from the one check", async () => {

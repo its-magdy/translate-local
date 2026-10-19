@@ -143,8 +143,11 @@ export async function runPipeline(
       if (check !== undefined && terms.drifted(driftSpans, check)) {
         const reading = terms.read(check);
         if (reading.missingTerms.every((term) => result.missingTerms.includes(term)) && sentinels(reading.translated) === sentinels(result.translated)) {
+          // Start uppercase as the draft does, unless that loses a term spelled lowercase-first (`iOS`).
+          const raised = matchStartCase(reading.translated, result.translated, targetLang);
+          const translated = terms.coverage(raised).missingTerms.every((term) => reading.missingTerms.includes(term)) ? raised : reading.translated;
           return repairAgreement({
-            ...result, translated: matchStartCase(reading.translated, result.translated), glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+            ...result, translated, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
             metadata: { ...result.metadata, tagDrift: true },
           });
         }
@@ -237,11 +240,19 @@ function sentinels(text: string): string {
 }
 
 /**
- * `answer` with its first letter raised when `draft`'s first letter is
- * uppercase and `answer`'s is lowercase: the code-switched source starts with
- * the lowercase target term, so the check's output does too (fr
- * `antémémoire : taille` for the draft `Antémémoire`).
+ * `answer` with its first letter raised in `lang`'s casing (Turkish `i` → `İ`)
+ * when `draft`'s first letter is uppercase and `answer`'s is lowercase: the
+ * code-switched source starts with the lowercase target term, so the check's
+ * output does too (fr `antémémoire : taille` for the draft `Antémémoire`).
  */
-function matchStartCase(answer: string, draft: string): string {
-  return /^\P{L}*\p{Lu}/u.test(draft) ? answer.replace(/^(\P{L}*)(\p{Ll})/u, (_, before: string, letter: string) => before + letter.toUpperCase()) : answer;
+function matchStartCase(answer: string, draft: string, lang: string): string {
+  if (!/^\P{L}*\p{Lu}/u.test(draft)) return answer;
+  return answer.replace(/^(\P{L}*)(\p{Ll})/u, (_, before: string, letter: string) => {
+    try {
+      return before + letter.toLocaleUpperCase(lang);
+    } catch {
+      // Not a valid language tag (RangeError): plain casing.
+      return before + letter.toUpperCase();
+    }
+  });
 }

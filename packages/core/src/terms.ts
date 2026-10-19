@@ -73,11 +73,12 @@ export class TermSet {
   read(raw: string, kept?: KeptWords): Reading {
     const postprocessed = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw, this.forms, kept)), this.targetLang, this.agreementTerms);
     const translated = this.imageMode ? postprocessed : dropAddedFullStop(postprocessed, this.source, this.agreementTerms);
-    return {
-      translated,
-      ...computeGlossaryCoverage(this.realHits, splitArabicArticles(translated, this.targetLang, this.agreementTerms)),
-      forced: substitutesTerm(raw, this.targetTerms, this.forms, kept),
-    };
+    return { translated, ...this.coverage(translated), forced: substitutesTerm(raw, this.targetTerms, this.forms, kept) };
+  }
+
+  /** The glossary coverage of a postprocessed translation. */
+  coverage(translated: string): { glossaryCoverage: number; missingTerms: string[] } {
+    return computeGlossaryCoverage(this.realHits, splitArabicArticles(translated, this.targetLang, this.agreementTerms));
   }
 
   /** The target term of each missing source term, for a glossary retry's reminder. */
