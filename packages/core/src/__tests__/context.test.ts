@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync, renameSync, chmodSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, mkdtempSync, renameSync, chmodSync, realpathSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Database } from "bun:sqlite";
@@ -103,6 +103,66 @@ describe("ContextStore", () => {
     } catch (err: any) {
       expect(err.tag).toBe("CONTEXT_DB_ERROR");
     }
+  });
+
+  describe("source paths", () => {
+    const cwd = process.cwd();
+    // process.cwd() reports the real path (macOS tmpdir is a symlink), so
+    // compare against the real path of the folder.
+    let dir: string;
+    beforeEach(() => { dir = realpathSync(tmpDir); });
+    afterEach(() => process.chdir(cwd));
+
+    testFn("addSource stores a relative path as absolute", () => {
+      store = new ContextStore(dbPath);
+      process.chdir(dir);
+      const source = store.addSource(".");
+      process.chdir(cwd);
+      expect(source.path).toBe(dir);
+      expect(store.listSources()[0].path).toBe(dir);
+      // reindex from another directory still reads the right folder
+      writeFileSync(join(tmpDir, "legal.md"), "contract statute jurisdiction");
+      store.reindex();
+      expect(store.listSources()[0].fileCount).toBe(4);
+    });
+
+    testFn("relative and absolute spellings of one folder are one source", () => {
+      store = new ContextStore(dbPath);
+      store.addSource(dir);
+      process.chdir(dir);
+      store.addSource(".");
+      store.addSource("./");
+      expect(store.listSources()).toHaveLength(1);
+    });
+
+    testFn("removeSourceByPath resolves a relative path", () => {
+      store = new ContextStore(dbPath);
+      store.addSource(dir);
+      process.chdir(dir);
+      store.removeSourceByPath(".");
+      expect(store.listSources()).toHaveLength(0);
+      expect(store.retrieve("machine learning")).toEqual([]);
+    });
+
+    testFn("removeSourceByPath removes a relative path stored by an older release", () => {
+      store = new ContextStore(dbPath);
+      store.addSource(dir);
+      store.close();
+      const db = new Database(dbPath);
+      db.run(`UPDATE context_sources SET path = ?`, ["."]);
+      db.close();
+      store = new ContextStore(dbPath);
+      process.chdir(dir);
+      store.removeSourceByPath(dir);
+      expect(store.listSources()).toHaveLength(0);
+    });
+
+    testFn("removeSourceByPath with an unknown path throws CONTEXT_DB_ERROR", () => {
+      store = new ContextStore(dbPath);
+      store.addSource(dir);
+      expect(() => store.removeSourceByPath(join(dir, "nope"))).toThrow(expect.objectContaining({ tag: "CONTEXT_DB_ERROR" }));
+      expect(store.listSources()).toHaveLength(1);
+    });
   });
 
   describe("unreadable folders", () => {

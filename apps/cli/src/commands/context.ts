@@ -1,5 +1,4 @@
 import { Command } from "commander";
-import { resolve } from "path";
 import { ContextStore } from "@translate-local/core/context";
 import { runAction, withStore } from "../utils/run";
 
@@ -44,13 +43,7 @@ export function makeContextCommand(): Command {
     .command("remove <path>")
     .description("Remove a context source by path")
     .action((path: string) => runAction(async () => {
-      await withContext((store) => {
-        const sources = store.listSources();
-        const normalizedInput = resolve(path);
-        const match = sources.find((s) => resolve(s.path) === normalizedInput);
-        if (!match) throw new Error(`No context source found for path: ${path}`);
-        store.removeSource(match.id);
-      });
+      await withContext((store) => store.removeSourceByPath(path));
       console.log(`Removed context source: ${path}`);
     }));
 

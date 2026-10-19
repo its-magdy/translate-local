@@ -26,7 +26,7 @@ tl context add ~/docs/legal-corpus
 tl context add ~/projects/myapp/docs
 ```
 
-The directory is indexed immediately on `add`. File content is stored (first 500 characters per file) along with TF-IDF scores for each file's top terms (300, plus one per Chinese/Japanese/Korean bigram, up to 1,000).
+The directory is indexed immediately on `add`. A relative path is resolved against the current directory and stored absolute, so `tl context index` reads the same folder from anywhere, and `./docs`, `docs` and the absolute path are one source. File content is stored (first 500 characters per file) along with TF-IDF scores for each file's top terms (300, plus one per Chinese/Japanese/Korean bigram, up to 1,000).
 
 Subfolders that can't be read (for example, permission denied) are skipped with a warning, and the rest is indexed. If the folder itself can't be read, nothing is added, and re-adding an existing path that fails keeps the previous index. `tl context index` skips unreadable subfolders the same way.
 
