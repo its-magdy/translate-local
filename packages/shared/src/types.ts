@@ -57,6 +57,12 @@ export interface TranslationResult {
     tagChecked?: boolean;
     /** Set by the pipeline when the tag check (call or reused output) kept the model's word in a term tag. */
     keptWord?: boolean;
+    /**
+     * Set by the pipeline when a term tag had drifted onto other words (see
+     * driftCandidates) and the result is the check's output, which places the
+     * term itself, instead of the tag strip's.
+     */
+    tagDrift?: boolean;
   };
 }
 

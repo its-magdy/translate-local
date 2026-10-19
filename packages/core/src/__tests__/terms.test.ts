@@ -156,6 +156,20 @@ describe("TermSet", () => {
     });
   });
 
+  describe("drift check", () => {
+    const source = "Cache hit rate";
+    const terms = new TermSet(source, [hit(source, "Cache", "antémémoire")], [], "fr", false);
+    const raw = '<term translation="antémémoire">Taux de réussite</term>';
+
+    it("finds the drifted span, and whether the check's output still writes it", () => {
+      const candidates = terms.driftCandidates(raw);
+      expect(candidates).toEqual(new Map([["antémémoire", "Taux de réussite"]]));
+      expect(terms.drifted(candidates, '<term translation="antémémoire">antémémoire</term> : taux de réussite')).toBe(true);
+      expect(terms.drifted(candidates, "antémémoire")).toBe(false);
+      expect(terms.drifted(new Map(), "antémémoire : taux de réussite")).toBe(false);
+    });
+  });
+
   it("names the form a draft has for the repair, split forms as their parts", () => {
     const source = "Please deploy the branch and the cache.";
     const deploy = hit(source, "deploy", "bereitstellen", ["Bereitstellung", "stellen … bereit"]);

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm, tagCheckCandidates, checkKeepsWord } from "../utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "../utils/text";
 import type { GlossaryHit } from "../types";
 
 function makeHit(sourceTerm: string, targetTerm: string, startIndex: number): GlossaryHit {
@@ -576,6 +576,61 @@ describe("tag check", () => {
     tagCheckCandidates('<term translation="bereitstellen">'.repeat(50_000), [deploy]);
     tagCheckCandidates('<term translation="bereitstellen">a</term>'.repeat(50_000) + " bereitstellen", [deploy]);
     checkKeepsWord("a ".repeat(100_000) + "bereitstellen", "bereitstellen", "a b");
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+});
+
+describe("drift check", () => {
+  const cache = makeHit("Cache", "antémémoire", 0);
+  const hitRate = '<term translation="antémémoire">Taux de réussite</term>';
+
+  test("finds a tag around more words than the source term while the term is nowhere outside", () => {
+    expect(driftCandidates(hitRate, [cache])).toEqual(new Map([["antémémoire", "Taux de réussite"]]));
+    const invalidate = 'قم بإلغاء صلاحية الذاكرة المؤقتة <term translation="الكاش">بعد كل عملية نشر</term>.';
+    expect(driftCandidates(invalidate, [makeHit("cache", "الكاش", 0)])).toEqual(new Map([["الكاش", "بعد كل عملية نشر"]]));
+    // One word for a one-word source term: most often the model's own word for it (serveur for hôte).
+    expect(driftCandidates('Redémarrer le <term translation="hôte">serveur</term>', [makeHit("server", "hôte", 0)]).size).toBe(0);
+    // A multi-word source term needs more words still.
+    expect(driftCandidates('<term translation="طلب دمج">طلب الدمج</term>', [makeHit("pull request", "طلب دمج", 0)]).size).toBe(0);
+    expect(driftCandidates('<term translation="طلب دمج">طلب الدمج الجديد</term>', [makeHit("pull request", "طلب دمج", 0)]).size).toBe(1);
+  });
+
+  test("leaves tags with the term outside to the tag check, and kept forms alone", () => {
+    expect(driftCandidates(`${hitRate} de l'antémémoire`, [cache]).size).toBe(0);
+    expect(tagCheckCandidates(`${hitRate} de l'antémémoire`, [cache]).size).toBe(1);
+    expect(tagCheckCandidates(hitRate, [cache]).size).toBe(0);
+    expect(driftCandidates('<term translation="antémémoire">l\'antémémoire</term>', [cache]).size).toBe(0);
+  });
+
+  test("needs one hit and one tag, and never fires for sentinels, source words or no-space scripts", () => {
+    expect(driftCandidates(hitRate, [cache, makeHit("cache", "antémémoire", 20)]).size).toBe(0);
+    expect(driftCandidates(`${hitRate} ${hitRate}`, [cache]).size).toBe(0);
+    const sentinel = makeHit("__TLPH_0__", "__TLPH_0__", 0);
+    expect(driftCandidates('<term translation="__TLPH_0__">a b</term>', [sentinel]).size).toBe(0);
+    expect(driftCandidates('<term translation="Pull-Request">pull request</term>', [makeHit("pull request", "Pull-Request", 0)]).size).toBe(0);
+    expect(driftCandidates('<term translation="キー">鍵 を</term>', [makeHit("key", "キー", 0)]).size).toBe(0);
+  });
+
+  test("the check writes the drifted words when it has the span or one of its longer words", () => {
+    expect(checkWritesDriftedWord("antémémoire : taux de réussite", "antémémoire", "Taux de réussite")).toBe(true);
+    expect(checkWritesDriftedWord("antémémoire : taille : __TLPH_0__", "antémémoire", "Taille de la mémoire cache :")).toBe(true);
+    expect(checkWritesDriftedWord('<term translation="الكاش" source="cache">الكاش</term> بعد كل عملية نشر.', "الكاش", "بعد كل عملية نشر")).toBe(true);
+    // Arabic harakat are dropped, so are the tags.
+    expect(checkWritesDriftedWord("نشر الآنَ", "نشر", "ابدأ الآن")).toBe(true);
+    expect(checkWritesDriftedWord("antémémoire", "antémémoire", "Taux de réussite")).toBe(false);
+    // Short words and words inside the term don't count.
+    expect(checkWritesDriftedWord("Vider l'antémémoire de la page.", "antémémoire", "la mémoire de")).toBe(false);
+    // Latin accents are kept: `archive` is not the verb `archivé`.
+    expect(checkWritesDriftedWord("Ce dépôt est archivé.", "dépôt", "cette archive publique")).toBe(false);
+    expect(checkWritesDriftedWord("Ce dépôt est une archive.", "dépôt", "cette archive publique")).toBe(true);
+    // Whole words only.
+    expect(checkWritesDriftedWord("antémémoire : tauxes", "antémémoire", "taux réussite")).toBe(false);
+  });
+
+  test("runs in linear time", () => {
+    const start = performance.now();
+    driftCandidates('<term translation="antémémoire">a b</term> '.repeat(50_000), [cache]);
+    checkWritesDriftedWord("taux ".repeat(100_000), "antémémoire", "réussite de taux");
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });

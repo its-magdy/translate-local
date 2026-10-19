@@ -398,11 +398,37 @@ function termAttr(openTag: string): string | undefined {
  * per distinct term of `hits`.
  */
 export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
-  const candidates = new Map<string, string>();
+  return new Map(replacedTags(raw, hits, forms).filter((t) => t.outside).map((t) => [t.term, t.inner]));
+}
+
+/**
+ * The complete term tags of model output `raw` that get the pipeline's drift
+ * check: a tag for real glossary target term T around a span X that
+ * keptTermForm rejects, while neither T nor a form occurs outside every tag
+ * (where tagCheckCandidates doesn't look), and X has more words than the hit's
+ * source term, as in fr `<term translation="antémémoire">Taux de réussite</term>`
+ * for `Cache hit rate`: the tag drifted onto the words around the term, which
+ * the strip would replace. A one-word X for a one-word source term is most
+ * often the model's own word for it (`serveur` for `hôte`), which the strip
+ * replaces rightly. Same limits as tagCheckCandidates (one hit, one tag, no
+ * sentinel, source word or no-space script). Returned as T → the tag's inner
+ * text exactly as written.
+ */
+export function driftCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
+  return new Map(replacedTags(raw, hits, forms).filter((t) => !t.outside && wordCount(unquote(t.inner)) > wordCount(t.sourceTerm.trim())).map((t) => [t.term, t.inner]));
+}
+
+/**
+ * The complete tags of `raw` for a real term T (one of `hits`, exactly one hit
+ * and one tag) around a word keptTermForm rejects, with whether T or a form is
+ * outside every tag as a whole word: what tagCheckCandidates and driftCandidates
+ * choose from.
+ */
+function replacedTags(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): { term: string; inner: string; sourceTerm: string; outside: boolean }[] {
+  const found: { term: string; inner: string; sourceTerm: string; outside: boolean }[] = [];
   const sources = new Map<string, string[]>();
   for (const { entry } of hits) sources.set(entry.targetTerm, [...(sources.get(entry.targetTerm) ?? []), entry.sourceTerm]);
-  if (sources.size === 0) return candidates;
-
+  if (sources.size === 0) return found;
   const tagCount = new Map<string, number>();
   const count = (term: string | undefined) => {
     if (term !== undefined) tagCount.set(term, (tagCount.get(term) ?? 0) + 1);
@@ -444,9 +470,9 @@ export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], fo
     const termForms = forms?.get(term) ?? [];
     if ([word, term, ...termForms].some((s) => NO_SPACE_RE.test(s))) continue;
     if (keptTermForm(inner, term, termForms) !== undefined) continue;
-    if (findForm(outside, term, termForms, true) !== undefined) candidates.set(term, inner);
+    found.push({ term, inner, sourceTerm: termSources[0], outside: findForm(outside, term, termForms, true) !== undefined });
   }
-  return candidates;
+  return found;
 }
 
 /**
@@ -475,6 +501,30 @@ export function checkKeepsWord(check: string, term: string, inner: string, forms
   // A NUL where T was, as tagCheckCandidates blanks tags (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripped));
   return wordFinder(word)(rest, 0) !== undefined;
+}
+
+/** Arabic harakat (fathatan … sukun), which the model adds or drops at will. */
+const HARAKAT_RE = /[\u064B-\u0652]/g;
+
+/**
+ * The drift check's decision for a driftCandidates entry (term T, tag inner
+ * `inner`): whether `check`, the model's output for the code-switched source,
+ * still writes the drifted span X, so X translated other source words and the
+ * check's output (which places T itself) is the better answer. X counts when,
+ * after the tag strip and outside every occurrence of T and its one-piece
+ * `forms`, the check has X or one of X's words of four or more letters that is
+ * not inside T, as a whole word, case-insensitively (fr `antémémoire : taille`
+ * for X `Taille de la mémoire cache :`). Only Arabic harakat are dropped: Latin
+ * accents are kept, so `archive` is not the verb `archivé`.
+ */
+export function checkWritesDriftedWord(check: string, term: string, inner: string, forms?: ReadonlyMap<string, readonly string[]>): boolean {
+  const fold = (s: string) => s.replace(HARAKAT_RE, "").toLowerCase();
+  const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
+  // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
+  const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
+  const span = fold(unquote(inner));
+  const words = span.split(/\s+/).map((w) => w.replace(/^\P{L}+|\P{L}+$/gu, "")).filter((w) => [...w].length >= 4 && !fold(term).includes(w));
+  return [span, ...words].some((w) => w.length > 0 && wordFinder(w)(rest, 0) !== undefined);
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

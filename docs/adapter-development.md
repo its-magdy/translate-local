@@ -48,7 +48,7 @@ export interface AdapterResponse {
 That is all an adapter returns. The pipeline strips the glossary tags, computes
 coverage, counts retries and builds the `TranslationResult` that frontends and
 `--json` see (`glossaryCoverage`, `missingTerms`, `glossaryTerms`, and the
-`retries` / `repaired` / `tagChecked` / `keptWord` metadata).
+`retries` / `repaired` / `tagChecked` / `keptWord` / `tagDrift` metadata).
 
 ### Glossary retries (`glossaryReminder`)
 

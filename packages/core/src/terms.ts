@@ -1,5 +1,5 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
 import { fixTermAgreement, splitArabicArticles } from "./agreement";
 import { dropAddedFullStop } from "./punctuation";
 
@@ -96,6 +96,16 @@ export class TermSet {
   /** The candidates whose word the check's output (for the code-switched source) still writes. */
   keptWords(candidates: KeptWords, checkOutput: string): KeptWords {
     return new Map([...candidates].filter(([term, inner]) => checkKeepsWord(checkOutput, term, inner, this.forms)));
+  }
+
+  /** Terms tagged around a span of other words in `raw`, with no occurrence outside, that the drift check decides (see driftCandidates). */
+  driftCandidates(raw: string): KeptWords {
+    return driftCandidates(raw, this.realHits, this.forms);
+  }
+
+  /** Whether the check's output (for the code-switched source) still writes a candidate's drifted span. */
+  drifted(candidates: KeptWords, checkOutput: string): boolean {
+    return [...candidates].some(([term, inner]) => checkWritesDriftedWord(checkOutput, term, inner, this.forms));
   }
 
   /** The form of each covered term the draft has (a split form's parts), which an agreement repair must keep. */

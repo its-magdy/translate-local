@@ -360,7 +360,7 @@ Long translated strings are not reflowed — the writer is configured with `line
 
 ## Glossary and context in file mode
 
-Glossary terms are applied per leaf, exactly as they would be for a single-string translation. The same `--glossary prefer|strict` flag governs both modes, and so do the passes that follow a translation: term [forms](glossary-guide.md#other-forms-of-a-term), the [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word), the article and elision fix-ups, and the [agreement repair](glossary-guide.md#agreement-repair) all run per key. Entries are read from SQLite once per file, not once per key.
+Glossary terms are applied per leaf, exactly as they would be for a single-string translation. The same `--glossary prefer|strict` flag governs both modes, and so do the passes that follow a translation: term [forms](glossary-guide.md#other-forms-of-a-term), the [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word) and [drift check](glossary-guide.md#drift-check-a-term-tag-around-the-words-next-to-it), the article and elision fix-ups, and the [agreement repair](glossary-guide.md#agreement-repair) all run per key. Entries are read from SQLite once per file, not once per key.
 
 Context retrieval also runs per leaf, with the source value as the query. If you've added a context source via `tl context add`, snippets are retrieved per key, using the same `context.maxSnippets` and `context.minRelevance` settings as single-string mode (see [Relevance score](context-guide.md#relevance-score)). The tokenizer is Unicode-aware — Arabic, Cyrillic, CJK, and Thai values retrieve context as well as Latin ones (see [Tokenization](context-guide.md#tokenization)).
 
