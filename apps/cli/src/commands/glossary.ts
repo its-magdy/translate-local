@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { GlossaryStore } from "@translate-local/core/glossary";
 import type { GlossaryEntry } from "@translate-local/shared/types";
+import { TlError } from "@translate-local/shared/errors";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { formatGlossaryList } from "../formatters/output";
@@ -64,13 +65,10 @@ export function makeGlossaryCommand(): Command {
     .option("--note <note>", "Usage note")
     .option("--forms <forms>", 'Other target forms that also count as the term, separated by | (a split form such as "stellen … bereit" counts when its parts appear in order in one sentence)')
     .action((opts: { source: string; target: string; from: string; to: string; domain?: string; note?: string; forms?: string }) => runAction(async () => {
-      if (!isSupported(opts.from)) {
-        console.error(`Unsupported language code: "${opts.from}". Run \`tl config status\` to see supported codes.`);
-        process.exit(1);
-      }
-      if (!isSupported(opts.to)) {
-        console.error(`Unsupported language code: "${opts.to}". Run \`tl config status\` to see supported codes.`);
-        process.exit(1);
+      for (const lang of [opts.from, opts.to]) {
+        if (!isSupported(lang)) {
+          throw new TlError("INVALID_LANGUAGE", `Unsupported language code: "${lang}"`, "Run `tl config status` to see supported codes.");
+        }
       }
       const entry = await withGlossary((store) =>
         store.add({
@@ -106,18 +104,8 @@ export function makeGlossaryCommand(): Command {
     .command("remove <id>")
     .description("Remove a glossary entry by ID (or ID prefix)")
     .action((id: string) => runAction(async () => {
-      const removed = await withGlossary((store) => {
-        const all = store.list();
-        const match = all.find((e) => e.id === id || e.id.startsWith(id));
-        if (!match) return false;
-        return store.remove(match.id);
-      });
-      if (removed) {
-        console.log(`Removed entry ${id}`);
-      } else {
-        console.error(`No entry found with id: ${id}`);
-        process.exit(1);
-      }
+      const removed = await withGlossary((store) => store.removeByIdOrPrefix(id));
+      console.log(`Removed entry ${removed}`);
     }));
 
   // import

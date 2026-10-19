@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join, relative, resolve } from "path";
 import { tmpdir } from "os";
+import { Database } from "bun:sqlite";
 import pkg from "../../package.json" with { type: "json" };
 
 const CLI = join(import.meta.dir, "../../src/index.ts");
@@ -108,6 +109,53 @@ describe("tl CLI", () => {
       // With custom config pointing to fresh db — should show empty message
       // (TL_CONFIG env wiring may not be implemented yet, accept either)
       expect([0]).toContain(r.exitCode);
+    });
+
+    describe("glossary remove", () => {
+      // Create the db through the CLI, then add rows with chosen ids.
+      function seed(...ids: string[]): void {
+        expect(run(["glossary", "add", "--source", "seed", "--target", "x", "--from", "en", "--to", "ar"], ownHome()).exitCode).toBe(0);
+        const db = new Database(join(tmpDir, ".config/tl/glossary.db"));
+        for (const id of ids) {
+          db.run(`INSERT INTO glossary (id, source_term, target_term, source_lang, target_lang) VALUES (?, ?, 'x', 'en', 'ar')`, [id, `term-${id}`]);
+        }
+        db.close();
+      }
+      const ids = () => (JSON.parse(run(["glossary", "list", "--json"], ownHome()).stdout) as { id: string }[]).map((e) => e.id);
+
+      it("refuses an ambiguous id prefix and removes nothing", () => {
+        seed("abc12345", "abc67890");
+        const r = run(["glossary", "remove", "abc"], ownHome());
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr).toContain("INVALID_INPUT");
+        expect(r.stderr).toContain("abc12345");
+        expect(r.stderr).toContain("abc67890");
+        expect(ids()).toContain("abc12345");
+        expect(ids()).toContain("abc67890");
+      });
+
+      it("removes the single entry matching a prefix", () => {
+        seed("abc12345", "abd67890");
+        const r = run(["glossary", "remove", "abc"], ownHome());
+        expect(r.exitCode).toBe(0);
+        expect(r.stdout).toContain("abc12345");
+        expect(ids()).not.toContain("abc12345");
+        expect(ids()).toContain("abd67890");
+      });
+
+      it("reports an unknown id as INVALID_INPUT with exit code 1", () => {
+        seed();
+        const r = run(["glossary", "remove", "zzz"], ownHome());
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr).toContain("INVALID_INPUT");
+      });
+    });
+
+    it("glossary add with an unsupported language reports INVALID_LANGUAGE", () => {
+      const r = run(["glossary", "add", "--source", "a", "--target", "b", "--from", "xx-nope", "--to", "ar"], ownHome());
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("INVALID_LANGUAGE");
+      expect(r.stderr).toContain("xx-nope");
     });
 
     it("shows help for glossary add", () => {

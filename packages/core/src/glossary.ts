@@ -273,6 +273,33 @@ export class GlossaryStore {
     }
   }
 
+  /**
+   * Remove the entry whose id is `idOrPrefix`, or else the only entry whose id
+   * starts with it. Returns the removed id. Throws INVALID_INPUT when nothing
+   * matches or the prefix matches more than one entry (nothing is removed).
+   */
+  removeByIdOrPrefix(idOrPrefix: string): string {
+    const ids = (sql: string, ...params: (string | number)[]) =>
+      (this.db.query(sql).all(...params) as { id: string }[]).map((r) => r.id);
+    let matches = ids(`SELECT id FROM glossary WHERE id = ?`, idOrPrefix);
+    // An empty prefix would match every entry.
+    if (matches.length === 0 && idOrPrefix !== "") {
+      matches = ids(`SELECT id FROM glossary WHERE substr(id, 1, ?) = ? ORDER BY id`, idOrPrefix.length, idOrPrefix);
+    }
+    if (matches.length === 0) {
+      throw new TlError("INVALID_INPUT", `No glossary entry found with id: ${idOrPrefix}`, "Run `tl glossary list` to see entry ids.");
+    }
+    if (matches.length > 1) {
+      throw new TlError(
+        "INVALID_INPUT",
+        `Id prefix "${idOrPrefix}" matches ${matches.length} glossary entries: ${matches.slice(0, 10).join(", ")}${matches.length > 10 ? ", …" : ""}`,
+        "Pass more characters of the id (or the full id) to pick one.",
+      );
+    }
+    this.remove(matches[0]);
+    return matches[0];
+  }
+
   list(sourceLang?: string, targetLang?: string): GlossaryEntry[] {
     const conditions: string[] = [];
     const params: string[] = [];

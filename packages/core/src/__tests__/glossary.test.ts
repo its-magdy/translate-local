@@ -333,6 +333,53 @@ describe("GlossaryStore", () => {
     expect(store.remove("nonexistent-id")).toBe(false);
   });
 
+  describe("removeByIdOrPrefix", () => {
+    // Insert entries with chosen ids; add() always assigns a random UUID.
+    function seed(...ids: string[]): void {
+      const db = new Database(dbPath);
+      for (const id of ids) {
+        db.run(`INSERT INTO glossary (id, source_term, target_term, source_lang, target_lang) VALUES (?, ?, ?, 'en', 'ar')`, [id, `term-${id}`, "x"]);
+      }
+      db.close();
+    }
+
+    it("removes the single entry matching a prefix and returns its id", () => {
+      seed("abc12345", "def67890");
+      expect(store.removeByIdOrPrefix("abc")).toBe("abc12345");
+      expect(store.list().map((e) => e.id)).toEqual(["def67890"]);
+    });
+
+    it("prefers an exact id over longer ids it prefixes", () => {
+      seed("abc", "abc12345");
+      expect(store.removeByIdOrPrefix("abc")).toBe("abc");
+      expect(store.list().map((e) => e.id)).toEqual(["abc12345"]);
+    });
+
+    it("refuses an ambiguous prefix, lists the candidates and removes nothing", () => {
+      seed("abc12345", "abc67890", "def00000");
+      let err: any;
+      try { store.removeByIdOrPrefix("abc"); } catch (e) { err = e; }
+      expect(err?.tag).toBe("INVALID_INPUT");
+      expect(err.message).toContain("abc12345");
+      expect(err.message).toContain("abc67890");
+      expect(err.hint).toMatch(/more characters/);
+      expect(store.list()).toHaveLength(3);
+    });
+
+    it("throws INVALID_INPUT when nothing matches, including an empty prefix", () => {
+      seed("abc12345");
+      expect(() => store.removeByIdOrPrefix("zzz")).toThrow(expect.objectContaining({ tag: "INVALID_INPUT" }));
+      expect(() => store.removeByIdOrPrefix("")).toThrow(expect.objectContaining({ tag: "INVALID_INPUT" }));
+      expect(store.list()).toHaveLength(1);
+    });
+
+    it("treats LIKE wildcards in the prefix literally", () => {
+      seed("abc12345");
+      expect(() => store.removeByIdOrPrefix("%")).toThrow(expect.objectContaining({ tag: "INVALID_INPUT" }));
+      expect(() => store.removeByIdOrPrefix("ab_")).toThrow(expect.objectContaining({ tag: "INVALID_INPUT" }));
+    });
+  });
+
   it("filters list by sourceLang and targetLang", () => {
     store.add({ sourceTerm: "API", targetTerm: "واجهة برمجة", sourceLang: "en", targetLang: "ar" });
     store.add({ sourceTerm: "model", targetTerm: "modèle", sourceLang: "en", targetLang: "fr" });
