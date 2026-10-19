@@ -6,7 +6,8 @@ import { readFileSync } from "fs";
 import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLMap, YAMLSeq } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
-import { atomicWriteFile, detectEol } from "./json";
+import { atomicWriteFile } from "./atomic";
+import { detectEol } from "./json";
 
 export type YamlMeta = {
   indent: number;
