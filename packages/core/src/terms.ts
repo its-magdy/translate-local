@@ -1,5 +1,5 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, stripCombiningMarks, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
 import { fixTermAgreement, splitArabicArticles } from "./agreement";
 import { dropAddedFullStop } from "./punctuation";
 
@@ -88,12 +88,14 @@ export class TermSet {
   matchStartCase(translated: string, draft: string): string {
     const start = /^(\P{L}*)(\p{Ll})/u.exec(translated);
     if (!start || !/^\P{L}*\p{Lu}/u.test(draft)) return translated;
-    const at = start[1].length;
-    const words = [...this.agreementTerms, ...[...this.forms.values()].flat().flatMap(formParts)];
+    // Matched with combining marks dropped, as coverage matches (`re\u0301glages` is `réglages`).
+    const plain = stripCombiningMarks(translated);
+    const at = /^\P{L}*/u.exec(plain)![0].length;
+    const words = [...this.agreementTerms, ...[...this.forms.values()].flat().flatMap(formParts)].map(stripCombiningMarks);
     // Only an occurrence starting within its own length before the letter can cover it.
     const covers = (word: string) => {
       for (let from = Math.max(0, at - word.length + 1); from <= at; from++) {
-        if (translated.startsWith(word, from) && !(from === at && capitalizeTerm(word) !== word)) return true;
+        if (plain.startsWith(word, from) && !(from === at && capitalizeTerm(word) !== word)) return true;
       }
       return false;
     };
@@ -106,7 +108,7 @@ export class TermSet {
       letter = start[2].toUpperCase();
     }
     const raised = start[1] + letter + translated.slice(start[0].length);
-    // Coverage drops combining marks, the guard above doesn't (`re\u0301glages`): never lose a term.
+    // Coverage also splits Arabic articles and matches split forms by sentence: never lose a term.
     const missing = this.coverage(translated).missingTerms;
     return this.coverage(raised).missingTerms.every((term) => missing.includes(term)) ? raised : translated;
   }

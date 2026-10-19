@@ -1082,6 +1082,11 @@ describe("runPipeline", () => {
       });
       expect(nfd.translated).toBe(".re\u0301glages : fichier de configuration");
       expect(nfd.glossaryCoverage).toBe(1);
+      // Even when another occurrence keeps the term covered.
+      const both = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".réglages">fichier de configuration</term>', ".re\u0301glages : fichier de configuration dans .réglages"], []), store, {
+        glossaryEntries: [{ ...env, targetTerm: ".réglages" }], glossaryMode: "strict",
+      });
+      expect(both.translated).toBe(".re\u0301glages : fichier de configuration dans .réglages");
       const dev = { ...cache, sourceTerm: "development", targetTerm: "iOS-Entwicklung", targetLang: "de", forms: ["iOS … entwickeln"] };
       const split = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung"], []), store, { glossaryEntries: [dev], glossaryMode: "strict" });
       expect(split.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung");
