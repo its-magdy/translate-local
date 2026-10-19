@@ -71,6 +71,11 @@ describe("translateFile", () => {
       .rejects.toMatchObject({ tag: "INVALID_INPUT" });
     await expect(translateFile({ sourcePath: join(dir, "missing.json"), sourceLang: "en", targetLang: "ar", translator: tr(adapter) }))
       .rejects.toMatchObject({ tag: "FILE_NOT_FOUND" });
+    // Both come before the same-language check, as they did when the CLI made them.
+    await expect(translateFile({ sourcePath: join(dir, "missing.json"), sourceLang: "en", targetLang: "en", translator: tr(adapter) }))
+      .rejects.toMatchObject({ tag: "FILE_NOT_FOUND" });
+    await expect(translateFile({ sourcePath: src, sourceLang: "en", targetLang: "en", translator: tr(adapter) }))
+      .rejects.toMatchObject({ tag: "INVALID_INPUT" });
   });
 
   it("--force re-translates everything", async () => {

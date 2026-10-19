@@ -226,14 +226,6 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     signal,
   } = opts;
 
-  if (sourceLang !== "auto" && sourceLang === targetLang) {
-    throw new TlError(
-      "SAME_LOCALE",
-      `Source and target language are both "${sourceLang}"`,
-      "Pass --from and --to with different language codes.",
-    );
-  }
-
   if (!existsSync(sourcePath)) {
     throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
   }
@@ -246,6 +238,14 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
     );
   }
+  if (sourceLang !== "auto" && sourceLang === targetLang) {
+    throw new TlError(
+      "SAME_LOCALE",
+      `Source and target language are both "${sourceLang}"`,
+      "Pass --from and --to with different language codes.",
+    );
+  }
+
   const sourceLocale = sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang;
 
   // The language check above can't fire when sourceLang is "auto", so an
