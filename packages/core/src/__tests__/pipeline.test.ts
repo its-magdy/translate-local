@@ -1091,6 +1091,11 @@ describe("runPipeline", () => {
       const split = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung"], []), store, { glossaryEntries: [dev], glossaryMode: "strict" });
       expect(split.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung");
       expect(split.glossaryCoverage).toBe(1);
+      // A form is split after its marks are dropped, as coverage splits it (a stray leading mark).
+      const marked = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung mit iOS-Entwicklung"], []), store, {
+        glossaryEntries: [{ ...dev, forms: ["\u0301 iOS … entwickeln"] }], glossaryMode: "strict",
+      });
+      expect(marked.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung mit iOS-Entwicklung");
       // The letter is raised in the target language's casing (Turkish `i` → `İ`).
       const tr = { ...cache, targetTerm: "önbellek", targetLang: "tr" };
       const turkish = await runPipeline(TEXT, "en", "tr", driftAdapter(['İşlem: <term translation="önbellek">isabet oranı</term>', "işlem: önbellek isabet oranı"], []), store, { glossaryEntries: [tr] });

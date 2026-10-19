@@ -91,7 +91,7 @@ export class TermSet {
     // Matched with combining marks dropped, as coverage matches (`re\u0301glages` is `réglages`).
     const plain = stripCombiningMarks(translated);
     const at = /^\P{L}*/u.exec(plain)![0].length;
-    const words = [...this.agreementTerms, ...[...this.forms.values()].flat().flatMap(formParts)].map(stripCombiningMarks);
+    const words = [...this.agreementTerms.map(stripCombiningMarks), ...[...this.forms.values()].flat().flatMap((form) => formParts(stripCombiningMarks(form)))];
     // Only an occurrence starting within its own length before the letter can cover it.
     const covers = (word: string) => {
       for (let from = Math.max(0, at - word.length + 1); from <= at; from++) {
