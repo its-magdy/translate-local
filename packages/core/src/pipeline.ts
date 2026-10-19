@@ -144,7 +144,7 @@ export async function runPipeline(
         const reading = terms.read(check);
         if (reading.missingTerms.every((term) => result.missingTerms.includes(term)) && sentinels(reading.translated) === sentinels(result.translated)) {
           return repairAgreement({
-            ...result, translated: reading.translated, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
+            ...result, translated: matchStartCase(reading.translated, result.translated), glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
             metadata: { ...result.metadata, tagDrift: true },
           });
         }
@@ -234,4 +234,14 @@ function count(text: string, char: string): number {
 /** The placeholder sentinels in `text`, sorted, as one comparable string. */
 function sentinels(text: string): string {
   return (text.match(SENTINEL_RE) ?? []).sort().join(" ");
+}
+
+/**
+ * `answer` with its first letter raised when `draft`'s first letter is
+ * uppercase and `answer`'s is lowercase: the code-switched source starts with
+ * the lowercase target term, so the check's output does too (fr
+ * `antémémoire : taille` for the draft `Antémémoire`).
+ */
+function matchStartCase(answer: string, draft: string): string {
+  return /^\P{L}*\p{Lu}/u.test(draft) ? answer.replace(/^(\P{L}*)(\p{Ll})/u, (_, before: string, letter: string) => before + letter.toUpperCase()) : answer;
 }

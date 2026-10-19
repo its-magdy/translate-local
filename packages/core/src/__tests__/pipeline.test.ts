@@ -967,7 +967,7 @@ describe("runPipeline", () => {
     it("returns the check's output when it still writes the drifted words, then repairs it", async () => {
       const requests: any[] = [];
       const controller = new AbortController();
-      const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests, "Antémémoire : taux de réussite"), store, {
+      const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests, "Antémémoire : le taux de réussite"), store, {
         glossaryEntries: [cache], signal: controller.signal, contextSnippets: ["x"],
       });
       expect(requests).toHaveLength(3);
@@ -975,8 +975,9 @@ describe("runPipeline", () => {
       expect(requests[1].contextSnippets).toBeUndefined();
       expect(requests[1].signal).toBe(controller.signal);
       expect(requests[2].repairTerms).toEqual(["antémémoire"]);
-      expect(requests[2].source).toBe("antémémoire : taux de réussite");
-      expect(result.translated).toBe("Antémémoire : taux de réussite");
+      // The draft (`Antémémoire`) starts uppercase: so does the answer sent to the repair.
+      expect(requests[2].source).toBe("Antémémoire : taux de réussite");
+      expect(result.translated).toBe("Antémémoire : le taux de réussite");
       expect(result.glossaryCoverage).toBe(1);
       expect(result.metadata.tagChecked).toBe(true);
       expect(result.metadata.tagDrift).toBe(true);
@@ -1008,7 +1009,7 @@ describe("runPipeline", () => {
       const sized = `Cache hit rate ${TOK}`;
       const sentinel = { entry: { id: "__sentinel_0", sourceTerm: TOK, targetTerm: TOK, sourceLang: "en", targetLang: "fr" }, startIndex: sized.indexOf(TOK), endIndex: sized.indexOf(TOK) + TOK.length };
       const tagged = `${RAW} <term translation="${TOK}">${TOK}</term>`;
-      for (const [check, translated] of [[CHECK, `Antémémoire ${TOK}`], [`${CHECK} ${TOK}`, `antémémoire : taux de réussite ${TOK}`]]) {
+      for (const [check, translated] of [[CHECK, `Antémémoire ${TOK}`], [`${CHECK} ${TOK}`, `Antémémoire : taux de réussite ${TOK}`]]) {
         const result = await runPipeline(sized, "en", "fr", driftAdapter([tagged, check], []), store, { glossaryEntries: [cache], extraGlossaryHits: [sentinel] });
         expect(result.translated).toBe(translated);
       }
@@ -1034,10 +1035,21 @@ describe("runPipeline", () => {
         const requests: any[] = [];
         const result = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW, CHECK], requests), store, { glossaryEntries: [cache], glossaryMode });
         expect(requests).toHaveLength(3);
-        expect(result.translated).toBe("antémémoire : taux de réussite");
+        expect(result.translated).toBe("Antémémoire : taux de réussite");
         expect(result.metadata.tagDrift).toBe(true);
         expect(result.metadata.repaired).toBeUndefined();
       }
+    });
+
+    it("starts the check's output uppercase only when the draft does", async () => {
+      // A lowercase drifted span strips to a lowercase draft: the answer keeps its case.
+      const lower = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW.replace("Taux", "taux"), CHECK], []), store, { glossaryEntries: [cache] });
+      expect(lower.translated).toBe("antémémoire : taux de réussite");
+      expect(lower.metadata.tagDrift).toBe(true);
+      // Text before the first letter stays; only that letter is raised.
+      const quoted = await runPipeline(TEXT, "en", "fr", driftAdapter([`« Le ${RAW} »`, `« ${CHECK} »`], []), store, { glossaryEntries: [cache] });
+      expect(quoted.translated).toBe("« Antémémoire : taux de réussite »");
+      expect(quoted.metadata.tagDrift).toBe(true);
     });
 
     it("decides a drifted tag and a tag-check candidate from the one check", async () => {
