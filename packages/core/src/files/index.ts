@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "fs";
 import { extname, resolve, dirname, basename, join } from "path";
-import type { Adapter, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
+import type { Adapter } from "@translate-local/shared/types";
 import { TlError, type ErrorTag } from "@translate-local/shared/errors";
 import { DEFAULT_MAX_SNIPPETS, DEFAULT_MIN_RELEVANCE } from "@translate-local/shared/constants";
 import type { GlossaryStore } from "../glossary";
@@ -13,12 +13,9 @@ import { yamlFormat } from "./yaml";
 import { atomicWriteFile } from "./atomic";
 import { diffForSync, pruneTarget, type PendingTranslation, type SyncMode } from "./sync";
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
-import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices } from "./placeholders";
-import { parseICU, translateICU, type UnitTranslator } from "./icu";
-import { classifyValue } from "./skip";
+import { planLeaf, translateLeaf, strictError, isCancelled, type LeafOutcome, type TranslateText } from "./leaf";
 import { rebaseLocaleRoot, type RootLocaleRename } from "./locale-root";
-import { pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
-import { sampleRegex } from "./plurals";
+import { pathKey } from "./i18next";
 import { walkLeaves, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
@@ -99,13 +96,6 @@ const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 
 const FORMATS: Record<ParseFormat, CatalogFormat> = { json: jsonFormat, yaml: yamlFormat };
 
-// 10 retries gives ~99.9% success at ~50% per-attempt rate; cost is paid only on stubborn keys.
-const MAX_PLACEHOLDER_RETRIES = 10;
-
-// Attempts that show the model a sample count (e.g. "3 files") for a plural
-// form before falling back to translating the bare placeholder text.
-const PLURAL_HINT_ATTEMPTS = 3;
-
 // True when both paths name one file on disk. resolve() alone compares strings,
 // so it misses symlinked path components ("/tmp/x" vs "/private/tmp/x" on macOS)
 // and would let a run overwrite its own source. The output usually does not
@@ -162,212 +152,6 @@ function guardPrune(removed: number, total: number, topKeysBefore: string[], aft
       PRUNE_HINT,
     );
   }
-}
-
-/** A leaf that could not be translated; recorded as failed (or thrown under --strict). */
-class UnitFailed extends Error {
-  constructor(
-    message: string,
-    /** Set when the pipeline itself threw; rethrown as-is under --strict. */
-    readonly pipelineError?: unknown,
-    readonly tag: "PLACEHOLDER_MISMATCH" | "FILE_INVALID_FORMAT" = "PLACEHOLDER_MISMATCH",
-  ) {
-    super(message);
-  }
-}
-
-// A cancelled model call: the run was aborted, the leaf did not fail.
-function isCancelled(err: unknown): boolean {
-  const cause = err instanceof UnitFailed ? err.pipelineError : err;
-  return cause instanceof TlError && cause.tag === "CANCELLED";
-}
-
-// The tag --strict would throw for this failure: a pipeline error is rethrown
-// as-is, and one that isn't a TlError reaches the CLI as TRANSLATION_FAILED.
-function failureTag(err: UnitFailed): ErrorTag {
-  if (err.pipelineError === undefined) return err.tag;
-  return err.pipelineError instanceof TlError ? err.pipelineError.tag : "TRANSLATION_FAILED";
-}
-
-// translategemma reliably honors <term> tags from the glossary path; routing
-// sentinels through that channel preserves them better than naked-token instructions.
-// The pipeline only tags them (no strict-mode enforcement or coverage), so a
-// dropped sentinel reaches translateLeaf's placeholder check and retry loop.
-function sentinelHits(text: string, indices: number[], sourceLang: string, targetLang: string): GlossaryHit[] {
-  const hits: GlossaryHit[] = [];
-  for (const index of indices) {
-    const tok = sentinelFor(index);
-    const idx = text.indexOf(tok);
-    if (idx < 0) continue;
-    hits.push({
-      entry: { id: `__sentinel_${index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
-      startIndex: idx,
-      endIndex: idx + tok.length,
-    });
-  }
-  return hits;
-}
-
-function parsesAsICU(source: string): boolean {
-  try {
-    parseICU(source);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function translateIcuLeaf(source: string, pathStr: string, targetLang: string, runUnit: UnitTranslator): Promise<string> {
-  try {
-    parseICU(source);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new UnitFailed(`Invalid ICU MessageFormat at ${pathStr}: ${msg}`, undefined, "FILE_INVALID_FORMAT");
-  }
-  try {
-    return await translateICU(source, targetLang, runUnit);
-  } catch (err) {
-    if (err instanceof UnitFailed) throw err;
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new UnitFailed(`ICU validation failed at ${pathStr}: ${msg}`);
-  }
-}
-
-type LeafContext = {
-  sourceLang: string;
-  targetLang: string;
-  adapter: Adapter;
-  glossary: GlossaryStore;
-  context: ContextStore;
-  glossaryMode: "prefer" | "strict";
-  glossaryEntries: GlossaryEntry[];
-  maxSnippets: number;
-  minRelevance: number;
-  plurals?: PluralRegenResult;
-  signal?: AbortSignal;
-};
-
-/**
- * Translates one leaf, retrying placeholder failures. `unhinted` is true for a
- * plural form translated without its sample count. Throws UnitFailed on give-up.
- */
-async function translateLeaf(
-  p: PendingTranslation,
-  pathStr: string,
-  isICU: boolean,
-  ctx: LeafContext,
-): Promise<{ value: string; unhinted: boolean }> {
-  const { sourceLang, targetLang } = ctx;
-  const snippets = ctx.context.retrieve(p.source, ctx.maxSnippets, ctx.minRelevance).map((s) => s.content);
-
-  const run = async (text: string, hits: GlossaryHit[]): Promise<string> => {
-    const result = await runPipeline(text, sourceLang, targetLang, ctx.adapter, ctx.glossary, {
-      glossaryMode: ctx.glossaryMode,
-      contextSnippets: snippets,
-      extraGlossaryHits: hits,
-      glossaryEntries: ctx.glossaryEntries,
-      signal: ctx.signal,
-    });
-    return result.translated;
-  };
-  const pipelineFailed = (err: unknown): UnitFailed => {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new UnitFailed(`Pipeline failed at ${pathStr}: ${msg}`, err);
-  };
-
-  // Runs the pipeline on `text` until `check` accepts the output (null =
-  // accepted), retrying placeholder failures. Throws UnitFailed on give-up.
-  const retry = async (
-    text: string,
-    hits: GlossaryHit[],
-    check: (out: string) => string | null,
-    firstAttempt = 0,
-  ): Promise<string> => {
-    let lastReason = "";
-    for (let attempt = firstAttempt; attempt < MAX_PLACEHOLDER_RETRIES; attempt++) {
-      let out: string;
-      try {
-        out = await run(text, hits);
-      } catch (err) {
-        throw pipelineFailed(err);
-      }
-      const problem = check(out);
-      if (problem === null) return out;
-      lastReason = `Placeholder mismatch at ${pathStr} (attempt ${attempt + 1}/${MAX_PLACEHOLDER_RETRIES}) — ${problem}`;
-    }
-    throw new UnitFailed(lastReason);
-  };
-
-  if (isICU) {
-    const runUnit: UnitTranslator = (masked, check) =>
-      retry(masked, sentinelHits(masked, sentinelIndices(masked), sourceLang, targetLang), check);
-    return { value: await translateIcuLeaf(p.source, pathStr, targetLang, runUnit), unhinted: false };
-  }
-
-  const { masked, placeholders } = mask(p.source);
-  const indices = placeholders.map((ph) => ph.index);
-  const mismatch = (expected: string, restored: string): string | null => {
-    if (placeholders.length === 0) return null;
-    const v = validate(expected, restored);
-    return v.ok ? null : `missing: [${v.missing.join(", ")}], extra: [${v.extra.join(", ")}]`;
-  };
-
-  // For a plural form, swap {{count}} for the category's sample number so the
-  // model inflects for it ("3 files", not "__TLPH_0__ files"); the number is
-  // swapped back to the placeholder after translation.
-  const hint = ctx.plurals?.hints.get(pathKey(p.path));
-  const counts = hint ? placeholders.filter((ph) => isCountPlaceholder(ph.raw)) : [];
-  // A form that should have had a sample but can't: no {{count}} in its text
-  // (and the category spans several numbers), or every sample collides with
-  // a literal number in the text (hint === null).
-  const hintMissed = hint === null || (hint !== undefined && counts.length === 0 && !hint.exact);
-  const hinted = hint != null && counts.length > 0;
-  if (hinted) {
-    let text = masked;
-    for (const ph of counts) text = text.split(sentinelFor(ph.index)).join(String(hint.value));
-    // Markup stays raw in the hinted text: translategemma keeps `<b>3</b>`
-    // but drops sentinels glued to a bare number (`__TLPH_0__3__TLPH_2__`).
-    // Raw tags in the output still pass validate(), which compares raw forms.
-    for (const ph of placeholders) {
-      if (ph.raw.startsWith("<")) text = text.split(sentinelFor(ph.index)).join(ph.raw);
-    }
-    const hits = sentinelHits(text, indices, sourceLang, targetLang);
-    const countTok = sentinelFor(counts[0].index);
-    const re = sampleRegex(hint.value, targetLang);
-    for (let attempt = 0; attempt < PLURAL_HINT_ATTEMPTS; attempt++) {
-      let out: string;
-      try {
-        out = await run(text, hits);
-      } catch (err) {
-        // A sample count can derail the model (e.g. Ollama aborting on a
-        // repeated "0" token for 1000000) — move on to the plain text instead.
-        if (err instanceof TlError && (err.tag === "ADAPTER_UNAVAILABLE" || err.tag === "CANCELLED")) throw pipelineFailed(err);
-        continue;
-      }
-      let expected = p.source;
-      const swapped = out.replace(re, countTok);
-      if (swapped !== out) {
-        out = swapped;
-      } else if (hint.exact) {
-        // The category holds only this number (Arabic dual = 2), so a
-        // translation that spells it out or drops it ("ملفان") is still right.
-        expected = placeholders.filter((ph) => !isCountPlaceholder(ph.raw)).map((ph) => ph.raw).join(" ");
-      } else {
-        continue;
-      }
-      const restored = unmask(out, placeholders);
-      if (mismatch(expected, restored) === null) return { value: restored, unhinted: false };
-    }
-  }
-
-  // The plain attempts continue the numbering after the hinted ones.
-  const out = await retry(
-    masked,
-    sentinelHits(masked, indices, sourceLang, targetLang),
-    (o) => mismatch(p.source, unmask(o, placeholders)),
-    hinted ? PLURAL_HINT_ATTEMPTS : 0,
-  );
-  return { value: unmask(out, placeholders), unhinted: hinted || hintMissed };
 }
 
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
@@ -579,18 +363,20 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     failedKeys[lockKey(p.path)] = hashSource(p.source);
     if (!dryRun) p.set(p.source);
   };
-  const leafCtx: LeafContext = {
-    sourceLang,
-    targetLang,
-    adapter,
-    glossary,
-    context,
-    glossaryMode,
-    glossaryEntries,
-    maxSnippets,
-    minRelevance,
-    plurals,
-    signal,
+  // One model call for a translation unit of the leaf at `source`, with that
+  // leaf's context snippets (retrieved once per leaf).
+  const translatorFor = (source: string): TranslateText => {
+    const snippets = context.retrieve(source, maxSnippets, minRelevance).map((s) => s.content);
+    return async (text, hits) => {
+      const result = await runPipeline(text, sourceLang, targetLang, adapter, glossary, {
+        glossaryMode,
+        contextSnippets: snippets,
+        extraGlossaryHits: hits,
+        glossaryEntries,
+        signal,
+      });
+      return result.translated;
+    };
   };
 
   // Leaves pending[i..] were not reached: keep them out of the target and lock.
@@ -615,79 +401,48 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     const pathStr = p.path.map(String).join(".");
     onProgress?.({ done: i, total: pending.length, path: pathStr });
 
-    // FormatJS: only defaultMessage is a message; description and friends are
-    // notes for translators and are copied verbatim.
-    if (detected.content === "formatjs" && p.path[p.path.length - 1] !== "defaultMessage") {
+    const plan = planLeaf(p.source, p.path, pathStr, { content: detected.content, translateAll });
+    if (plan.kind === "keep") {
       if (!dryRun) p.set(p.source);
       summary.skipped.count++;
-      summary.skipped.reasons.metadata = (summary.skipped.reasons.metadata ?? 0) + 1;
+      summary.skipped.reasons[plan.reason] = (summary.skipped.reasons[plan.reason] ?? 0) + 1;
       continue;
     }
-
-    if (!translateAll) {
-      const cls = classifyValue(p.source);
-      if (cls.skip) {
-        if (!dryRun) p.set(p.source);
-        summary.skipped.count++;
-        summary.skipped.reasons[cls.reason] = (summary.skipped.reasons[cls.reason] ?? 0) + 1;
-        continue;
-      }
-    }
-
-    // i18next doesn't speak ICU: a single-brace "{x, number}" there is literal text.
-    const isICU = detected.content === "formatjs" || (detected.content !== "i18next-plurals" && containsICU(p.source));
-
-    // A plural/select in an i18next catalog would reach the model as literal
-    // text and come back garbled, so keep the source and report it.
-    if (detected.content === "i18next-plurals" && containsICUBranching(p.source)) {
-      const reason = `ICU MessageFormat in an i18next catalog at ${pathStr}`;
-      if (!continueOnError && !dryRun) {
-        throw new TlError(
-          "FILE_INVALID_FORMAT",
-          reason,
-          "i18next does not evaluate ICU plural/select, so the value is not translated. Use i18next plural keys (key_one, key_other). If this is an ICU catalog misdetected as i18next because of _one/_other keys, pass --format raw-json (or raw-yaml) to translate ICU values structure-preserving; that also skips i18next plural regeneration. The default run keeps the source for these keys.",
-        );
-      }
-      icuInI18next++;
-      fail(p, pathStr, reason, "FILE_INVALID_FORMAT");
+    if (plan.kind === "refuse") {
+      if (!continueOnError && !dryRun) throw strictError(plan.failure);
+      if (plan.icuInI18next) icuInI18next++;
+      fail(p, pathStr, dryRun ? plan.reason : plan.failure.message, plan.failure.tag);
       continue;
     }
-
     if (dryRun) {
-      if (isICU && !parsesAsICU(p.source)) {
-        fail(p, pathStr, `Invalid ICU MessageFormat at ${pathStr}`, "FILE_INVALID_FORMAT");
-      } else {
-        summary.translated++;
-      }
+      summary.translated++;
       continue;
     }
 
-    let result: { value: string; unhinted: boolean };
+    let outcome: LeafOutcome;
     try {
-      result = await translateLeaf(p, pathStr, isICU, leafCtx);
+      outcome = await translateLeaf(
+        p.source,
+        pathStr,
+        { icu: plan.icu, sourceLang, targetLang, hint: plurals?.hints.get(pathKey(p.path)) },
+        translatorFor(p.source),
+      );
     } catch (err) {
       if (isCancelled(err)) {
         stopAt(i);
         break;
       }
-      if (!(err instanceof UnitFailed)) throw err;
-      if (continueOnError) {
-        // Fall back to source so every key has a value; user can grep source text to find failures.
-        fail(p, pathStr, err.message, failureTag(err));
-        continue;
-      }
-      if (err.pipelineError !== undefined) throw err.pipelineError;
-      throw new TlError(
-        err.tag,
-        err.message,
-        err.tag === "FILE_INVALID_FORMAT"
-          ? "Fix the ICU syntax in the source value. The default run continues and falls back to source for these keys; --strict aborts instead."
-          : "The model output dropped or altered placeholders across all retries. Pass --strict only if you want abort-on-failure; otherwise the default continues with source-as-fallback.",
-      );
+      throw err;
+    }
+    if (outcome.kind === "failed") {
+      if (!continueOnError) throw strictError(outcome.failure);
+      // Fall back to source so every key has a value; user can grep source text to find failures.
+      fail(p, pathStr, outcome.failure.message, outcome.failure.tag);
+      continue;
     }
 
-    if (result.unhinted) unhinted.push(pathStr);
-    p.set(result.value);
+    if (outcome.unhinted) unhinted.push(pathStr);
+    p.set(outcome.value);
     summary.translated++;
   }
   if (!summary.aborted) onProgress?.({ done: pending.length, total: pending.length, path: "" });
