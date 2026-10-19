@@ -41,15 +41,19 @@ export interface Lock {
 }
 
 // Real path of the target, so a symlinked target shares its lock with the file
-// it points at. The target may not exist yet: then realpath its directory.
+// it points at. The target, and its directories, may not exist yet: then
+// realpath the nearest existing ancestor, so the lock doesn't move once
+// translateFile creates them.
 function realTarget(outPath: string): string {
-  try {
-    return realpathSync(outPath);
-  } catch {
+  let existing = resolve(outPath);
+  const missing: string[] = [];
+  for (;;) {
     try {
-      return join(realpathSync(dirname(outPath)), basename(outPath));
+      return join(realpathSync(existing), ...missing);
     } catch {
-      return resolve(outPath);
+      if (dirname(existing) === existing) return resolve(outPath);
+      missing.unshift(basename(existing));
+      existing = dirname(existing);
     }
   }
 }

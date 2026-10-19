@@ -45,6 +45,17 @@ describe("lockPathFor / readLock / writeLock", () => {
     expect(lockPathFor(join(dir, "ar-link.json"))).toBe(lockPathFor(join(dir, "locales/ar.json")));
   });
 
+  test("a target under a symlinked dir gets the same lock before and after its missing dirs exist", () => {
+    mkdirSync(join(dir, "real/.git"), { recursive: true });
+    mkdirSync(join(dir, "real/sub"));
+    symlinkSync(join(dir, "real/sub"), join(dir, "alias"), "junction");
+    const out = join(dir, "alias/new/ar.json");
+    const before = lockPathFor(out);
+    mkdirSync(join(dir, "alias/new"));
+    expect(before).toBe(lockPathFor(out));
+    expect(before).toBe(join(dir, "real/.tl/locks/sub/new/ar.json.lock"));
+  });
+
   test("without a .git ancestor, .tl/locks/ sits in the target's directory", () => {
     mkdirSync(join(dir, "out"));
     expect(lockPathFor(join(dir, "out/ar.json"))).toBe(join(dir, "out/.tl/locks/ar.json.lock"));
