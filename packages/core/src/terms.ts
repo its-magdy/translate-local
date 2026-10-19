@@ -81,14 +81,24 @@ export class TermSet {
    * (Turkish `i` → `İ`; plain casing for an invalid tag) when `draft`'s first
    * letter is uppercase and `translated`'s is lowercase: the code-switched
    * source starts with the lowercase term, so the check's output does too (fr
-   * `antémémoire : taille` for the draft `Antémémoire`). Not when it starts with
-   * a term or form that capitalizeTerm leaves as written (`iOS`).
+   * `antémémoire : taille` for the draft `Antémémoire`). Not when the letter
+   * is inside a term, form or split-form part (`.env`, `iOS`) that
+   * capitalizeTerm would not raise there: coverage accepts each as written or
+   * capitalized, so a raise never loses a term.
    */
   matchStartCase(translated: string, draft: string): string {
     const start = /^(\P{L}*)(\p{Ll})/u.exec(translated);
     if (!start || !/^\P{L}*\p{Lu}/u.test(draft)) return translated;
-    const rest = translated.slice(start[1].length);
-    if (this.agreementTerms.some((term) => rest.startsWith(term) && capitalizeTerm(term) === term)) return translated;
+    const at = start[1].length;
+    const words = [...this.agreementTerms, ...[...this.forms.values()].flat().flatMap(formParts)];
+    // Only an occurrence starting within its own length before the letter can cover it.
+    const covers = (word: string) => {
+      for (let from = Math.max(0, at - word.length + 1); from <= at; from++) {
+        if (translated.startsWith(word, from) && !(from === at && capitalizeTerm(word) !== word)) return true;
+      }
+      return false;
+    };
+    if (words.some(covers)) return translated;
     let letter: string;
     try {
       letter = start[2].toLocaleUpperCase(this.targetLang);

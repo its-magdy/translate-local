@@ -1071,11 +1071,25 @@ describe("runPipeline", () => {
       // Not even when another occurrence keeps the term covered.
       const twice = await runPipeline(TEXT, "en", "fr", driftAdapter(['Le <term translation="iOS">taux de réussite</term>', "iOS : taux de réussite sur iOS"], []), store, { glossaryEntries: [ios] });
       expect(twice.translated).toBe("iOS : taux de réussite sur iOS");
+      // Nor inside a term that starts with punctuation, or a part of a split form.
+      const env = { ...cache, sourceTerm: "environment", targetTerm: ".env" };
+      const dot = await runPipeline("Environment file status", "en", "fr", driftAdapter(['Le <term translation=".env">fichier de configuration</term>', ".env : fichier de configuration"], []), store, { glossaryEntries: [env], glossaryMode: "strict" });
+      expect(dot.translated).toBe(".env : fichier de configuration");
+      expect(dot.glossaryCoverage).toBe(1);
+      const dev = { ...cache, sourceTerm: "development", targetTerm: "iOS-Entwicklung", targetLang: "de", forms: ["iOS … entwickeln"] };
+      const split = await runPipeline("Development application status", "en", "de", driftAdapter(['Die <term translation="iOS-Entwicklung">aktuelle Anwendung</term>', "iOS jetzt entwickeln: aktuelle Anwendung"], []), store, { glossaryEntries: [dev], glossaryMode: "strict" });
+      expect(split.translated).toBe("iOS jetzt entwickeln: aktuelle Anwendung");
+      expect(split.glossaryCoverage).toBe(1);
       // The letter is raised in the target language's casing (Turkish `i` → `İ`).
       const tr = { ...cache, targetTerm: "önbellek", targetLang: "tr" };
       const turkish = await runPipeline(TEXT, "en", "tr", driftAdapter(['İşlem: <term translation="önbellek">isabet oranı</term>', "işlem: önbellek isabet oranı"], []), store, { glossaryEntries: [tr] });
       expect(turkish.translated).toBe("İşlem: önbellek isabet oranı");
       expect(turkish.metadata.tagDrift).toBe(true);
+      // A term at the start is raised too, and stays covered.
+      const term = { ...tr, targetTerm: "işlem" };
+      const raised = await runPipeline(TEXT, "en", "tr", driftAdapter(['Şu <term translation="işlem">isabet oranı</term>', "işlem isabet oranı"], []), store, { glossaryEntries: [term] });
+      expect(raised.translated).toBe("İşlem isabet oranı");
+      expect(raised.glossaryCoverage).toBe(1);
       // A target that is not a language tag falls back to plain casing.
       const odd = await runPipeline(TEXT, "en", "x!", driftAdapter([RAW, CHECK], []), store, { glossaryEntries: [{ ...cache, targetLang: "x!" }] });
       expect(odd.translated).toBe("Antémémoire : taux de réussite");
