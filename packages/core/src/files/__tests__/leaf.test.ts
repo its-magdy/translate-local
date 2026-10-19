@@ -17,13 +17,12 @@ describe("planLeaf", () => {
 
   test("refuses ICU branching in an i18next catalog", () => {
     const plan = planLeaf("{n, plural, one {# file} other {# files}}", ["files"], "files", { content: "i18next-plurals", translateAll: false });
-    expect(plan).toMatchObject({ kind: "refuse", icuInI18next: true, reason: "ICU MessageFormat in an i18next catalog at files" });
-    if (plan.kind === "refuse") expect(plan.failure.tag).toBe("FILE_INVALID_FORMAT");
+    expect(plan).toMatchObject({ kind: "refuse", icuInI18next: true, failure: { message: "ICU MessageFormat in an i18next catalog at files", tag: "FILE_INVALID_FORMAT" } });
   });
 
-  test("refuses ICU that does not parse; the dry-run reason has no parser detail", () => {
+  test("refuses ICU that does not parse, naming the parser's error", () => {
     const plan = planLeaf("{n, plural, one {# file}}", ["files"], "files", vanilla);
-    expect(plan).toMatchObject({ kind: "refuse", icuInI18next: false, reason: "Invalid ICU MessageFormat at files" });
+    expect(plan).toMatchObject({ kind: "refuse", icuInI18next: false });
     if (plan.kind === "refuse") expect(plan.failure.message).toMatch(/^Invalid ICU MessageFormat at files: /);
   });
 });

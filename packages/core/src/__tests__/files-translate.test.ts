@@ -1066,6 +1066,20 @@ describe("translateFile", () => {
     expect(JSON.parse(readFileSync(out, "utf8")).bad).toBe("{n, plural, one {# item}}");
   });
 
+  it("a dry run reports malformed ICU with the same reason as a real run", async () => {
+    const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}" }));
+    const run = (dryRun: boolean) => translateFile({
+      sourcePath: src, outPath: join(dir, "ar.json"),
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      dryRun,
+    });
+    const dry = await run(true);
+    const real = await run(false);
+    expect(dry.failed[0].reason).toMatch(/^Invalid ICU MessageFormat at bad: ./);
+    expect(dry.failed).toEqual(real.failed);
+  });
+
   it("malformed ICU aborts under strict mode", async () => {
     const src = writeSrc("en.json", JSON.stringify({ bad: "{n, plural, one {# item}}" }));
     await expect(translateFile({
