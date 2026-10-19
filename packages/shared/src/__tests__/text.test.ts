@@ -576,10 +576,16 @@ describe("tag check", () => {
     tagCheckCandidates('<term translation="bereitstellen">'.repeat(50_000), [deploy]);
     tagCheckCandidates('<term translation="bereitstellen">a</term>'.repeat(50_000) + " bereitstellen", [deploy]);
     checkKeepsWord("a ".repeat(100_000) + "bereitstellen", "bereitstellen", "a b");
-    // A term that repeats outside the tag at every period, never at word edges.
-    const long = "abcd efgh".repeat(16_000);
-    tagCheckCandidates(`<term translation="${long}">taux</term> ${"abcd efgh".repeat(32_000)}`, [makeHit("cache", long, 0)]);
     expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  test("finds the term outside the tags in linear time when it repeats at every period", () => {
+    // Never at word edges, so a search that rejects each match is quadratic: about 7 s here
+    // with an indexOf loop, 0.3 s with KMP. Large n keeps that gap wide on slow CI runners.
+    const long = "abcd efgh".repeat(48_000);
+    const start = performance.now();
+    tagCheckCandidates(`<term translation="${long}">taux</term> ${"abcd efgh".repeat(96_000)}`, [makeHit("cache", long, 0)]);
+    expect(performance.now() - start).toBeLessThan(4000);
   });
 });
 
@@ -648,8 +654,14 @@ describe("drift check", () => {
     // A long term and a span of many distinct words, each looked for inside the term.
     const term = "z".repeat(32_000);
     checkWritesDriftedWord(term, term, Array.from({ length: 32_000 }, (_, i) => `word${i}`).join(" "));
-    const long = "abcd efgh".repeat(16_000);
-    driftCandidates(`<term translation="${long}">taux de réussite</term> ${"abcd efgh".repeat(32_000)}`, [makeHit("cache", long, 0)]);
     expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  test("finds the term outside the tag in linear time when it repeats at every period", () => {
+    // As the tag check's case: quadratic with an indexOf loop, wide gap at this size.
+    const long = "abcd efgh".repeat(48_000);
+    const start = performance.now();
+    driftCandidates(`<term translation="${long}">taux de réussite</term> ${"abcd efgh".repeat(96_000)}`, [makeHit("cache", long, 0)]);
+    expect(performance.now() - start).toBeLessThan(4000);
   });
 });
