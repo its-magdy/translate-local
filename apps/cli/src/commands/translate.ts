@@ -12,6 +12,14 @@ import { exitOnInterrupt, runAction } from "../utils/run";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
+// Through process.stdin, not Bun.stdin.text(): on Windows the latter never
+// settled for a pipe, so the process exited 0 without output.
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
 
@@ -47,7 +55,7 @@ export function makeTranslateCommand(): Command {
       // Piped input is the text when none is given: `echo hi | tl --to fr`.
       // Trailing line breaks (echo's newline) are dropped; inner ones are kept.
       if (!text && !opts.image && !opts.file && !process.stdin.isTTY) {
-        const piped = (await Bun.stdin.text()).replace(/(\r?\n)+$/, "");
+        const piped = (await readStdin()).replace(/(\r?\n)+$/, "");
         if (piped.trim()) text = piped;
       }
 
