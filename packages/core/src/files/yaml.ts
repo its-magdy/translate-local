@@ -148,7 +148,14 @@ function setScalarValue(node: Scalar, next: string): void {
 function applyValue(doc: Document.Parsed, node: unknown, value: JsonValue): unknown {
   if (typeof value === "string") {
     if (!isScalar(node)) return doc.createNode(value);
-    setScalarValue(node as Scalar, value);
+    const scalar = node as Scalar;
+    // Over a number or boolean, drop its `!!int` tag and number format, which
+    // would otherwise be written around the text (`!!int .nan`).
+    if (typeof scalar.value !== "string" && scalar.value !== null) {
+      scalar.tag = undefined;
+      scalar.format = undefined;
+    }
+    setScalarValue(scalar, value);
     return node;
   }
   if (value === null || typeof value !== "object") {

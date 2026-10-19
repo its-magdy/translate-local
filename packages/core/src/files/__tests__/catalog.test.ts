@@ -115,6 +115,16 @@ const scenarios: Scenario[] = [
     yamlOut: "title: Bonjour\n",
   },
   {
+    // A string written over a number drops the number's `!!int` tag, which
+    // turned "Bonjour" into `!!int .nan`; the comment stays.
+    name: "writes a target string over a tagged non-string source value",
+    source: { count: 5, title: "Hello" },
+    yaml: "count: !!int 5 # note\ntitle: Hello\n",
+    existing: { count: "Bonjour" },
+    json: '{\n  "count": "Bonjour",\n  "title": "[ar] Hello"\n}\n',
+    yamlOut: "count: Bonjour # note\ntitle: \"[ar] Hello\"\n",
+  },
+  {
     name: "keeps the source document's style for equal non-string values",
     source: { size: 16, on: true, none: null },
     yaml: "size: 0x10 # hex\non: true\nnone: ~\n",
