@@ -1977,7 +1977,7 @@ describe("translateFile", () => {
 
   // The YAML output is the source document with the target data applied, so it
   // differs from the JSON output in ways these tests pin byte for byte.
-  it("an aborted YAML run writes an unreached key the target holds as null at the end of its map", async () => {
+  it("an aborted YAML run keeps an unreached key the target holds as null in its place", async () => {
     const src = writeSrc("en.yml", "a: One\nc: Three\nb: Two\n");
     const out = join(dir, "ar.yml");
     writeFileSync(out, "b: Old\nc: null\n");
@@ -1987,7 +1987,7 @@ describe("translateFile", () => {
       adapter, glossary, context,
       ...abortAfter(0),
     });
-    expect(readFileSync(out, "utf8")).toBe('a: "[ar] One"\nb: Old\nc: null\n');
+    expect(readFileSync(out, "utf8")).toBe('a: "[ar] One"\nc: null\nb: Old\n');
   });
 
   it("an aborted YAML run keeps the target's nulls in a list in place (#159)", async () => {
@@ -2006,7 +2006,7 @@ describe("translateFile", () => {
     expect(readFileSync(out, "utf8")).toBe("list:\n  - null\n  - null\n  - Tres\n");
   });
 
-  it("a YAML target keeps the source document's non-string values", async () => {
+  it("a YAML target keeps its own non-string values, as a JSON target does (#160)", async () => {
     const src = writeSrc("en.yml", "title: Hello\ncount: 5\n");
     const out = join(dir, "ar.yml");
     writeFileSync(out, "count: 7\n");
@@ -2015,7 +2015,7 @@ describe("translateFile", () => {
       sourceLang: "en", targetLang: "ar",
       adapter, glossary, context,
     });
-    expect(readFileSync(out, "utf8")).toBe('title: "[ar] Hello"\ncount: 5\n');
+    expect(readFileSync(out, "utf8")).toBe('title: "[ar] Hello"\ncount: 7\n');
   });
 
   it("an aborted run on a Rails YAML catalog with plurals renames the root and drops the unreached plural forms", async () => {

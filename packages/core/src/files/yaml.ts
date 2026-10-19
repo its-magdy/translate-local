@@ -6,7 +6,7 @@ import { Document, parseDocument, isMap, isSeq, isScalar, isAlias, Scalar, YAMLM
 import { TlError } from "@translate-local/shared/errors";
 import type { JsonValue } from "./walk";
 import { detectEol } from "./json";
-import { sourceCatalog, type CatalogFormat, type Path } from "./catalog";
+import { sourceCatalog, type CatalogFormat } from "./catalog";
 import type { RootLocaleRename } from "./locale-root";
 import { regenerateYamlPlurals } from "./i18next";
 
@@ -114,22 +114,13 @@ function parse(raw: string): { data: JsonValue; doc: Document.Parsed; meta: Yaml
 }
 
 function applyToDoc(doc: Document.Parsed, data: JsonValue): void {
-  // A comments-only or empty source parses to contents === null; apply() would
-  // no-op and the write would silently drop every key in `data`.
+  // A comments-only or empty source parses to contents === null: there is no
+  // node to write onto, so the data becomes the document's contents.
   if (doc.contents === null || doc.contents === undefined) {
     if (data !== null) doc.contents = doc.createNode(data) as Document.Parsed["contents"];
     return;
   }
-  apply(doc, doc.contents, data);
-}
-
-// Whether the doc node can absorb `value` in place. Non-string primitives return
-// true: they never come from translation, so the source node is left untouched.
-function shapeMatches(node: unknown, value: JsonValue): boolean {
-  if (typeof value === "string") return isScalar(node);
-  if (Array.isArray(value)) return isSeq(node);
-  if (typeof value === "object" && value !== null) return isMap(node);
-  return true;
+  doc.contents = applyValue(doc, doc.contents, data) as Document.Parsed["contents"];
 }
 
 // A block scalar's chomping indicator is derived from its value's trailing
@@ -146,95 +137,52 @@ function setScalarValue(node: Scalar, next: string): void {
   node.value = next;
 }
 
-function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
-  if (isMap(node)) {
-    const m = node as YAMLMap;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return;
-    const v = value as { [k: string]: JsonValue };
-    const docKeys = new Set<string>();
-    for (const item of m.items) {
-      const k = isScalar(item.key) ? String((item.key as Scalar).value) : String(item.key);
-      docKeys.add(k);
-      if (!(k in v)) continue;
-      const child = v[k];
-      if (typeof child === "string" && isScalar(item.value)) {
-        setScalarValue(item.value as Scalar, child);
-      } else if (shapeMatches(item.value, child)) {
-        if (item.value !== undefined && item.value !== null) apply(doc, item.value, child);
-      } else {
-        // Shape mismatch (e.g. source scalar vs target map, or an empty `key:`):
-        // replace wholesale, otherwise the target's structure is silently dropped.
-        item.value = doc.createNode(child);
-      }
-    }
-    // The doc being mutated is the SOURCE document; data may carry keys that only
-    // exist in the existing target file. Append them or they are silently dropped.
-    for (const [k, child] of Object.entries(v)) {
-      if (!docKeys.has(k)) m.items.push(doc.createPair(k, child));
-    }
-    return;
-  }
-  if (isSeq(node)) {
-    const s = node as YAMLSeq;
-    if (!Array.isArray(value)) return;
-    for (let i = 0; i < s.items.length && i < value.length; i++) {
-      const child = value[i];
-      const item = s.items[i];
-      if (typeof child === "string" && isScalar(item)) {
-        setScalarValue(item as Scalar, child);
-      } else if (shapeMatches(item, child)) {
-        if (item !== undefined && item !== null) apply(doc, item, child);
-      } else {
-        s.items[i] = doc.createNode(child);
-      }
-    }
-    for (let i = s.items.length; i < value.length; i++) {
-      s.items.push(doc.createNode(value[i]));
-    }
-    return;
-  }
-  if (isScalar(node) && typeof value === "string") {
-    setScalarValue(node as Scalar, value);
-  }
-}
-
 /**
- * Removes the node at `path` from the source document, then any map or sequence
- * left empty above it. serialize() keeps the document's (source) value for a key
- * the data lacks, so a key that must stay absent has to go from the document.
- * Keys match by String(key), as in apply().
+ * Writes `value` onto the source document's `node` and returns the node to put
+ * in its place. The written data is exactly `value`, as in JSON: the target's
+ * values win, and keys or items the data lacks are dropped (#160). Where the
+ * shapes agree the source node is reused, keeping its comments and style;
+ * otherwise (a source scalar vs a target map, a number vs a string) the value
+ * gets a new node.
  */
-function deletePath(doc: Document.Parsed, path: Path): void {
-  const chain = containers(doc, path);
-  if (!chain) return;
-  for (let n = path.length; n > 0; n--) {
-    const node = chain[n - 1];
-    const seg = path[n - 1];
-    if (isMap(node)) {
-      const idx = node.items.findIndex((item) => keyString(item.key) === String(seg));
-      if (idx < 0) return;
-      node.items.splice(idx, 1);
-    } else if (isSeq(node) && typeof seg === "number" && seg < node.items.length) {
-      node.items.splice(seg, 1);
-    } else {
-      return;
-    }
-    if (node.items.length > 0) return;
+function applyValue(doc: Document.Parsed, node: unknown, value: JsonValue): unknown {
+  if (typeof value === "string") {
+    if (!isScalar(node)) return doc.createNode(value);
+    setScalarValue(node as Scalar, value);
+    return node;
   }
-}
-
-/** The document's nodes from the root down to the one holding `path`'s last segment, or undefined when one is missing. */
-function containers(doc: Document.Parsed, path: Path): unknown[] | undefined {
-  const chain: unknown[] = [doc.contents];
-  for (const seg of path.slice(0, -1)) {
-    const node = chain[chain.length - 1];
-    const next = isMap(node)
-      ? node.items.find((item) => keyString(item.key) === String(seg))?.value
-      : isSeq(node) ? node.items[seg as number] : undefined;
-    if (next === undefined || next === null) return undefined;
-    chain.push(next);
+  if (value === null || typeof value !== "object") {
+    if (!isScalar(node)) return doc.createNode(value);
+    const scalar = node as Scalar;
+    // An equal value keeps its written form (`0x10`, `~`).
+    if (scalar.value === value) return node;
+    if (value === null || scalar.value === null || typeof scalar.value !== typeof value) return doc.createNode(value);
+    scalar.value = value;
+    return node;
   }
-  return chain;
+  if (Array.isArray(value)) {
+    if (!isSeq(node)) return doc.createNode(value);
+    const s = node as YAMLSeq;
+    s.items = value.map((child, i) => (i < s.items.length ? applyValue(doc, s.items[i], child) : doc.createNode(child)));
+    return node;
+  }
+  if (!isMap(node)) return doc.createNode(value);
+  const m = node as YAMLMap;
+  const docKeys = new Set<string>();
+  const items = [];
+  for (const item of m.items) {
+    const k = keyString(item.key);
+    docKeys.add(k);
+    if (!(k in value)) continue;
+    item.value = applyValue(doc, item.value, value[k]);
+    items.push(item);
+  }
+  // Keys only the target has (the document is the source's) go at the end.
+  for (const [k, child] of Object.entries(value)) {
+    if (!docKeys.has(k)) items.push(doc.createPair(k, child));
+  }
+  m.items = items;
+  return node;
 }
 
 function keyString(key: unknown): string {
@@ -263,9 +211,9 @@ function serialize(doc: Document.Parsed, meta: YamlMeta, data: JsonValue): strin
   return text;
 }
 
-// The output is the source document with the target data applied, so the
-// document follows every change the data side makes: renamed root, regenerated
-// plural groups (generated keys sit where the group was), and removed keys.
+// The output is the target data written onto the source document, so the
+// document is renamed and its plural groups regenerated like the data, keeping
+// generated keys where the group was.
 export const yamlFormat: CatalogFormat = {
   open(raw) {
     const { data, doc, meta } = parse(raw);
@@ -273,20 +221,6 @@ export const yamlFormat: CatalogFormat = {
       retarget(r) {
         if (r.localeRoot) renameRootKey(doc, r.localeRoot.rename);
         if (r.plurals) regenerateYamlPlurals(doc, r.plurals.sourceLang, r.plurals.targetLang);
-      },
-      // The document's value would be written wherever the data has none (null included).
-      revertLeaf(path, existing) {
-        if (existing === null) {
-          // In a list, removing the item would shift the ones after it onto the
-          // wrong data (#159), so the null takes the item's place instead.
-          const parent = containers(doc, path)?.at(-1);
-          const seg = path[path.length - 1];
-          if (isSeq(parent) && typeof seg === "number" && seg < parent.items.length) {
-            parent.items[seg] = doc.createNode(null);
-            return;
-          }
-        }
-        if (existing === undefined || existing === null) deletePath(doc, path);
       },
       serialize: (output) => serialize(doc, meta, output),
     });
