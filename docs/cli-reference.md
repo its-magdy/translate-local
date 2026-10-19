@@ -226,7 +226,7 @@ tl glossary list --json
 
 #### `tl glossary remove <id>`
 
-Remove an entry by its ID (the ID is shown in `tl glossary list --json`).
+Remove an entry by its ID (the ID is shown in `tl glossary list --json`). A prefix such as the 8 characters `tl glossary list` shows also works, as long as it matches only one entry. An ambiguous prefix removes nothing and lists the matching IDs.
 
 ```bash
 tl glossary remove a1b2c3d4-...
