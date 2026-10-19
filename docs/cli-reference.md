@@ -265,7 +265,7 @@ Manage context sources (local directories indexed for retrieval).
 
 #### `tl context add <path>`
 
-Add a directory as a context source and index it immediately.
+Add a directory as a context source and index it immediately. A relative path is stored as an absolute path.
 
 ```bash
 tl context add ~/docs/legal-corpus
@@ -285,7 +285,7 @@ tl context list
 
 #### `tl context remove <path>`
 
-Remove a context source and its index.
+Remove a context source and its index. The path may be relative or absolute.
 
 ```bash
 tl context remove ~/docs/legal-corpus

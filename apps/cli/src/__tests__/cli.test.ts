@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, relative, resolve } from "path";
 import { tmpdir } from "os";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -217,6 +217,27 @@ describe("tl CLI", () => {
       const r = run(["context", "add", "/nonexistent/path/xyz"]);
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain("CONTEXT_DB_ERROR");
+    });
+
+    it("context add stores a relative path as absolute, and remove accepts either spelling", () => {
+      const docs = join(tmpDir, "docs");
+      mkdirSync(docs);
+      writeFileSync(join(docs, "a.md"), "invoice payment");
+      // The spawned CLI inherits this process's cwd.
+      const rel = relative(process.cwd(), docs);
+      expect(run(["context", "add", rel], ownHome()).exitCode).toBe(0);
+      expect(run(["context", "add", docs], ownHome()).exitCode).toBe(0);
+      const list = run(["context", "list", "--json"], ownHome());
+      expect(JSON.parse(list.stdout).map((s: { path: string }) => s.path)).toEqual([resolve(docs)]);
+      expect(run(["context", "remove", rel], ownHome()).exitCode).toBe(0);
+      expect(JSON.parse(run(["context", "list", "--json"], ownHome()).stdout)).toEqual([]);
+    });
+
+    it("context remove with an unknown path returns CONTEXT_DB_ERROR", () => {
+      const r = run(["context", "remove", join(tmpDir, "nope")], ownHome());
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("CONTEXT_DB_ERROR");
+      expect(r.stderr).toContain("tl context list");
     });
   });
 
