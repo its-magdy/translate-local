@@ -52,7 +52,7 @@ JSON and YAML sit behind one seam, `CatalogFormat` in `files/catalog.ts` (`jsonF
 
 ## Locale-rooted catalogs
 
-**Locale-rooted catalogs** (Rails `en:` root; logic in `files/locale-root.ts`): when the source root has exactly one key equal to the source locale (`sourceLocale`, defaulting to `sourceLang`; CLI passes the filename token when `--from auto`), the source is re-rooted under the target key before `diffForSync`, so leaf paths start with the target key (`fr.…`), and `yamlFormat` renames the pair key in its source document in place. An existing target rooted at the source locale is refused.
+**Locale-rooted catalogs** (Rails `en:` root; logic in `files/locale-root.ts`): when the source root has exactly one key equal to the source locale (`sourceLang`, or with `--from auto` the filename's locale token from `files/locale-path.ts`), the source is re-rooted under the target key before `diffForSync`, so leaf paths start with the target key (`fr.…`), and `yamlFormat` renames the pair key in its source document in place. An existing target rooted at the source locale is refused.
 
 ## i18next plurals
 

@@ -15,19 +15,24 @@ import { diffForSync, pruneTarget, type PendingTranslation, type SyncMode } from
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
 import { planLeaf, translateLeaf, strictError, isCancelled, type LeafOutcome, type TranslateText } from "./leaf";
 import { rebaseLocaleRoot, type RootLocaleRename } from "./locale-root";
+import { inferOutputPath, inferSourceLocale } from "./locale-path";
 import { pathKey } from "./i18next";
 import { walkLeaves, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
   sourcePath: string;
-  outPath: string;
+  /**
+   * Defaults to the source path with its locale token replaced by targetLang
+   * (en.json → ar.json, messages.en.yaml, locales/en/common.json); INVALID_INPUT
+   * when the source path has none.
+   */
+  outPath?: string;
+  /**
+   * With "auto", the locale token in the source filename (if any) stands in for
+   * it where a locale is needed: the glossary lookup and a Rails `en:` root.
+   */
   sourceLang: string;
   targetLang: string;
-  /**
-   * Locale used to recognise a locale-rooted catalog (Rails `en:` root).
-   * Defaults to sourceLang; pass the filename's locale token when sourceLang is "auto".
-   */
-  sourceLocale?: string;
   /** How leaves are translated; a TranslationSession's fileTranslator() in the frontends. */
   translator: FileTranslator;
   format?: FormatOverride;
@@ -206,10 +211,8 @@ function guardPrune(removed: number, total: number, topKeysBefore: string[], aft
 export async function translateFile(opts: FileTranslateOptions): Promise<FileTranslateSummary> {
   const {
     sourcePath,
-    outPath,
     sourceLang,
     targetLang,
-    sourceLocale = sourceLang === "auto" ? undefined : sourceLang,
     translator,
     format = "auto",
     mode = "missing-only",
@@ -234,6 +237,16 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   if (!existsSync(sourcePath)) {
     throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
   }
+
+  const outPath = opts.outPath ?? inferOutputPath(sourcePath, sourceLang, targetLang);
+  if (!outPath) {
+    throw new TlError(
+      "INVALID_INPUT",
+      `Cannot infer output path from "${sourcePath}"`,
+      "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
+    );
+  }
+  const sourceLocale = sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang;
 
   // The language check above can't fire when sourceLang is "auto", so an
   // en→en run (or an --out aimed at the input) would write the translation

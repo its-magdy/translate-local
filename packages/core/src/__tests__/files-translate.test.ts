@@ -58,6 +58,21 @@ describe("translateFile", () => {
     expect(after.foo).toBe("[ar] bar");              // newly translated
   });
 
+  it("writes next to the source with the locale token replaced when outPath is omitted", async () => {
+    const src = writeSrc("messages.en.json", '{ "a": "hi" }');
+    const summary = await translateFile({ sourcePath: src, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
+    expect(summary.outPath).toBe(join(dir, "messages.ar.json"));
+    expect(JSON.parse(readFileSync(summary.outPath, "utf8")).a).toBe("[ar] hi");
+  });
+
+  it("refuses to guess an outPath for a source without a locale token, after checking it exists", async () => {
+    const src = writeSrc("strings.json", '{ "a": "hi" }');
+    await expect(translateFile({ sourcePath: src, sourceLang: "en", targetLang: "ar", translator: tr(adapter) }))
+      .rejects.toMatchObject({ tag: "INVALID_INPUT" });
+    await expect(translateFile({ sourcePath: join(dir, "missing.json"), sourceLang: "en", targetLang: "ar", translator: tr(adapter) }))
+      .rejects.toMatchObject({ tag: "FILE_NOT_FOUND" });
+  });
+
   it("--force re-translates everything", async () => {
     const src = writeSrc("en.json", '{\n  "hello": "world"\n}\n');
     const out = join(dir, "ar.json");
@@ -134,7 +149,7 @@ describe("translateFile", () => {
     const out = join(dir, "de.json");
     await translateFile({
       sourcePath: src, outPath: out,
-      sourceLang: "auto", sourceLocale: "fr", targetLang: "de",
+      sourceLang: "auto", targetLang: "de",
       translator: tr(adapter),
     });
     expect(JSON.parse(readFileSync(out, "utf8")).pet).toContain("Katze");
@@ -1298,13 +1313,13 @@ describe("translateFile", () => {
       expect(readFileSync(out, "utf8")).toBe("en:\n  hello: Bonjour\n");
     });
 
-    it("uses sourceLocale when sourceLang is auto", async () => {
+    it("uses the filename's locale for the root when sourceLang is auto", async () => {
       const src = writeSrc("en.yml", "en:\n  hello: Hello\n");
       const out = join(dir, "fr.yml");
 
       const summary = await translateFile({
         sourcePath: src, outPath: out,
-        sourceLang: "auto", sourceLocale: "en", targetLang: "fr",
+        sourceLang: "auto", targetLang: "fr",
         translator: tr(adapter),
       });
 
@@ -1312,7 +1327,7 @@ describe("translateFile", () => {
       expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
     });
 
-    it("does not rewrite when sourceLang is auto and no sourceLocale is known", async () => {
+    it("does not rewrite when sourceLang is auto and the filename has no locale", async () => {
       const src = writeSrc("strings.yml", "en:\n  hello: Hello\n");
       const out = join(dir, "out.yml");
 
