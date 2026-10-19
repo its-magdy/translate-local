@@ -1041,6 +1041,18 @@ describe("runPipeline", () => {
       }
     });
 
+    it("reports the coverage of the raised answer", async () => {
+      // Raising `cache` makes it the term `Cache`; the retries miss it, so prefer mode returns the first draft.
+      const requests: any[] = [];
+      const covered = await runPipeline("Host status cache", "en", "fr", driftAdapter(['<term translation="hôte">État serveur</term>', "miss", "cache : état serveur hôte"], requests), store, {
+        glossaryEntries: [{ ...host, sourceTerm: "host" }, { ...cache, targetTerm: "Cache" }],
+      });
+      expect(covered.translated).toBe("Cache : état serveur hôte");
+      expect(covered.glossaryCoverage).toBe(1);
+      expect(covered.missingTerms).toEqual([]);
+      expect(requests.at(-1).repairTerms).toEqual(["hôte", "Cache"]);
+    });
+
     it("starts the check's output uppercase only when the draft does", async () => {
       // A lowercase drifted span strips to a lowercase draft: the answer keeps its case.
       const lower = await runPipeline(TEXT, "en", "fr", driftAdapter([RAW.replace("Taux", "taux"), CHECK], []), store, { glossaryEntries: [cache] });
@@ -1056,6 +1068,9 @@ describe("runPipeline", () => {
       expect(kept.translated).toBe("iOS : taux de réussite");
       expect(kept.glossaryCoverage).toBe(1);
       expect(kept.metadata.tagDrift).toBe(true);
+      // Not even when another occurrence keeps the term covered.
+      const twice = await runPipeline(TEXT, "en", "fr", driftAdapter(['Le <term translation="iOS">taux de réussite</term>', "iOS : taux de réussite sur iOS"], []), store, { glossaryEntries: [ios] });
+      expect(twice.translated).toBe("iOS : taux de réussite sur iOS");
       // The letter is raised in the target language's casing (Turkish `i` → `İ`).
       const tr = { ...cache, targetTerm: "önbellek", targetLang: "tr" };
       const turkish = await runPipeline(TEXT, "en", "tr", driftAdapter(['İşlem: <term translation="önbellek">isabet oranı</term>', "işlem: önbellek isabet oranı"], []), store, { glossaryEntries: [tr] });

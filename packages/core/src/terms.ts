@@ -1,5 +1,5 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
-import { injectGlossaryTags, stripGlossaryTags, keptTermForm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
+import { injectGlossaryTags, stripGlossaryTags, keptTermForm, capitalizeTerm, normalizeWhitespace, computeGlossaryCoverage, foundForm, formParts, contiguousForms, tagCheckCandidates, checkKeepsWord, driftCandidates, checkWritesDriftedWord } from "@translate-local/shared/utils/text";
 import { fixTermAgreement, splitArabicArticles } from "./agreement";
 import { dropAddedFullStop } from "./punctuation";
 
@@ -74,6 +74,29 @@ export class TermSet {
     const postprocessed = fixTermAgreement(normalizeWhitespace(stripGlossaryTags(raw, this.forms, kept)), this.targetLang, this.agreementTerms);
     const translated = this.imageMode ? postprocessed : dropAddedFullStop(postprocessed, this.source, this.agreementTerms);
     return { translated, ...this.coverage(translated), forced: substitutesTerm(raw, this.targetTerms, this.forms, kept) };
+  }
+
+  /**
+   * `translated` with its first letter raised in the target language's casing
+   * (Turkish `i` → `İ`; plain casing for an invalid tag) when `draft`'s first
+   * letter is uppercase and `translated`'s is lowercase: the code-switched
+   * source starts with the lowercase term, so the check's output does too (fr
+   * `antémémoire : taille` for the draft `Antémémoire`). Not when it starts with
+   * a term or form that capitalizeTerm leaves as written (`iOS`).
+   */
+  matchStartCase(translated: string, draft: string): string {
+    const start = /^(\P{L}*)(\p{Ll})/u.exec(translated);
+    if (!start || !/^\P{L}*\p{Lu}/u.test(draft)) return translated;
+    const rest = translated.slice(start[1].length);
+    if (this.agreementTerms.some((term) => rest.startsWith(term) && capitalizeTerm(term) === term)) return translated;
+    let letter: string;
+    try {
+      letter = start[2].toLocaleUpperCase(this.targetLang);
+    } catch {
+      // Not a valid language tag (RangeError).
+      letter = start[2].toUpperCase();
+    }
+    return start[1] + letter + translated.slice(start[0].length);
   }
 
   /** The glossary coverage of a postprocessed translation. */
