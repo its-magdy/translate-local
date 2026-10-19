@@ -205,15 +205,8 @@ function apply(doc: Document.Parsed, node: unknown, value: JsonValue): void {
  * Keys match by String(key), as in apply().
  */
 function deletePath(doc: Document.Parsed, path: Path): void {
-  const chain: unknown[] = [doc.contents];
-  for (const seg of path.slice(0, -1)) {
-    const node = chain[chain.length - 1];
-    const next = isMap(node)
-      ? node.items.find((item) => keyString(item.key) === String(seg))?.value
-      : isSeq(node) ? node.items[seg as number] : undefined;
-    if (next === undefined || next === null) return;
-    chain.push(next);
-  }
+  const chain = containers(doc, path);
+  if (!chain) return;
   for (let n = path.length; n > 0; n--) {
     const node = chain[n - 1];
     const seg = path[n - 1];
@@ -228,6 +221,20 @@ function deletePath(doc: Document.Parsed, path: Path): void {
     }
     if (node.items.length > 0) return;
   }
+}
+
+/** The document's nodes from the root down to the one holding `path`'s last segment, or undefined when one is missing. */
+function containers(doc: Document.Parsed, path: Path): unknown[] | undefined {
+  const chain: unknown[] = [doc.contents];
+  for (const seg of path.slice(0, -1)) {
+    const node = chain[chain.length - 1];
+    const next = isMap(node)
+      ? node.items.find((item) => keyString(item.key) === String(seg))?.value
+      : isSeq(node) ? node.items[seg as number] : undefined;
+    if (next === undefined || next === null) return undefined;
+    chain.push(next);
+  }
+  return chain;
 }
 
 function keyString(key: unknown): string {
@@ -269,6 +276,16 @@ export const yamlFormat: CatalogFormat = {
       },
       // The document's value would be written wherever the data has none (null included).
       revertLeaf(path, existing) {
+        if (existing === null) {
+          // In a list, removing the item would shift the ones after it onto the
+          // wrong data (#159), so the null takes the item's place instead.
+          const parent = containers(doc, path)?.at(-1);
+          const seg = path[path.length - 1];
+          if (isSeq(parent) && typeof seg === "number" && seg < parent.items.length) {
+            parent.items[seg] = doc.createNode(null);
+            return;
+          }
+        }
         if (existing === undefined || existing === null) deletePath(doc, path);
       },
       serialize: (output) => serialize(doc, meta, output),
