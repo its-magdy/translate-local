@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.17] - 2026-10-19
+
+### Added
+- **Offline replay of benchmark runs (for contributors).** `scripts/bench/replay.ts` re-runs every saved file-mode benchmark run from the model answers it recorded, in about a second and without a model, on the JSON benchmark catalog and two YAML copies (comments, block scalars, i18next plurals, a Rails `en:` root). It compares every line written, so `--out` on `main` and `--diff` on a branch list exactly the keys a change affects, formatting included.
+
+### Changed
+- **YAML targets keep their own values, like JSON targets.** When a YAML target already exists, `tl` now writes exactly the target's data: a number or boolean you changed in the target stays (`count: 7` was reset to the source's `count: 5`), and number, boolean or empty-map keys that only the source has are no longer added. Comments, quoting and key order still come from the source file. On the first sync after upgrading, an existing YAML target may lose such source-only keys (and the comment above them). New targets are unchanged.
+- **Dry runs name the ICU syntax error.** `--dry-run` reported a malformed ICU message as `Invalid ICU MessageFormat at <key>`; it now adds the parser's error (`: MISSING_OTHER_CLAUSE`), the same as a real run.
+
+### Fixed
+- **An interrupted YAML run no longer writes English into a list.** When a sync was interrupted and the existing target had `null` entries in a list, a later item's source text could land in their place (`[Three, null, Tres]` instead of `[null, null, Tres]`).
+- **A YAML number tag no longer corrupts a translated value.** A source value written with an explicit tag (`count: !!int 5`) turned the existing target's text into `count: !!int .nan`. The text is now written as is.
+
 ## [0.5.16] - 2026-10-16
 
 ### Added
