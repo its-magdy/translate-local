@@ -1,0 +1,150 @@
+# Rails-style catalog rooted at the locale key
+en:
+  nav:
+    dashboard: Dashboard
+    servers: Servers
+    repositories: Repositories
+    settings: Settings
+    deployments: Deployments
+    pullRequests: Pull requests
+    billing: Billing
+    help: Help
+  server:
+    title: Server details
+    restart: Restart the server
+    restartConfirm: Are you sure you want to restart the server {name}?
+    # Shown while the restart is in progress.
+    restarting: "The server is restarting…"
+    down: The server is down.
+    up: The server is back online.
+    add: Add a new server
+    remove: Remove this server
+    removeConfirm: Removing the server deletes all of its logs.
+    connect: Connect to the server over SSH.
+    unreachable: We could not reach the server {name}.
+    region: 'Server region' # column header
+    count: "{count} servers running"
+    logs: View the server logs
+    upgrade: Upgrade the server to a larger plan.
+    health: Server health is checked every minute.
+    noServers: You have no servers yet.
+    rename: Rename the server
+    owner: Only the owner of the server can delete it.
+    copyFrom: Copy the files from the server.
+    default: Set as the default server
+  cache:
+    title: Cache
+    clear: Clear the cache
+    cleared: The cache was cleared.
+    full: The cache is full.
+    size: "Cache size: {size}"
+    stale: The cache is out of date.
+    disable: Disable the cache for this project.
+    enable: Enable the cache to speed up builds.
+    hitRate: Cache hit rate
+    warm: Warming up the cache…
+    invalidate: Invalidate the cache after each deployment.
+    explain: |-
+      The cache stores build artifacts between runs.
+    limit: Set a size limit for the cache.
+    shared: This cache is shared by all branches.
+    corrupt: The cache is corrupted and will be rebuilt.
+  branch:
+    title: Branches
+    create: Create a new branch
+    createFrom: Create a branch from {name}
+    delete: Delete the branch
+    deleteOld: Delete the old branch after merging.
+    protected: This branch is protected.
+    default: The default branch is {name}.
+    switch: Switch to another branch
+    behind: This branch is {count} commits behind.
+    rename: Rename the branch
+    stale: Stale branches are deleted after 90 days.
+    noBranches: No branches match your search.
+    compare: Compare this branch with the default branch.
+  commit:
+    title: Commits
+    latest: Latest commit
+    signed: Every commit must be signed.
+    unsigned: This commit is not signed.
+    revert: Revert this commit
+    revertConfirm: Reverting the commit creates a new commit.
+    message: Commit message
+    empty: The commit message cannot be empty.
+    view: View the commit on GitHub
+    author: The author of the commit
+    count: "{count} new commits"
+    squash: Squash all commits into one commit.
+  repository:
+    title: Repository
+    create: Create a new repository
+    import: Import an existing repository
+    archive: Archive this repository
+    archived: This repository is archived and read-only.
+    delete: Delete the repository
+    deleteConfirm: |
+      Deleting the repository cannot be undone.
+    private: The repository is private.
+    public: Make the repository public
+    clone: Clone the repository
+    empty: This repository is empty.
+    transfer: >-
+      Transfer the repository to another owner.
+    size: The repository is larger than {size}.
+    mirror: Mirror the repository to a second remote.
+  token:
+
+    # Personal access tokens
+    title: Access tokens
+    create: Create a new token
+    copy: Copy the token now. You will not see it again.
+    expired: The token has expired.
+    revoke: Revoke this token
+    revoked: The token was revoked.
+    scope: The token needs the repo scope.
+    invalid: The token is invalid.
+    rotate: Rotate the token every 90 days.
+    lastUsed: The token was last used {time}.
+    none: You have no tokens.
+    storage: Store the token in a secret manager.
+  deploy:
+    title: Deploy
+    now: Deploy now
+    branch: Deploy the branch to staging.
+    failed: We could not deploy your changes.
+    success: Your changes were deployed.
+    rollback: Roll back to the previous version before you deploy again.
+    auto: Deploy automatically after each commit.
+    approve: A reviewer must approve before you deploy to production.
+    queued: Deploying {name}…
+    schedule: Schedule when to deploy.
+  pullRequest:
+    title: Pull requests
+    open: Open a pull request
+    merge: Merge the pull request
+    merged: The pull request was merged.
+    closed: The pull request was closed without merging.
+    draft: This pull request is a draft.
+    review: Request a review on the pull request.
+    conflicts: The pull request has conflicts that must be resolved.
+    count: "{count} open pull requests"
+    link: Link the pull request to an issue.
+  settings:
+    title: Settings
+    save: Save changes
+    saved: Your settings were saved.
+    language: Language
+    theme: Theme
+    dark: Dark mode
+    notifications: Email notifications
+    danger: Danger zone
+    deleteAccount: Delete your account
+    twoFactor: Enable two-factor authentication
+  errors:
+    generic: Something went wrong.
+    network: Check your network connection.
+    notFound: Page not found.
+    forbidden: You do not have permission to do this.
+    timeout: The request timed out. Try again.
+    rateLimit: Too many requests. Wait a minute and try again.
