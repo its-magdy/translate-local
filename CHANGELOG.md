@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.18] - 2026-10-19
+
+### Added
+- **`tl translate` reads piped stdin.** When no text, `--image` or `--file` is given, `tl` translates what is piped in: `echo "good morning" | tl --to ar`, `pbpaste | tl translate --to fr --json`. Trailing line breaks are dropped and inner ones kept. Text given as an argument wins over stdin. `tl` with no arguments still opens the TUI, so piping needs at least one argument.
+
+### Changed
+- **File mode reports an invalid `--max-size` first.** When a run has more than one problem, an invalid `--max-size` is now reported before a missing source file or an output path that can't be inferred. The "Cannot infer output path" message shows the absolute path.
+
+### Fixed
+- **File mode creates a missing output directory.** `tl translate --file locales/en/common.json --to ar` failed with `FILE_WRITE_FAILED` when `locales/ar/` didn't exist yet, and so did `--out` into a new directory. The directory is now created. A dry run still creates nothing.
+- **Strict file mode uses `glossary.maxRetries`.** File mode always retried a missing glossary term twice, whatever the setting; it now makes the same attempts as a text translation.
+- **`tl glossary remove` refuses an ambiguous id prefix.** A prefix matching more than one entry silently removed whichever sorted first. It now removes nothing, exits 1 with `INVALID_INPUT` and lists the matching ids. An exact id always wins over a longer id it prefixes. An unknown id, and an unsupported language in `tl glossary add` (`INVALID_LANGUAGE`), now print the usual `Error [TAG]` and hint.
+- **Context sources are stored as absolute paths.** `tl context add ./docs` stored `./docs` as typed, so `tl context index` run from another directory read the wrong folder, and `./docs`, `docs` and the absolute path became three sources. New sources are stored absolute. Sources added before 0.5.18 keep the typed path: remove them (`tl context remove`, from the directory they were added in) and add them again. A missing path in `tl context remove` now reports `CONTEXT_DB_ERROR` with a hint.
+
 ## [0.5.17] - 2026-10-19
 
 ### Added
