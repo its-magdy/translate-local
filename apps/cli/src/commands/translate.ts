@@ -1,13 +1,11 @@
 import { Command, Option } from "commander";
-import { existsSync } from "fs";
 import { resolve } from "path";
 import { loadConfig } from "@translate-local/core/config";
 import { TranslationSession, readImageBase64 } from "@translate-local/core/session";
 import { translateFile } from "@translate-local/core/files";
 import { TlError } from "@translate-local/shared/errors";
 import { isSupported } from "@translate-local/shared/utils/language";
-import { formatTranslationResult } from "../formatters/output";
-import { inferOutputPath, inferSourceLocale } from "../utils/locale-path";
+import { formatFileSummary, formatTranslationResult } from "../formatters/output";
 import { exitOnInterrupt, runAction } from "../utils/run";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
@@ -81,25 +79,6 @@ export function makeTranslateCommand(): Command {
       try {
         if (opts.file) {
           const sourcePath = resolve(opts.file);
-          if (!existsSync(sourcePath)) {
-            throw new TlError("FILE_NOT_FOUND", `Source file not found: ${sourcePath}`, "Check the file path and try again.");
-          }
-
-          let outPath: string;
-          if (opts.out) {
-            outPath = resolve(opts.out);
-          } else {
-            const inferred = inferOutputPath(sourcePath, sourceLang, targetLang);
-            if (!inferred) {
-              throw new TlError(
-                "INVALID_INPUT",
-                `Cannot infer output path from "${opts.file}"`,
-                "Pass --out <path>, or rename the source so it contains the source locale (e.g. en.json, messages.en.yaml, locales/en/common.json).",
-              );
-            }
-            outPath = inferred;
-          }
-
           const maxBytes = parseFloat(opts.maxSize) * 1024 * 1024;
           if (Number.isNaN(maxBytes) || maxBytes <= 0) {
             throw new TlError("INVALID_INPUT", `Invalid --max-size: "${opts.maxSize}"`, "Use a positive number of MB, e.g. --max-size 10");
@@ -111,25 +90,18 @@ export function makeTranslateCommand(): Command {
           let lastReportedDone = -1;
           const result = await translateFile({
             sourcePath,
-            outPath,
+            outPath: opts.out ? resolve(opts.out) : undefined,
             sourceLang,
-            // Lets core recognise a Rails `en:` root when --from is auto.
-            sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
             targetLang,
-            adapter: session.adapter,
+            translator: session.fileTranslator({ glossaryMode }),
             // Ctrl+C: stop between keys and write the finished ones (exitOnInterrupt sets 130/143).
             signal: session.signal,
-            glossary: session.glossaryStore,
-            context: session.contextStore,
             format: opts.format,
             mode: opts.force ? "force" : "missing-only",
-            glossaryMode,
             continueOnError: !opts.strict,
             translateAll: opts.translateAll ?? false,
             maxFileBytes: maxBytes,
             dryRun: opts.dryRun ?? false,
-            maxSnippets: config.context.maxSnippets,
-            minRelevance: config.context.minRelevance,
             prune: opts.prune ?? false,
             allowLargePrune: opts.allowLargePrune ?? false,
             onProgress: showProgress ? (e) => {
@@ -143,44 +115,10 @@ export function makeTranslateCommand(): Command {
 
           if (opts.json) {
             console.log(JSON.stringify(result, null, 2));
-          } else if (opts.dryRun) {
-            console.log(`[dry-run] Source: ${sourcePath}`);
-            console.log(`[dry-run] Target: ${outPath} (NOT written)`);
-            console.log(`[dry-run] Format: ${result.contentFormat}`);
-            if (result.rootLocaleKey) {
-              console.log(`[dry-run] Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
-            }
-            console.log(`[dry-run] Would translate: ${result.translated}`);
-            if (result.skipped.count > 0) {
-              console.log(`[dry-run] Would skip: ${result.skipped.count}`);
-            }
-            if (result.changed.length > 0) {
-              console.log(`[dry-run] Source changed: ${result.changed.length}`);
-              for (const p of result.changed) console.log(`  ${p}`);
-            }
-            if (opts.prune) {
-              console.log(`[dry-run] Would prune: ${result.pruned.length}`);
-              for (const p of result.pruned) console.log(`  ${p}`);
-            }
-            for (const w of result.warnings) console.error(`Warning: ${w}`);
           } else {
-            console.log(`Wrote ${result.outPath}`);
-            console.log(`Format: ${result.contentFormat}`);
-            if (result.rootLocaleKey) {
-              console.log(`Root locale key: ${result.rootLocaleKey.from} -> ${result.rootLocaleKey.to}`);
-            }
-            console.log(`Translated: ${result.translated} / ${result.totalLeaves}`);
-            if (result.changed.length > 0) console.log(`Source changed: ${result.changed.length}`);
-            if (opts.prune) console.log(`Pruned: ${result.pruned.length}`);
-            if (result.skipped.count > 0) {
-              const reasons = Object.entries(result.skipped.reasons).map(([r, n]) => `${r}=${n}`).join(", ");
-              console.log(`Skipped: ${result.skipped.count} (${reasons})`);
-            }
-            if (result.failed.length > 0) {
-              console.log(`Failed: ${result.failed.length} (source value used as fallback — search the output for un-translated source text)`);
-              for (const f of result.failed) console.error(`  ${f.path}: ${f.reason}`);
-            }
-            for (const w of result.warnings) console.error(`Warning: ${w}`);
+            const { stdout, stderr } = formatFileSummary(result, sourcePath, { dryRun: opts.dryRun ?? false, prune: opts.prune ?? false });
+            for (const line of stdout) console.log(line);
+            for (const line of stderr) console.error(line);
           }
           // Non-zero exit if any keys failed, even in non-strict mode — so CI catches it.
           if (!opts.dryRun && result.failed.length > 0) process.exitCode = 2;

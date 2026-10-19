@@ -6,6 +6,7 @@ import { toAdapterConfig, type CoreConfig } from "./config";
 import { GlossaryStore } from "./glossary";
 import { ContextStore } from "./context";
 import { runPipeline } from "./pipeline";
+import { pipelineTranslator, type FileTranslator } from "./files";
 
 /** Adapter backend from TL_ADAPTER: "mock", else "ollama" (with a warning for unknown values). */
 export function resolveBackend(value = process.env.TL_ADAPTER): AdapterBackend {
@@ -48,10 +49,7 @@ export interface SessionTranslateOptions {
 export class TranslationSession {
   readonly glossaryStore: GlossaryStore;
   readonly contextStore: ContextStore;
-  /**
-   * For callers that drive the pipeline themselves (file mode). Every request
-   * also carries the session's abort signal.
-   */
+  /** Every request also carries the session's abort signal. */
   readonly adapter: Adapter;
   private readonly inner: Adapter;
   private readonly controller = new AbortController();
@@ -78,18 +76,23 @@ export class TranslationSession {
 
   /** Context retrieval + runPipeline with the config's glossary and context settings. */
   translate(text: string, sourceLang: string, targetLang: string, options: SessionTranslateOptions = {}): Promise<TranslationResult> {
-    const { context, glossary } = this.config;
+    const { glossaryMode, maxRetries, maxSnippets, minRelevance } = this.settings(options.glossaryMode);
     const contextSnippets = text
-      ? this.contextStore.retrieve(text, context.maxSnippets, context.minRelevance).map((s) => s.content)
+      ? this.contextStore.retrieve(text, maxSnippets, minRelevance).map((s) => s.content)
       : [];
     return runPipeline(text, sourceLang, targetLang, this.adapter, this.glossaryStore, {
-      glossaryMode: options.glossaryMode ?? glossary.mode,
-      maxRetries: glossary.maxRetries,
+      glossaryMode,
+      maxRetries,
       contextSnippets,
       imageBase64: options.imageBase64,
       onChunk: options.onChunk,
       signal: this.signalWith(options.signal),
     });
+  }
+
+  /** What translateFile translates with: the same settings as translate(), per leaf. */
+  fileTranslator(options: { glossaryMode?: "strict" | "prefer" } = {}): FileTranslator {
+    return pipelineTranslator(this.adapter, this.glossaryStore, this.contextStore, this.settings(options.glossaryMode));
   }
 
   /** Cancel every in-flight and future request of this session. */
@@ -113,6 +116,16 @@ export class TranslationSession {
       if (this.used) await this.inner.dispose();
     })();
     return this.disposing;
+  }
+
+  private settings(glossaryMode?: "strict" | "prefer") {
+    const { context, glossary } = this.config;
+    return {
+      glossaryMode: glossaryMode ?? glossary.mode,
+      maxRetries: glossary.maxRetries,
+      maxSnippets: context.maxSnippets,
+      minRelevance: context.minRelevance,
+    };
   }
 
   private signalWith(signal?: AbortSignal): AbortSignal {

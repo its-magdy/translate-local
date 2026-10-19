@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import type { ContextSource, ContextSnippet } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { SQLITE_BUSY_TIMEOUT_MS } from "@translate-local/shared/constants";
@@ -164,7 +164,13 @@ export class ContextStore {
     }
   }
 
-  addSource(path: string): AddedContextSource {
+  /**
+   * Index a directory. The path is stored absolute, so a later reindex from
+   * another directory reads the same folder and `./docs`/`docs`/the absolute
+   * path are one source.
+   */
+  addSource(dirPath: string): AddedContextSource {
+    const path = resolve(dirPath);
     try {
       const stat = statSync(path);
       if (!stat.isDirectory()) throw new Error(`${path} is not a directory`);
@@ -215,6 +221,20 @@ export class ContextStore {
       this._deleteIndexRows(id);
       this.db.run(`DELETE FROM context_sources WHERE id = ?`, [id]);
     })();
+  }
+
+  /**
+   * Remove the source registered for a directory, given in any spelling
+   * (relative paths resolve against the cwd). Rows written by releases that
+   * stored the path as typed are matched by resolving them the same way.
+   */
+  removeSourceByPath(dirPath: string): void {
+    const path = resolve(dirPath);
+    const match = this.listSources().find((s) => resolve(s.path) === path);
+    if (!match) {
+      throw new TlError("CONTEXT_DB_ERROR", `No context source found for path: ${dirPath}`, "Run `tl context list` to see the registered paths");
+    }
+    this.removeSource(match.id);
   }
 
   listSources(): ContextSource[] {

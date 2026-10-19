@@ -7,6 +7,7 @@ import type { TranslationRequest } from "@translate-local/shared/types";
 import { IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { configSchema, type CoreConfig } from "../config";
 import { TranslationSession, readImageBase64, resolveBackend } from "../session";
+import { translateFile } from "../files";
 
 describe("resolveBackend", () => {
   it("maps TL_ADAPTER to a backend, warning on unknown values", () => {
@@ -70,6 +71,30 @@ describe("TranslationSession", () => {
     expect(requests[0].contextSnippets).toEqual(["the deployment pipeline promotes builds to staging"]);
     expect(requests[0].options?.glossaryMode).toBe("strict");
     expect(requests[0].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("file mode makes the same attempts as translate() for a missed term (config maxRetries)", async () => {
+    process.env.TL_MOCK_IGNORE_GLOSSARY = "1";
+    const missing = new TranslationSession({ ...config, glossary: { ...config.glossary, maxRetries: 0 } }, "mock");
+    delete process.env.TL_MOCK_IGNORE_GLOSSARY;
+    try {
+      missing.glossaryStore.add({ sourceTerm: "pipeline", targetTerm: "خط", sourceLang: "en", targetLang: "ar" });
+      await missing.translate("the pipeline", "en", "ar").catch(() => {});
+      const textAttempts = requests.length;
+      requests.length = 0;
+
+      const sourcePath = join(dir, "en.json");
+      writeFileSync(sourcePath, '{ "a": "the pipeline" }');
+      await translateFile({
+        sourcePath, outPath: join(dir, "ar.json"), sourceLang: "en", targetLang: "ar",
+        translator: missing.fileTranslator(), signal: missing.signal,
+      });
+
+      expect(textAttempts).toBe(1); // maxRetries 0: no retry, not even the code-switched one
+      expect(requests).toHaveLength(textAttempts);
+    } finally {
+      await missing.dispose();
+    }
   });
 
   it("skips context retrieval for image-only input and forwards the image", async () => {

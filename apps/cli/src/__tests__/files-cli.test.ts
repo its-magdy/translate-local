@@ -54,6 +54,23 @@ describe("tl translate --file", () => {
     expect(after.foo).toBe("[ar] bar");
   });
 
+  it("exits 2 and lists the keys that fell back to their source", () => {
+    const add = run(["glossary", "add", "--source", "zebrafish", "--target", "سمكة", "--from", "en", "--to", "ar"]);
+    expect(add.exitCode).toBe(0);
+    const src = join(dir, "en.json");
+    writeFileSync(src, '{\n  "a": "the zebrafish",\n  "b": "hello"\n}\n');
+
+    const r = run(
+      ["translate", "--file", src, "--to", "ar", "--glossary", "strict"],
+      { TL_ADAPTER: "mock", TL_MOCK_IGNORE_GLOSSARY: "1" },
+    );
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout).toContain("Translated: 1 / 2");
+    expect(r.stdout).toContain("Failed: 1");
+    expect(r.stderr).toContain("  a: ");
+    expect(JSON.parse(readFileSync(join(dir, "ar.json"), "utf8")).a).toBe("the zebrafish");
+  });
+
   it("emits no carriage-return progress when stderr is not a TTY", () => {
     const src = join(dir, "en.json");
     writeFileSync(src, '{\n  "a": "one apple",\n  "b": "two pears",\n  "c": "three plums"\n}\n');
