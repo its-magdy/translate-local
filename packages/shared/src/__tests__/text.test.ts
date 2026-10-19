@@ -640,6 +640,8 @@ describe("drift check", () => {
     // A long drifted span and a long check without its words.
     const span = Array.from({ length: 40_000 }, (_, i) => `mot${i}x`).join(" ");
     checkWritesDriftedWord(Array.from({ length: 40_000 }, (_, i) => `autre${i}y`).join(" "), "antémémoire", span);
+    // A span that repeats inside the check at every period, never at word edges.
+    checkWritesDriftedWord("abcd efgh".repeat(40_000), "cache", "abcd efgh".repeat(20_000));
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });

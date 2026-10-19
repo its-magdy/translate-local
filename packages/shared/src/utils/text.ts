@@ -523,6 +523,35 @@ function wordTokens(text: string): string[] {
 }
 
 /**
+ * Whether `text` has `part` with no word character (see isWordChar) touching
+ * either end where `part` has one there, as wordFinder checks it. KMP over UTF-16
+ * code units: linear even when `part` overlaps itself at every period, where an
+ * indexOf loop that rejects each match at its edges is quadratic.
+ */
+function hasWholeWord(text: string, part: string): boolean {
+  const checkStart = isWordChar(part.codePointAt(0));
+  const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
+  const fail = new Array<number>(part.length).fill(0);
+  for (let i = 1, k = 0; i < part.length; i++) {
+    while (k > 0 && part[i] !== part[k]) k = fail[k - 1];
+    if (part[i] === part[k]) k++;
+    fail[i] = k;
+  }
+  for (let j = 0, k = 0; j < text.length; j++) {
+    while (k > 0 && text[j] !== part[k]) k = fail[k - 1];
+    if (text[j] === part[k]) k++;
+    if (k < part.length) continue;
+    const i = j + 1 - part.length;
+    k = fail[k - 1];
+    // The code point ending at i: step back over a surrogate pair.
+    const low = text.charCodeAt(i - 1);
+    const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+    if (!(checkStart && isWordChar(before)) && !(checkEnd && isWordChar(text.codePointAt(j + 1)))) return true;
+  }
+  return false;
+}
+
+/**
  * The drift check's decision for a driftCandidates entry (term T, tag inner
  * `inner`): whether `check`, the model's output for the code-switched source,
  * still writes the drifted span X, so X translated other source words and the
@@ -542,7 +571,7 @@ export function checkWritesDriftedWord(check: string, term: string, inner: strin
   // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
   const span = fold(unquote(inner));
-  if (span.length > 0 && wordFinder(span)(rest, 0) !== undefined) return true;
+  if (span.length > 0 && hasWholeWord(rest, span)) return true;
   // The check's words once, as a set: one search per word of X would be quadratic.
   const written = new Set(wordTokens(rest));
   const sentinel = PLACEHOLDER_SENTINEL_PREFIX.toLowerCase();
