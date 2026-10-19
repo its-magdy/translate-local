@@ -642,6 +642,9 @@ describe("drift check", () => {
     checkWritesDriftedWord(Array.from({ length: 40_000 }, (_, i) => `autre${i}y`).join(" "), "antémémoire", span);
     // A span that repeats inside the check at every period, never at word edges.
     checkWritesDriftedWord("abcd efgh".repeat(40_000), "cache", "abcd efgh".repeat(20_000));
+    // A long term and a span of many distinct words, each looked for inside the term.
+    const term = "z".repeat(32_000);
+    checkWritesDriftedWord(term, term, Array.from({ length: 32_000 }, (_, i) => `word${i}`).join(" "));
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });

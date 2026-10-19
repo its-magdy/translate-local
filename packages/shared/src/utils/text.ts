@@ -552,6 +552,44 @@ function hasWholeWord(text: string, part: string): boolean {
 }
 
 /**
+ * A test for whether a string is a substring of `text`: a suffix automaton
+ * built once in linear time, so each test costs only the tested string's length
+ * (one `text.includes` per word of a long span would be quadratic).
+ */
+function substringTest(text: string): (part: string) => boolean {
+  const next: Map<string, number>[] = [new Map()];
+  const link = [-1];
+  const len = [0];
+  let last = 0;
+  for (const ch of text) {
+    const cur = next.push(new Map()) - 1;
+    len[cur] = len[last] + 1;
+    let p = last;
+    for (; p !== -1 && !next[p].has(ch); p = link[p]) next[p].set(ch, cur);
+    if (p === -1) {
+      link[cur] = 0;
+    } else {
+      const q = next[p].get(ch)!;
+      if (len[p] + 1 === len[q]) {
+        link[cur] = q;
+      } else {
+        const clone = next.push(new Map(next[q])) - 1;
+        len[clone] = len[p] + 1;
+        link[clone] = link[q];
+        for (; p !== -1 && next[p].get(ch) === q; p = link[p]) next[p].set(ch, clone);
+        link[q] = link[cur] = clone;
+      }
+    }
+    last = cur;
+  }
+  return (part) => {
+    let state: number | undefined = 0;
+    for (const ch of part) if ((state = next[state].get(ch)) === undefined) return false;
+    return true;
+  };
+}
+
+/**
  * The drift check's decision for a driftCandidates entry (term T, tag inner
  * `inner`): whether `check`, the model's output for the code-switched source,
  * still writes the drifted span X, so X translated other source words and the
@@ -575,7 +613,8 @@ export function checkWritesDriftedWord(check: string, term: string, inner: strin
   // The check's words once, as a set: one search per word of X would be quadratic.
   const written = new Set(wordTokens(rest));
   const sentinel = PLACEHOLDER_SENTINEL_PREFIX.toLowerCase();
-  const words = [...new Set(wordTokens(span))].filter((w) => [...w].length >= 4 && !fold(term).includes(w) && !w.startsWith(sentinel));
+  const inTerm = substringTest(fold(term));
+  const words = [...new Set(wordTokens(span))].filter((w) => [...w].length >= 4 && !inTerm(w) && !w.startsWith(sentinel));
   return words.length > 0 && 2 * words.filter((w) => written.has(w)).length >= words.length;
 }
 
