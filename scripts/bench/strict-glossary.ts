@@ -33,7 +33,7 @@ import { buildStructuredPrompt } from "../../packages/adapters/src/base";
 import { GlossaryStore } from "../../packages/core/src/glossary";
 import { ContextStore } from "../../packages/core/src/context";
 import { runPipeline } from "../../packages/core/src/pipeline";
-import { translateFile } from "../../packages/core/src/files/index";
+import { translateFile, pipelineTranslator } from "../../packages/core/src/files/index";
 
 // ---------- args ----------
 const argv = process.argv.slice(2);
@@ -206,7 +206,7 @@ async function main(): Promise<void> {
           try {
             const summary = await translateFile({
               sourcePath, outPath, sourceLang: c.src, targetLang: c.tgt,
-              adapter: rec, glossary, context, glossaryMode: MODE,
+              translator: pipelineTranslator(rec, glossary, context, { glossaryMode: MODE, maxRetries: MAX_RETRIES }),
             });
             const f = summary.failed[0];
             r.success = summary.translated === 1 && !f;

@@ -6,9 +6,9 @@ import { parse as parseYaml } from "yaml";
 import { GlossaryStore } from "../glossary";
 import { ContextStore } from "../context";
 import { MockAdapter } from "@translate-local/adapters/mock";
-import { translateFile } from "../files";
+import { translateFile, pipelineTranslator, type PipelineTranslatorSettings } from "../files";
 import { cancelledError } from "@translate-local/shared/errors";
-import type { TranslationRequest } from "@translate-local/shared/types";
+import type { Adapter, TranslationRequest } from "@translate-local/shared/types";
 
 // MockAdapter-only — no Ollama needed. Runs by default; the TEST_INTEGRATION gate
 // previously here was hiding the whole orchestrator suite from default `bun run test`.
@@ -25,6 +25,8 @@ describe("translateFile", () => {
     context = new ContextStore(join(dir, "c.db"));
     adapter = new MockAdapter();
   });
+
+  const tr = (a: Adapter, settings?: PipelineTranslatorSettings) => pipelineTranslator(a, glossary, context, settings);
 
   afterEach(async () => {
     glossary.close();
@@ -47,7 +49,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
 
     expect(summary.translated).toBe(1);
@@ -64,7 +66,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       mode: "force",
     });
 
@@ -80,7 +82,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
 
     const after = JSON.parse(readFileSync(out, "utf8"));
@@ -93,7 +95,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const text = readFileSync(out, "utf8");
     expect(text).toContain('    "a"'); // 4-space indent preserved
@@ -106,7 +108,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const after = JSON.parse(readFileSync(out, "utf8"));
     expect(after.doc).toContain("واجهة");
@@ -120,7 +122,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "auto", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(JSON.parse(readFileSync(out, "utf8")).doc).toContain("واجهة");
   });
@@ -133,7 +135,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "auto", sourceLocale: "fr", targetLang: "de",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(JSON.parse(readFileSync(out, "utf8")).pet).toContain("Katze");
   });
@@ -144,7 +146,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const after = JSON.parse(readFileSync(out, "utf8"));
     expect(after.g).toContain("{{name}}");
@@ -164,7 +166,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
 
     expect(summary.skipped.count).toBe(4);
@@ -183,7 +185,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       translateAll: true,
     });
     const after = JSON.parse(readFileSync(out, "utf8"));
@@ -196,7 +198,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/Unsupported format: arb/);
   });
 
@@ -206,7 +208,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       format: "raw-json",
     });
     // raw mode walks every leaf — "description" gets translated too
@@ -219,7 +221,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "en",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/SAME_LOCALE|both/);
   });
 
@@ -229,7 +231,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: src,
       sourceLang: "auto", targetLang: "en",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/SAME_LOCALE|same file/);
     expect(readFileSync(src, "utf8")).toBe(before);
   });
@@ -244,7 +246,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(linkDir, "en.json"),
       sourceLang: "auto", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/SAME_LOCALE|same file/);
     expect(readFileSync(src, "utf8")).toBe(before);
   });
@@ -256,7 +258,7 @@ describe("translateFile", () => {
     const res = await translateFile({
       sourcePath: src, outPath: join(linkDir, "fr.json"),
       sourceLang: "auto", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(res).toBeDefined();
     expect(existsSync(join(dir, "fr.json"))).toBe(true);
@@ -267,7 +269,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(dir, ".", "en.json"),
       sourceLang: "auto", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/SAME_LOCALE|same file/);
   });
 
@@ -275,7 +277,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: join(dir, "nope.json"), outPath: join(dir, "out.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/not found/);
   });
 
@@ -305,7 +307,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(summary.contentFormat).toBe("i18next-plurals");
       expect(summary.warnings).toEqual([]);
@@ -322,7 +324,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(scripted.sources).toEqual(["Files", "0 items", "1 item", "2 items", "3 items", "11 items", "100 items"]);
     });
@@ -334,7 +336,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.rootLocaleKey).toEqual({ from: "en", to: "ar" });
       expect(summary.failed).toEqual([]);
@@ -352,7 +354,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.warnings).toEqual([]);
       // Markup stays raw around the sample: translategemma keeps `<b>3</b>` but drops
@@ -368,7 +370,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.failed).toEqual([]);
       expect(JSON.parse(readFileSync(out, "utf8")).item_two).toBe("[ar] عنصران");
@@ -381,7 +383,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.failed).toEqual([]);
       expect(JSON.parse(readFileSync(out, "utf8")).left_one).toBe("[ar] one day left, {{name}}");
@@ -394,7 +396,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.failed).toEqual([]);
       expect(JSON.parse(readFileSync(out, "utf8")).item_few).toBe("[ar] {{count}} items");
@@ -414,7 +416,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter: new FailOnSample(), glossary, context,
+        translator: tr(new FailOnSample()),
       });
       expect(summary.failed).toEqual([]);
       const after = JSON.parse(readFileSync(out, "utf8"));
@@ -433,7 +435,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ru",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       const after = JSON.parse(readFileSync(out, "utf8"));
       expect(after.f_many).toBe("[ru] {{count}} files in 5 folders");
@@ -446,7 +448,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(scripted.sources.filter((s) => s.startsWith("2 "))).toEqual([]);
       expect(summary.warnings.join("\n")).toContain("f_two");
@@ -460,7 +462,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter: scripted, glossary, context,
+        translator: tr(scripted),
       });
       expect(summary.warnings).toEqual([]);
       expect(scripted.sources).toContain("3 items");
@@ -472,7 +474,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: join(dir, "ru.json"),
         sourceLang: "en", targetLang: "ru",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       // ru one/few/many span many numbers; `other` (fractions) has no sample by design.
       expect(summary.warnings).toHaveLength(1);
@@ -485,7 +487,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "auto", targetLang: "ar",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       const w = summary.warnings.find((x) => x.includes("solo_other"));
       expect(w).toBeDefined();
@@ -498,7 +500,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ja",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ title: "[ja] Files", item_other: "[ja] {{count}} items" });
     });
@@ -510,7 +512,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(summary.translated).toBe(4);
       const after = JSON.parse(readFileSync(out, "utf8"));
@@ -521,7 +523,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context, mode: "force",
+        translator: tr(adapter), mode: "force",
       });
       expect(JSON.parse(readFileSync(out, "utf8")).item_one).toBe("[ar] {{count}} item");
     });
@@ -532,7 +534,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ru",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(readFileSync(out, "utf8")).toBe(
         "# Cart\ncart:\n  # Items in cart\n" +
@@ -549,7 +551,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: join(dir, "xx.json"),
         sourceLang: "en", targetLang: "xx",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(summary.warnings.some((w) => w.includes("review output manually"))).toBe(true);
     });
@@ -560,7 +562,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: join(dir, "fr.json"),
       sourceLang: "en", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.warnings.some((w) => w.includes('"a"') && w.includes("line 3"))).toBe(true);
     expect(summary.totalLeaves).toBe(1);
@@ -571,7 +573,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(dir, "fr.yaml"),
       sourceLang: "en", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/parse/i);
   });
 
@@ -586,7 +588,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const tmp = join(dir, `.ar.json.tmp-${process.pid}`);
     expect(existsSync(tmp)).toBe(false);
@@ -600,7 +602,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       onProgress: (e) => events.push({ done: e.done, total: e.total }),
     });
     expect(events.length).toBeGreaterThan(0);
@@ -631,7 +633,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: drop, glossary, context,
+      translator: tr(drop),
       continueOnError: false,
     })).rejects.toThrow(/Placeholder mismatch|PLACEHOLDER_MISMATCH/);
   });
@@ -657,7 +659,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: drop, glossary, context,
+      translator: tr(drop),
     });
     expect(summary.failed).toHaveLength(1);
     const after = JSON.parse(readFileSync(out, "utf8"));
@@ -688,7 +690,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: drop, glossary, context,
+      translator: tr(drop),
       continueOnError: true,
     });
     expect(summary.failed).toHaveLength(1);
@@ -717,7 +719,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.failed).toEqual([]);
     expect(summary.translated).toBe(1);
@@ -735,7 +737,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ja",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const after = JSON.parse(readFileSync(out, "utf8"));
     expect(after.msg).toBe(
@@ -752,7 +754,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ja",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.contentFormat).toBe("formatjs");
     expect(summary.translated).toBe(2);
@@ -773,7 +775,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "fr",
-      adapter: new ElideAdapter(), glossary, context,
+      translator: tr(new ElideAdapter()),
     });
     expect(JSON.parse(readFileSync(out, "utf8")).del.defaultMessage).toBe("Supprimer l''{item}");
   });
@@ -787,7 +789,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       continueOnError: false,
     });
     expect(summary.contentFormat).toBe("i18next-plurals");
@@ -809,7 +811,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.contentFormat).toBe("i18next-plurals");
     const after = JSON.parse(readFileSync(out, "utf8"));
@@ -831,7 +833,7 @@ describe("translateFile", () => {
       const rerun = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
       expect(rerun.totalLeaves).toBe(1);
       expect(rerun.failed.map((f) => f.pointer)).toEqual(["/files"]);
@@ -843,7 +845,7 @@ describe("translateFile", () => {
     const forced = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context, mode: "force",
+      translator: tr(adapter), mode: "force",
     });
     expect(forced.failed.map((f) => f.path)).toEqual(["files"]);
   });
@@ -858,7 +860,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       continueOnError: false, dryRun: true,
     });
     expect(summary.failed.map((f) => f.path)).toEqual(["pick"]);
@@ -873,7 +875,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const forms = ["item_zero", "item_one", "item_two", "item_few", "item_many", "item_other"];
     expect(summary.failed.map((f) => f.path).sort()).toEqual([...forms].sort());
@@ -889,7 +891,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
       format: "raw-json",
     });
     expect(summary.contentFormat).toBe("vanilla");
@@ -908,7 +910,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       continueOnError: false,
     })).rejects.toThrow(/ICU MessageFormat in an i18next catalog at pick/);
   });
@@ -921,7 +923,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter: new DropSentinelAdapter(), glossary, context,
+      translator: tr(new DropSentinelAdapter()),
     });
     expect(summary.failed.map(({ path, pointer, tag }) => ({ path, pointer, tag }))).toEqual([
       { path: "a.b", pointer: "/a.b", tag: "PLACEHOLDER_MISMATCH" },
@@ -931,7 +933,7 @@ describe("translateFile", () => {
     const dry = await translateFile({
       sourcePath: src, outPath: join(dir, "fr.json"),
       sourceLang: "en", targetLang: "fr",
-      adapter, glossary, context, dryRun: true,
+      translator: tr(adapter), dryRun: true,
     });
     expect(dry.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([{ pointer: "/nest/x", tag: "FILE_INVALID_FORMAT" }]);
   });
@@ -946,7 +948,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter: new ThrowingAdapter(), glossary, context,
+      translator: tr(new ThrowingAdapter()),
     });
     expect(summary.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([
       { pointer: "/a", tag: "TRANSLATION_FAILED" },
@@ -958,7 +960,7 @@ describe("translateFile", () => {
     const strictMiss = await translateFile({
       sourcePath: src, outPath: join(dir, "ar2.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter: new MockAdapter({ ignoreGlossary: true }), glossary, context, glossaryMode: "strict", mode: "force",
+      translator: tr(new MockAdapter({ ignoreGlossary: true }), { glossaryMode: "strict" }), mode: "force",
     });
     expect(strictMiss.failed.find((f) => f.pointer === "/a")?.tag).toBe("GLOSSARY_STRICT_MISS");
   });
@@ -994,7 +996,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: flaky, glossary, context, glossaryMode: "strict",
+      translator: tr(flaky, { glossaryMode: "strict" }),
     });
     expect(summary.failed).toEqual([]);
     expect(summary.translated).toBe(1);
@@ -1013,7 +1015,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: flaky, glossary, context, glossaryMode: "strict",
+      translator: tr(flaky, { glossaryMode: "strict" }),
     });
     expect(summary.failed).toEqual([]);
     expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("[ar] مرحبا {{name}}");
@@ -1029,7 +1031,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: flaky, glossary, context, glossaryMode: "strict",
+      translator: tr(flaky, { glossaryMode: "strict" }),
     });
     expect(summary.failed.map(({ pointer, tag }) => ({ pointer, tag }))).toEqual([{ pointer: "/g", tag: "GLOSSARY_STRICT_MISS" }]);
     expect(summary.failed[0].reason).not.toContain("__TLPH_");
@@ -1045,7 +1047,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: flaky, glossary, context, glossaryMode: "strict", signal: ctl.signal,
+      translator: tr(flaky, { glossaryMode: "strict" }), signal: ctl.signal,
     });
     expect(flaky.requests).toHaveLength(1);
     expect(summary.aborted).toBe(true);
@@ -1059,7 +1061,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.failed).toHaveLength(1);
     expect(summary.failed[0].reason).toMatch(/Invalid ICU MessageFormat at bad/);
@@ -1071,7 +1073,7 @@ describe("translateFile", () => {
     const run = (dryRun: boolean) => translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       dryRun,
     });
     const dry = await run(true);
@@ -1085,7 +1087,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       continueOnError: false,
     })).rejects.toThrow(/Invalid ICU MessageFormat/);
   });
@@ -1097,7 +1099,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: new DropSentinelAdapter(), glossary, context,
+      translator: tr(new DropSentinelAdapter()),
     });
     expect(summary.failed).toHaveLength(1);
     expect(summary.failed[0].reason).toMatch(/Placeholder mismatch at items .*missing: \[\{name\}/);
@@ -1106,7 +1108,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: join(dir, "fr.json"),
       sourceLang: "en", targetLang: "fr",
-      adapter: new DropSentinelAdapter(), glossary, context,
+      translator: tr(new DropSentinelAdapter()),
       continueOnError: false,
     })).rejects.toThrow(/Placeholder mismatch/);
   });
@@ -1116,7 +1118,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: join(dir, "ar.json"),
       sourceLang: "en", targetLang: "ar",
-      adapter: new DropSentinelAdapter(), glossary, context,
+      translator: tr(new DropSentinelAdapter()),
       dryRun: true,
     });
     expect(summary.translated).toBe(1);
@@ -1132,7 +1134,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.translated).toBe(2);
     const text = readFileSync(out, "utf8");
@@ -1146,7 +1148,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const text = readFileSync(out, "utf8");
     expect(text).toContain("# user-facing greeting");
@@ -1158,7 +1160,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const lines = readFileSync(out, "utf8").trim().split("\n");
     expect(lines[0]).toMatch(/^z:/);
@@ -1173,7 +1175,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(summary.translated).toBe(0);
     const text = readFileSync(out, "utf8");
@@ -1188,7 +1190,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const text = readFileSync(out, "utf8");
     expect(text).toContain("legacy: kept");
@@ -1202,7 +1204,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     const text = readFileSync(out, "utf8");
     expect(text).toContain("one: un titre");
@@ -1216,7 +1218,7 @@ describe("translateFile", () => {
     await expect(translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     })).rejects.toThrow(/anchors|alias/i);
   });
 
@@ -1228,7 +1230,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(readFileSync(out, "utf8")).toBe(
@@ -1245,7 +1247,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "pt-br", targetLang: "en",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ en: { hello: "[en] Olá" } });
@@ -1259,7 +1261,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "pt-BR",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ "pt-BR": { hello: "[pt-BR] Hello" } });
@@ -1273,7 +1275,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(summary.translated).toBe(2);
@@ -1291,7 +1293,7 @@ describe("translateFile", () => {
       await expect(translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       })).rejects.toThrow(/root/i);
       expect(readFileSync(out, "utf8")).toBe("en:\n  hello: Bonjour\n");
     });
@@ -1303,7 +1305,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "auto", sourceLocale: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(readFileSync(out, "utf8")).toStartWith("fr:\n");
@@ -1317,7 +1319,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "auto", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(readFileSync(out, "utf8")).toStartWith("en:\n");
@@ -1331,7 +1333,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(readFileSync(out, "utf8")).toStartWith("app:\n");
@@ -1345,7 +1347,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(Object.keys(JSON.parse(readFileSync(out, "utf8")))).toEqual(["en", "meta"]);
@@ -1360,7 +1362,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ fr: { hello: "Bonjour", bye: "[fr] Goodbye" } });
@@ -1375,7 +1377,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr-FR",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ fr_FR: { hello: "Bonjour", bye: "[fr-FR] Goodbye" } });
@@ -1391,7 +1393,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ ar: { hello: "مرحبا" }, fr: { hello: "[fr] Hello" } });
@@ -1406,7 +1408,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ hello: "Bonjour", fr: { hello: "[fr] Hello" } });
@@ -1421,7 +1423,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(Object.keys(parseYaml(readFileSync(out, "utf8")))).toEqual(["fr", "fr-FR"]);
@@ -1435,7 +1437,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context,
+        translator: tr(adapter),
       });
 
       expect(readFileSync(out, "utf8")).toStartWith("en-US:\n");
@@ -1446,7 +1448,7 @@ describe("translateFile", () => {
       const src = writeSrc("en.yml", "\"en\":\n  hello: Hello\n");
       const out = join(dir, "fr.yml");
 
-      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", translator: tr(adapter) });
 
       expect(readFileSync(out, "utf8")).toStartWith("\"fr\":\n");
     });
@@ -1455,7 +1457,7 @@ describe("translateFile", () => {
       const src = writeSrc("en.yml", "en: # English catalog\n  hello: Hello\n");
       const out = join(dir, "fr.yml");
 
-      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", translator: tr(adapter) });
 
       const text = readFileSync(out, "utf8");
       expect(text).toStartWith("fr:");
@@ -1467,7 +1469,7 @@ describe("translateFile", () => {
       const src = writeSrc("en.yml", "{ en: { hello: Hello } }\n");
       const out = join(dir, "fr.yml");
 
-      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+      await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "fr", translator: tr(adapter) });
 
       const text = readFileSync(out, "utf8");
       expect(text).toStartWith("{");
@@ -1481,7 +1483,7 @@ describe("translateFile", () => {
       const summary = await translateFile({
         sourcePath: src, outPath: out,
         sourceLang: "en", targetLang: "fr",
-        adapter, glossary, context, dryRun: true,
+        translator: tr(adapter), dryRun: true,
       });
 
       expect(summary.rootLocaleKey).toEqual({ from: "en", to: "fr" });
@@ -1513,7 +1515,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context, minRelevance: 0.1,
+        translator: tr(adapter, { minRelevance: 0.1 }),
       });
       expect(seen.get("Sign in to Dashboard")).toHaveLength(1);
     });
@@ -1524,7 +1526,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context, minRelevance: 0.99,
+        translator: tr(adapter, { minRelevance: 0.99 }),
       });
       expect(seen.get("Sign in to Dashboard")).toEqual([]);
     });
@@ -1540,7 +1542,7 @@ describe("translateFile", () => {
       await translateFile({
         sourcePath: src, outPath: join(dir, "ar.json"),
         sourceLang: "en", targetLang: "ar",
-        adapter, glossary, context, minRelevance: 0, maxSnippets: 1,
+        translator: tr(adapter, { minRelevance: 0, maxSnippets: 1 }),
       });
       expect(seen.get("Sign in to Dashboard")).toHaveLength(1);
     });
@@ -1557,7 +1559,7 @@ describe("translateFile", () => {
   it("writes .tl/locks/<target>.lock with a truncated sha256 per source key path", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "nested": { "b": "World" }\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     const sums = readLockFile(out);
     expect(Object.keys(sums)).toEqual(["/a", "/nested/b"]);
     expect(sums["/a"]).toMatch(/^[0-9a-f]{16}$/);
@@ -1566,10 +1568,10 @@ describe("translateFile", () => {
   it("re-translates only keys whose source changed since the last run", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
 
     writeFileSync(src, '{\n  "a": "Hello there",\n  "b": "World"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
 
     expect(summary.translated).toBe(1);
     expect(summary.changed).toEqual(["/a"]);
@@ -1583,35 +1585,35 @@ describe("translateFile", () => {
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "a": "HAND-TRANSLATED"\n}\n');
 
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.translated).toBe(1);
     expect(summary.changed).toEqual([]);
     expect(JSON.parse(readFileSync(out, "utf8")).a).toBe("HAND-TRANSLATED");
     expect(Object.keys(readLockFile(out))).toEqual(["/a", "/b"]);
 
     // Second run with unchanged source: nothing to do.
-    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(again.translated).toBe(0);
   });
 
   it("drops lock entries for keys no longer in the source", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     writeFileSync(src, '{\n  "a": "Hello"\n}\n');
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
   });
 
   it("dry-run reports changed keys but writes neither target nor lock", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello",\n  "b": "World"\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     const lockBefore = readFileSync(lockFile(), "utf8");
     const outBefore = readFileSync(out, "utf8");
 
     writeFileSync(src, '{\n  "a": "Hello there",\n  "b": "World"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), dryRun: true });
     expect(summary.changed).toEqual(["/a"]);
     expect(summary.translated).toBe(1);
     expect(readFileSync(lockFile(), "utf8")).toBe(lockBefore);
@@ -1621,7 +1623,7 @@ describe("translateFile", () => {
   it("dry-run on a first run does not create a lock", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), dryRun: true });
     expect(existsSync(lockFile())).toBe(false);
   });
 
@@ -1631,7 +1633,7 @@ describe("translateFile", () => {
     mkdirSync(join(dir, ".tl", "locks"), { recursive: true });
     writeFileSync(lockFile(), JSON.stringify({ version: 1, checksums: { "/a": "stale", "/gone": "x" } }));
     writeFileSync(out, '{\n  "a": "OLD"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, mode: "force" });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), mode: "force" });
     expect(summary.translated).toBe(1);
     expect(Object.keys(readLockFile(out))).toEqual(["/a"]);
     expect(readLockFile(out)["/a"]).not.toBe("stale");
@@ -1650,15 +1652,15 @@ describe("translateFile", () => {
     }
     const src = writeSrc("en.json", '{\n  "g": "Hello"\n}\n');
     const out = join(dir, "ar.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     const oldHash = readLockFile(out)["/g"];
 
     writeFileSync(src, '{\n  "g": "Hello {{name}}"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter: new DropSentinelAdapter(), glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(new DropSentinelAdapter()) });
     expect(summary.failed).toHaveLength(1);
     expect(readLockFile(out)["/g"]).toBe(oldHash);
 
-    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, dryRun: true });
+    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), dryRun: true });
     expect(retry.changed).toEqual(["/g"]);
   });
 
@@ -1675,11 +1677,11 @@ describe("translateFile", () => {
     }
     const src = writeSrc("en.json", '{\n  "a": "Hi",\n  "g": "Hello {{name}}"\n}\n');
     const out = join(dir, "ar.json");
-    const first = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter: new DropSentinelAdapter(), glossary, context });
+    const first = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(new DropSentinelAdapter()) });
     expect(first.failed.map((f) => f.pointer)).toEqual(["/g"]);
     expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("Hello {{name}}");
 
-    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const retry = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(retry.totalLeaves).toBe(1);
     expect(retry.changed).toEqual([]);
     expect(retry.failed).toEqual([]);
@@ -1688,7 +1690,7 @@ describe("translateFile", () => {
     expect(lock).not.toHaveProperty("failed");
     expect(Object.keys(lock.checksums)).toEqual(["/a", "/g"]);
 
-    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const again = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(again.totalLeaves).toBe(0);
   });
 
@@ -1700,7 +1702,7 @@ describe("translateFile", () => {
     // The lock says /g failed with the source copied in; the target has since been edited.
     writeFileSync(lockFile(), JSON.stringify({ version: 1, checksums: {}, failed: { "/g": "0123456789abcdef" } }));
 
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.totalLeaves).toBe(0);
     expect(JSON.parse(readFileSync(out, "utf8")).g).toBe("مرحبا {{name}}");
     const lock = JSON.parse(readFileSync(lockFile(), "utf8"));
@@ -1715,7 +1717,7 @@ describe("translateFile", () => {
     const src = join(dir, "src-locales/en.json");
     writeFileSync(src, '{\n  "a": "Hello"\n}\n');
     const out = join(dir, "public/locales/ar/common.json");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
 
     expect(readdirSync(join(dir, "public/locales/ar"))).toEqual(["common.json"]);
     expect(readdirSync(join(dir, ".tl", "locks"))).toEqual(["public"]);
@@ -1723,7 +1725,7 @@ describe("translateFile", () => {
     expect(Object.keys(lock.checksums)).toEqual(["/a"]);
 
     writeFileSync(src, '{\n  "a": "Hello there"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.changed).toEqual(["/a"]);
   });
 
@@ -1731,12 +1733,12 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
     const ar = join(dir, "ar.json");
     const fr = join(dir, "fr.json");
-    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
-    await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
+    await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", translator: tr(adapter) });
 
     writeFileSync(src, '{\n  "a": "Hello there"\n}\n');
-    expect((await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context })).changed).toEqual(["/a"]);
-    expect((await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context })).changed).toEqual(["/a"]);
+    expect((await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", translator: tr(adapter) })).changed).toEqual(["/a"]);
+    expect((await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", translator: tr(adapter) })).changed).toEqual(["/a"]);
     expect(readdirSync(join(dir, ".tl", "locks")).sort()).toEqual(["ar.json.lock", "fr.json.lock"]);
   });
 
@@ -1744,11 +1746,11 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
     const ar = join(dir, "ar.json");
     const fr = join(dir, "fr.json");
-    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     writeFileSync(lockFile("ar.json"), "<<<<<<< HEAD\n");
-    await expect(translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", adapter, glossary, context }))
+    await expect(translateFile({ sourcePath: src, outPath: ar, sourceLang: "en", targetLang: "ar", translator: tr(adapter) }))
       .rejects.toMatchObject({ tag: "FILE_PARSE_FAILED", hint: expect.stringContaining("ar.json.lock") });
-    const summary = await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: fr, sourceLang: "en", targetLang: "fr", translator: tr(adapter) });
     expect(summary.translated).toBe(1);
   });
 
@@ -1756,10 +1758,10 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "item": "Item"\n}\n');
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "item": { "one": "x", "other": "y" }\n}\n');
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
 
     writeFileSync(src, '{\n  "item": "Item (edited)"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.changed).toEqual([]);
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ item: { one: "x", other: "y" } });
   });
@@ -1769,7 +1771,7 @@ describe("translateFile", () => {
     const out = join(dir, "ar.json");
     mkdirSync(join(dir, ".tl", "locks"), { recursive: true });
     writeFileSync(lockFile(), "not json");
-    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context }))
+    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) }))
       .rejects.toThrow(/Invalid lock file/);
     expect(existsSync(out)).toBe(false);
   });
@@ -1777,9 +1779,9 @@ describe("translateFile", () => {
   it("change detection works for YAML targets", async () => {
     const src = writeSrc("en.yml", "# greeting\ngreeting: Hello\nbye: Goodbye\n");
     const out = join(dir, "ar.yml");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     writeFileSync(src, "# greeting\ngreeting: Hi\nbye: Goodbye\n");
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.changed).toEqual(["/greeting"]);
     const text = readFileSync(out, "utf8");
     expect(text).toContain("[ar] Hi");
@@ -1793,7 +1795,7 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "a": "A",\n  "list": ["x"],\n  "n": { "keep": "K" }\n}\n');
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "a": "TA",\n  "stale": "S",\n  "list": ["TX", "TY"],\n  "n": { "keep": "TK", "old": "O" }\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.pruned).toEqual(["/stale", "/list/1", "/n/old"]);
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA", list: ["TX"], n: { keep: "TK" } });
   });
@@ -1803,7 +1805,7 @@ describe("translateFile", () => {
     const out = join(dir, "ar.json");
     const target = { cart_one: "A1", cart_other: "A2", cart_few: "A3", cart_many: "A4", cart_zero: "A5", gone: "G" };
     writeFileSync(out, JSON.stringify(target, null, 2) + "\n");
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.pruned).toEqual(["/gone"]);
     const after = JSON.parse(readFileSync(out, "utf8"));
     // cart_two is missing from the target, so plural regeneration (#56) fills it in.
@@ -1814,9 +1816,9 @@ describe("translateFile", () => {
     const src = writeSrc("en.yml", "en:\n  inbox:\n    one: \"%{count} message\"\n    other: \"%{count} messages\"\n  title: Inbox\n  gone: Old\n");
     const out = join(dir, "ar.yml");
     writeFileSync(out, "ar:\n  inbox:\n    zero: Z\n    one: O\n    two: T\n    few: F\n    many: M\n    other: X\n  title: TI\n  gone: G\n");
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     writeFileSync(src, "en:\n  inbox:\n    one: \"%{count} message\"\n    other: \"%{count} messages\"\n  title: Inbox\n");
-    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.pruned).toEqual([]);
     expect(second.pruned).toEqual(["/ar/gone"]);
     const text = readFileSync(out, "utf8");
@@ -1828,7 +1830,7 @@ describe("translateFile", () => {
     const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Bye\n");
     const out = join(dir, "ar.yml");
     writeFileSync(out, "ar:\n  hello: TH\n  bye: TB\n  old: TO\n");
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.pruned).toEqual(["/ar/old"]);
     expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ ar: { hello: "TH", bye: "TB" } });
   });
@@ -1836,10 +1838,10 @@ describe("translateFile", () => {
   it("detects a changed source string under a Rails root (lock keyed by the target root)", async () => {
     const src = writeSrc("en.yml", "en:\n  hello: Hello\n  bye: Bye\n");
     const out = join(dir, "ar.yml");
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(Object.keys(readLockFile(out)).sort()).toEqual(["/ar/bye", "/ar/hello"]);
     writeFileSync(src, "en:\n  hello: Hello there\n  bye: Bye\n");
-    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const second = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(second.changed).toEqual(["/ar/hello"]);
     expect(parseYaml(readFileSync(out, "utf8")).ar.hello).toBe("[ar] Hello there");
   });
@@ -1851,7 +1853,7 @@ describe("translateFile", () => {
     const before = "ar:\n  hello: TH\n  bye: TB\n";
     writeFileSync(out, before);
     for (const dryRun of [false, true]) {
-      await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "auto", targetLang: "ar", adapter, glossary, context, prune: true, dryRun }))
+      await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "auto", targetLang: "ar", translator: tr(adapter), prune: true, dryRun }))
         .rejects.toMatchObject({ tag: "PRUNE_REFUSED", message: expect.stringContaining("no top-level keys") });
     }
     expect(readFileSync(out, "utf8")).toBe(before);
@@ -1863,7 +1865,7 @@ describe("translateFile", () => {
     const out = join(dir, "ar.json");
     const before = '{\n  "a": "TA",\n  "x": "X",\n  "y": { "z": "Z" }\n}\n';
     writeFileSync(out, before);
-    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true }))
+    await expect(translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true }))
       .rejects.toMatchObject({ tag: "PRUNE_REFUSED", message: expect.stringContaining("2 of 3") });
     expect(readFileSync(out, "utf8")).toBe(before);
   });
@@ -1872,7 +1874,7 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "a": "TA",\n  "x": "X",\n  "y": { "z": "Z" }\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true, allowLargePrune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true, allowLargePrune: true });
     expect(summary.pruned).toEqual(["/x", "/y"]);
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "TA" });
   });
@@ -1881,9 +1883,9 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "nav.home": "Home",\n  "nav": { "home": "Home" }\n}\n');
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "nav.home": "T1",\n  "nav": { "home": "T2" },\n  "a.b": "x"\n}\n');
-    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     writeFileSync(src, '{\n  "nav.home": "Home page",\n  "nav": { "home": "Home" }\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.changed).toEqual(["/nav.home"]);
     expect(summary.pruned).toEqual(["/a.b"]);
   });
@@ -1892,7 +1894,7 @@ describe("translateFile", () => {
     const src = writeSrc("en.json", '{\n  "a": "A"\n}\n');
     const out = join(dir, "ar.json");
     writeFileSync(out, '{\n  "a": "TA",\n  "stale": "S"\n}\n');
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
     expect(summary.pruned).toEqual([]);
     expect(JSON.parse(readFileSync(out, "utf8")).stale).toBe("S");
   });
@@ -1902,7 +1904,7 @@ describe("translateFile", () => {
     const out = join(dir, "ar.json");
     const before = '{\n  "a": "TA",\n  "stale": "S"\n}\n';
     writeFileSync(out, before);
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true, dryRun: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true, dryRun: true });
     expect(summary.pruned).toEqual(["/stale"]);
     expect(readFileSync(out, "utf8")).toBe(before);
   });
@@ -1911,7 +1913,7 @@ describe("translateFile", () => {
     const src = writeSrc("en.yml", "# Greeting shown on home\ngreeting: Hello\nbody: |\n  Line one\n  Line two\nnested:\n  # keep me\n  keep: \"Keep\"\n");
     const out = join(dir, "ar.yml");
     writeFileSync(out, "greeting: TG\nbody: |\n  TB\nnested:\n  keep: TK\n  old: gone\nlegacy: removed\n");
-    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context, prune: true });
+    const summary = await translateFile({ sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter), prune: true });
     expect(summary.pruned).toEqual(["/nested/old", "/legacy"]);
     const text = readFileSync(out, "utf8");
     expect(text).not.toContain("legacy");
@@ -1941,7 +1943,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       ...abortAfter(0),
     });
     expect(summary.aborted).toBe(true);
@@ -1955,7 +1957,7 @@ describe("translateFile", () => {
     const rerun = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(rerun.aborted).toBe(false);
     expect(rerun.translated).toBe(4);
@@ -1970,7 +1972,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       ...abortAfter(0),
     });
     expect(summary.aborted).toBe(true);
@@ -1981,7 +1983,7 @@ describe("translateFile", () => {
     const rerun = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(rerun.translated).toBe(5);
     expect(parseYaml(readFileSync(out, "utf8"))).toEqual({
@@ -1998,7 +2000,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       ...abortAfter(0),
     });
     expect(readFileSync(out, "utf8")).toBe('a: "[ar] One"\nc: null\nb: Old\n');
@@ -2013,7 +2015,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "fr",
-      adapter, glossary, context,
+      translator: tr(adapter),
       signal: ctl.signal,
     });
     expect(summary.aborted).toBe(true);
@@ -2027,7 +2029,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(readFileSync(out, "utf8")).toBe('title: "[ar] Hello"\ncount: 7\n');
   });
@@ -2038,7 +2040,7 @@ describe("translateFile", () => {
     await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
       ...abortAfter(2),
     });
     expect(readFileSync(out, "utf8")).toBe('# Strings\nar:\n  title: "[ar] Title"\n  # Item count\n  item_zero: "[ar] {{count}} items"\n  item_one: "[ar] {{count}} item"\n');
@@ -2047,7 +2049,7 @@ describe("translateFile", () => {
   it("an aborted run keeps the previous lock hash of a changed key it did not reach", async () => {
     const src = writeSrc("en.json", JSON.stringify({ a: "One", b: "Two" }));
     const out = join(dir, "ar.json");
-    const base = { sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", adapter, glossary, context };
+    const base = { sourcePath: src, outPath: out, sourceLang: "en", targetLang: "ar", translator: tr(adapter) };
     await translateFile(base);
     const before = readLockFile(out);
 
@@ -2078,7 +2080,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: cancelling, glossary, context,
+      translator: tr(cancelling),
     });
     expect(summary.aborted).toBe(true);
     expect(summary.failed).toEqual([]);
@@ -2089,7 +2091,7 @@ describe("translateFile", () => {
     const rerun = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context,
+      translator: tr(adapter),
     });
     expect(rerun.translated).toBe(3);
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: "[ar] one", b: "[ar] two", c: "[ar] three", d: "[ar] four" });
@@ -2114,7 +2116,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter: slow, glossary, context, signal: ctl.signal,
+      translator: tr(slow), signal: ctl.signal,
     });
     expect(signals[0]).toBe(ctl.signal);
     expect(summary.aborted).toBe(true);
@@ -2131,7 +2133,7 @@ describe("translateFile", () => {
     const summary = await translateFile({
       sourcePath: src, outPath: out,
       sourceLang: "en", targetLang: "ar",
-      adapter, glossary, context, dryRun: true, signal: ctl.signal,
+      translator: tr(adapter), dryRun: true, signal: ctl.signal,
     });
     expect(summary.aborted).toBe(true);
     expect(summary.translated).toBe(0);

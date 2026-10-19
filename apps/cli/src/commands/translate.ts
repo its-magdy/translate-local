@@ -116,20 +116,15 @@ export function makeTranslateCommand(): Command {
             // Lets core recognise a Rails `en:` root when --from is auto.
             sourceLocale: sourceLang === "auto" ? inferSourceLocale(sourcePath, sourceLang) ?? undefined : sourceLang,
             targetLang,
-            adapter: session.adapter,
+            translator: session.fileTranslator({ glossaryMode }),
             // Ctrl+C: stop between keys and write the finished ones (exitOnInterrupt sets 130/143).
             signal: session.signal,
-            glossary: session.glossaryStore,
-            context: session.contextStore,
             format: opts.format,
             mode: opts.force ? "force" : "missing-only",
-            glossaryMode,
             continueOnError: !opts.strict,
             translateAll: opts.translateAll ?? false,
             maxFileBytes: maxBytes,
             dryRun: opts.dryRun ?? false,
-            maxSnippets: config.context.maxSnippets,
-            minRelevance: config.context.minRelevance,
             prune: opts.prune ?? false,
             allowLargePrune: opts.allowLargePrune ?? false,
             onProgress: showProgress ? (e) => {
