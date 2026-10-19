@@ -64,5 +64,12 @@ _Avoid_: write template, output document
 One string value in a catalog, addressed by its path of keys.
 _Avoid_: key (the key is only the last segment of the path), entry
 
+**Translation unit**:
+The text sent to the model for one leaf in one go: the whole leaf, or one message or branch of an ICU message.
+_Avoid_: segment, chunk
+
+**Leaf outcome**:
+What became of a leaf the tool tried to translate: translated (with its value), or failed (with the reason and the error `--strict` would raise). A leaf can also be kept as its source without a model call (metadata, skipped values) or refused (ICU the catalog can't hold).
+
 **Placeholder**:
 A part of a leaf that must reach the translation unchanged, such as `{name}`; it is hidden from the model behind a **sentinel** token.
