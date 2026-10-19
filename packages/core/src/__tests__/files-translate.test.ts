@@ -1990,6 +1990,22 @@ describe("translateFile", () => {
     expect(readFileSync(out, "utf8")).toBe('a: "[ar] One"\nb: Old\nc: null\n');
   });
 
+  it("an aborted YAML run keeps the target's nulls in a list in place (#159)", async () => {
+    const src = writeSrc("en.yml", "list:\n  - One\n  - Two\n  - Three\n");
+    const out = join(dir, "fr.yml");
+    writeFileSync(out, "list:\n  - null\n  - null\n  - Tres\n");
+    const ctl = new AbortController();
+    ctl.abort();
+    const summary = await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "fr",
+      adapter, glossary, context,
+      signal: ctl.signal,
+    });
+    expect(summary.aborted).toBe(true);
+    expect(readFileSync(out, "utf8")).toBe("list:\n  - null\n  - null\n  - Tres\n");
+  });
+
   it("a YAML target keeps the source document's non-string values", async () => {
     const src = writeSrc("en.yml", "title: Hello\ncount: 5\n");
     const out = join(dir, "ar.yml");

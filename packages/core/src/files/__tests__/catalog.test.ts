@@ -78,6 +78,17 @@ const scenarios: Scenario[] = [
     yamlOut: "a: \"[ar] One\"\nb: Old\nc: null\n",
   },
   {
+    // #159: removing the null items from the document shifted the source item
+    // `Three` onto the data's first null, writing it as source text.
+    name: "an abort keeps the existing nulls of a list in place",
+    source: { list: ["One", "Two", "Three"] },
+    yaml: "list:\n  - One\n  - Two\n  - Three\n",
+    existing: { list: [null, null, "Tres"] },
+    translate: 0,
+    json: '{\n  "list": [\n    null,\n    null,\n    "Tres"\n  ]\n}\n',
+    yamlOut: "list:\n  - null\n  - null\n  - Tres\n",
+  },
+  {
     name: "keeps target-only keys (YAML appends them)",
     source: { a: "One" },
     yaml: "a: One\n",
