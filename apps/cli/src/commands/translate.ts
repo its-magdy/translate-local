@@ -12,13 +12,21 @@ import { exitOnInterrupt, runAction } from "../utils/run";
 
 type FormatOpt = "auto" | "json" | "yaml" | "raw-json" | "raw-yaml";
 
+// Through process.stdin, not Bun.stdin.text(): on Windows the latter never
+// settled for a pipe, so the process exited 0 without output.
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export function makeTranslateCommand(): Command {
   const cmd = new Command();
 
   cmd
     .name("translate")
     .description("Translate text, an image, or a JSON/YAML file")
-    .argument("[text]", "Text to translate")
+    .argument("[text]", "Text to translate (default: piped stdin)")
     .option("--from <lang>", "Source language (BCP-47 or auto)")
     .option("--to <lang>", "Target language (BCP-47)")
     .option("--image <path>", "Path to an image file to translate")
@@ -44,9 +52,16 @@ export function makeTranslateCommand(): Command {
       const targetLang = opts.to ?? config.defaults.targetLang;
       const glossaryMode = opts.glossary ?? config.glossary.mode;
 
+      // Piped input is the text when none is given: `echo hi | tl --to fr`.
+      // Trailing line breaks (echo's newline) are dropped; inner ones are kept.
+      if (!text && !opts.image && !opts.file && !process.stdin.isTTY) {
+        const piped = (await readStdin()).replace(/(\r?\n)+$/, "");
+        if (piped.trim()) text = piped;
+      }
+
       const inputModes = [text, opts.image, opts.file].filter(Boolean).length;
       if (inputModes === 0) {
-        throw new TlError("INVALID_INPUT", "Provide text to translate, or use --image <path>, or --file <path>.", "Run `tl translate --help` for usage.");
+        throw new TlError("INVALID_INPUT", "Provide text to translate (as an argument or on stdin), or use --image <path>, or --file <path>.", "Run `tl translate --help` for usage.");
       }
       if (inputModes > 1) {
         throw new TlError("INVALID_INPUT", "Use only one of: positional text, --image, or --file.", "Pick one input mode per invocation.");

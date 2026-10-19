@@ -11,9 +11,10 @@ const CLI = join(import.meta.dir, "../../src/index.ts");
 // otherwise the suite reads and migrates the developer's real databases.
 const TEST_HOME = mkdtempSync(join(tmpdir(), "tl-home-"));
 
-function run(args: string[], env?: Record<string, string>): { stdout: string; stderr: string; exitCode: number } {
+function run(args: string[], env?: Record<string, string>, input?: string): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", ["run", CLI, ...args], {
     encoding: "utf8",
+    input,
     env: { ...process.env, NO_COLOR: "1", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
   });
   return {
@@ -285,6 +286,26 @@ describe("tl CLI", () => {
       expect(r.stderr).toContain("mock");
       // No glossary term matched, so there is no coverage to report.
       expect(r.stderr).not.toContain("Glossary:");
+    });
+
+    it("translates piped stdin when no text is given", () => {
+      const r = run(["translate", "--to", "ar"], { TL_ADAPTER: "mock" }, "hello world\n");
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout.trim()).toBe("[ar] hello world");
+    });
+
+    it("reads piped stdin through the `tl --to` shorthand, keeping inner line breaks", () => {
+      const r = run(["--to", "ar", "--json"], { TL_ADAPTER: "mock" }, "line one\nline two\r\n\n");
+      expect(r.exitCode).toBe(0);
+      expect(JSON.parse(r.stdout).translated).toBe("[ar] line one\nline two");
+    });
+
+    it("positional text wins over stdin, and empty stdin is still an input error", () => {
+      const both = run(["translate", "hello", "--to", "ar"], { TL_ADAPTER: "mock" }, "ignored\n");
+      expect(both.stdout.trim()).toBe("[ar] hello");
+      const empty = run(["translate", "--to", "ar"], { TL_ADAPTER: "mock" }, "  \n");
+      expect(empty.exitCode).toBe(1);
+      expect(empty.stderr).toContain("Provide text to translate");
     });
 
     it("keeps stdout pipe-safe: translation only, metadata on stderr", () => {

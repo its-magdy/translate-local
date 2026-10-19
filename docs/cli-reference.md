@@ -32,7 +32,7 @@ Translate a string, image, or JSON/YAML catalog file.
 | `--file <path>` | string | — | Path to a JSON or YAML catalog (see [File mode](#file-mode) below) |
 | `--json` | flag | off | Output result as JSON |
 
-The three input modes (`[text]`, `--image`, `--file`) are mutually exclusive.
+The three input modes (`[text]`, `--image`, `--file`) are mutually exclusive. Without any of them, piped stdin is the text: trailing line breaks (such as `echo`'s) are dropped and inner ones kept. Give at least one argument when piping (`tl --to ar`, `tl translate`), because `tl` alone starts the TUI.
 
 **Examples:**
 
@@ -42,6 +42,8 @@ tl translate "bonjour" --from fr --to en --glossary strict
 tl "hello" --to de --json
 tl translate --image screenshot.png --to ar
 tl translate --file en.json --to ar          # see File mode
+echo "good morning" | tl --to ar
+pbpaste | tl translate --to fr --json
 ```
 
 **Output streams:** the translation is written to **stdout**; metadata (adapter,
