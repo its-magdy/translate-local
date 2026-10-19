@@ -17,6 +17,15 @@ describe("diffForSync (missing-only)", () => {
     expect(pending.map((p) => p.path)).toEqual([["foo"]]);
   });
 
+  test("translates a source section the target holds as a number, replacing the number", () => {
+    const src: JsonValue = { section: { title: "Hello" } };
+    const tgt: JsonValue = { section: 42 };
+    const pending = diffForSync(src, tgt, "missing-only");
+    expect(pending.map((p) => p.path)).toEqual([["section", "title"]]);
+    pending[0].set("Bonjour");
+    expect(tgt).toEqual({ section: { title: "Bonjour" } });
+  });
+
   test("translates null targets", () => {
     const src: JsonValue = { hello: "world" };
     const tgt: JsonValue = { hello: null };
