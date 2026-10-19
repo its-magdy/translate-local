@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseDocument } from "yaml";
-import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder } from "../i18next";
+import { regenerateI18nextPlurals, pathKey, isCountPlaceholder } from "../i18next";
 
 const EN = { item_one: "{{count}} item", item_other: "{{count}} items" };
 
@@ -153,29 +152,6 @@ describe("regenerateI18nextPlurals", () => {
     const src = { ...EN };
     regenerateI18nextPlurals(src, "en", "ar");
     expect(src).toEqual(EN);
-  });
-});
-
-describe("regenerateYamlPlurals", () => {
-  test("rewrites the group in place and matches the data plan", () => {
-    const text = "title: Hi\n# Item counts\nitem_one: \"{{count}} item\" # singular\nitem_other: \"{{count}} items\"\nend: Bye\n";
-    const doc = parseDocument(text);
-    regenerateYamlPlurals(doc, "en", "ar");
-    const expected = regenerateI18nextPlurals(parseDocument(text).toJS(), "en", "ar").data;
-    expect(doc.toJS()).toEqual(expected);
-    const out = doc.toString();
-    // The comment above the group survives once, above the first generated key; quoting is kept.
-    expect(out.match(/# Item counts/g)?.length).toBe(1);
-    expect(out).toContain("# Item counts\nitem_zero: \"{{count}} items\"\n");
-    expect(out.match(/# singular/g)).toBeNull();
-    expect(out.startsWith("title: Hi\n")).toBe(true);
-    expect(out.endsWith("end: Bye\n")).toBe(true);
-  });
-
-  test("nested maps", () => {
-    const doc = parseDocument("cart:\n  item_one: one\n  item_other: many\n");
-    regenerateYamlPlurals(doc, "en", "ja");
-    expect(doc.toString()).toBe("cart:\n  item_other: many\n");
   });
 });
 

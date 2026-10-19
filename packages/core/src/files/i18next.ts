@@ -181,8 +181,8 @@ export function regenerateI18nextPlurals(root: JsonValue, sourceLang: string, ta
 const keyString = (pair: Pair): string => (isScalar(pair.key) ? String((pair.key as Scalar).value) : String(pair.key));
 
 /**
- * Apply the same rewrite to the YAML document used as the write template, so
- * generated keys sit where the source group was. Each generated pair is a clone
+ * Apply the same rewrite to the YAML source document the output is written onto,
+ * so generated keys sit where the source group was. Each generated pair is a clone
  * of its base pair (keeping scalar style); the comment above the group moves to
  * its first key, other comments inside the group are dropped.
  */

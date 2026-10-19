@@ -20,7 +20,7 @@ import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { TlError } from "@translate-local/shared/errors";
-import { atomicWriteFile } from "./json";
+import { atomicWriteFile } from "./atomic";
 
 const LOCK_VERSION = 1;
 const LOCK_DIR = [".tl", "locks"];

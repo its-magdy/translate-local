@@ -1,7 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { parseDocument } from "yaml";
 import { TlError } from "@translate-local/shared/errors";
-import { rebaseLocaleRoot, renameYamlRootKey } from "../locale-root";
+import { rebaseLocaleRoot } from "../locale-root";
 
 describe("rebaseLocaleRoot", () => {
   const source = { en: { greeting: "Hello" } };
@@ -53,23 +52,5 @@ describe("rebaseLocaleRoot", () => {
 
   test("an empty existing target gets no warning", () => {
     expect(rebaseLocaleRoot(source, {}, "en", "fr")?.warning).toBeUndefined();
-  });
-});
-
-describe("renameYamlRootKey", () => {
-  test("renames the root key in place, keeping comments", () => {
-    const doc = parseDocument("# top\nen:\n  # note\n  greeting: Hello\n");
-    renameYamlRootKey(doc, { from: "en", to: "fr" });
-    expect(doc.toString()).toBe("# top\nfr:\n  # note\n  greeting: Hello\n");
-  });
-
-  test("leaves the document alone when the key or a root map is absent", () => {
-    const doc = parseDocument("de:\n  a: x\n");
-    renameYamlRootKey(doc, { from: "en", to: "fr" });
-    expect(doc.toString()).toBe("de:\n  a: x\n");
-
-    const seq = parseDocument("- en\n");
-    renameYamlRootKey(seq, { from: "en", to: "fr" });
-    expect(seq.toString()).toBe("- en\n");
   });
 });

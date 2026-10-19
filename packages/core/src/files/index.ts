@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "fs";
 import { extname, resolve, dirname, basename, join } from "path";
 import type { Adapter, GlossaryEntry, GlossaryHit } from "@translate-local/shared/types";
 import { TlError, type ErrorTag } from "@translate-local/shared/errors";
@@ -6,18 +6,20 @@ import { DEFAULT_MAX_SNIPPETS, DEFAULT_MIN_RELEVANCE } from "@translate-local/sh
 import type { GlossaryStore } from "../glossary";
 import type { ContextStore } from "../context";
 import { runPipeline } from "../pipeline";
-import { detect, resolveParseFormat, type FormatOverride, type ContentFormat } from "./detect";
-import { readJson, writeJson, type DuplicateKey, type JsonMeta } from "./json";
-import { readYaml, writeYaml, deleteYamlPath, type YamlReadResult } from "./yaml";
-import { diffForSync, makeEmptyTargetLike, pruneTarget, type PendingTranslation, type SyncMode } from "./sync";
+import { detect, resolveParseFormat, type FormatOverride, type ContentFormat, type ParseFormat } from "./detect";
+import type { CatalogFormat, SourceCatalog } from "./catalog";
+import { jsonFormat } from "./json";
+import { yamlFormat } from "./yaml";
+import { atomicWriteFile } from "./atomic";
+import { diffForSync, pruneTarget, type PendingTranslation, type SyncMode } from "./sync";
 import { lockPathFor, readLock, writeLock, hashSource, lockKey, type Checksums } from "./lock";
 import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices } from "./placeholders";
 import { parseICU, translateICU, type UnitTranslator } from "./icu";
 import { classifyValue } from "./skip";
-import { rebaseLocaleRoot, renameYamlRootKey, type RootLocaleRename } from "./locale-root";
-import { regenerateI18nextPlurals, regenerateYamlPlurals, pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
+import { rebaseLocaleRoot, type RootLocaleRename } from "./locale-root";
+import { pathKey, isCountPlaceholder, type PluralRegenResult } from "./i18next";
 import { sampleRegex } from "./plurals";
-import { walkLeaves, getAtPath, type JsonValue } from "./walk";
+import { walkLeaves, type JsonValue } from "./walk";
 
 export type FileTranslateOptions = {
   sourcePath: string;
@@ -95,6 +97,8 @@ export type FileTranslateSummary = {
 
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 
+const FORMATS: Record<ParseFormat, CatalogFormat> = { json: jsonFormat, yaml: yamlFormat };
+
 // 10 retries gives ~99.9% success at ~50% per-attempt rate; cost is paid only on stubborn keys.
 const MAX_PLACEHOLDER_RETRIES = 10;
 
@@ -127,22 +131,6 @@ function sameFile(sourcePath: string, outPath: string): boolean {
 
 function isMap(v: JsonValue): v is { [k: string]: JsonValue } {
   return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-// Removes the value at `path`, then any map or array left empty above it.
-function deletePath(root: JsonValue, path: (string | number)[]): void {
-  for (let n = path.length; n > 0; n--) {
-    const parent = getAtPath(root, path.slice(0, n - 1));
-    const seg = path[n - 1];
-    if (Array.isArray(parent) && typeof seg === "number" && seg < parent.length) {
-      parent.splice(seg, 1);
-    } else if (parent !== undefined && isMap(parent) && typeof seg === "string" && seg in parent) {
-      delete parent[seg];
-    } else {
-      return;
-    }
-    if ((Array.isArray(parent) ? parent.length : Object.keys(parent).length) > 0) return;
-  }
 }
 
 function countValues(node: JsonValue): number {
@@ -460,27 +448,17 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     );
   }
 
-  let sourceData: JsonValue;
-  let jsonMeta: JsonMeta | undefined;
-  let yamlRead: YamlReadResult | undefined;
-  let duplicateKeys: DuplicateKey[] = [];
-
+  const catalogFormat = FORMATS[parseFormat];
+  let sourceCatalog: SourceCatalog;
   try {
-    if (parseFormat === "yaml") {
-      yamlRead = readYaml(sourcePath);
-      sourceData = yamlRead.data;
-    } else {
-      const r = readJson(sourcePath);
-      sourceData = r.data;
-      jsonMeta = r.meta;
-      duplicateKeys = r.duplicateKeys;
-    }
+    sourceCatalog = catalogFormat.open(readFileSync(sourcePath, "utf8"));
   } catch (err) {
     if (err instanceof TlError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_PARSE_FAILED", `Failed to parse ${sourcePath}: ${msg}`, "Validate the file with a linter (e.g. `jq .` or `yq .`) before translating.", err);
   }
 
+  const sourceData = sourceCatalog.data;
   const detected = detect(ext, sourceData, format);
   if (!detected.supported) {
     throw new TlError(
@@ -493,11 +471,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   let targetData: JsonValue | undefined;
   if (existsSync(outPath)) {
     try {
-      if (parseFormat === "yaml") {
-        targetData = readYaml(outPath).data;
-      } else {
-        targetData = readJson(outPath).data;
-      }
+      targetData = catalogFormat.read(readFileSync(outPath, "utf8"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TlError("FILE_PARSE_FAILED", `Failed to parse existing target ${outPath}: ${msg}`, "Fix or delete the existing target file before re-running.", err);
@@ -505,23 +479,19 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   }
 
   // Diff against the source re-rooted under the target locale, so sync and
-  // target-only key preservation see the target's own root (`fr:`).
+  // target-only key preservation see the target's own root (`fr:`). Each plural
+  // group is rewritten to the target locale's CLDR categories before the sync
+  // diff, so missing-only/--force apply per target category; it runs on the
+  // re-rooted source so hint paths match the pending leaf paths.
   const localeRoot = rebaseLocaleRoot(sourceData, targetData, sourceLocale, targetLang);
-  let diffSource = localeRoot?.source ?? sourceData;
-
-  // Rewrite each plural group to the target locale's CLDR categories before the
-  // sync diff, so missing-only/--force apply per target category. Runs on the
-  // re-rooted source so hint paths match the pending leaf paths. The YAML write
-  // template gets the same rewrite so generated keys land where the group was.
-  let plurals: PluralRegenResult | undefined;
-  if (detected.content === "i18next-plurals") {
-    plurals = regenerateI18nextPlurals(diffSource, sourceLang, targetLang);
-    diffSource = plurals.data;
-    if (yamlRead) regenerateYamlPlurals(yamlRead.doc, sourceLang, targetLang);
-  }
-  const existingTarget = targetData !== undefined;
-  targetData ??= makeEmptyTargetLike(diffSource);
-
+  const target = sourceCatalog.retarget({
+    localeRoot,
+    plurals: detected.content === "i18next-plurals" ? { sourceLang, targetLang } : undefined,
+    existing: targetData,
+  });
+  const diffSource = target.source;
+  const plurals = target.plurals;
+  const output = target.output;
 
   // The lock records the source hash each key was last synced from. No lock
   // (first run) means no change detection: existing target values are trusted.
@@ -531,7 +501,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   const lock = readLock(lockPath);
   const pending = diffForSync(
     diffSource,
-    targetData,
+    output,
     mode,
     lock ? (path, src) => {
       const prev = lock.checksums[lockKey(path)];
@@ -541,16 +511,14 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   );
   let pruned: (string | number)[][] = [];
   if (prune) {
-    const before = countValues(targetData);
-    const topKeysBefore = isMap(targetData) ? Object.keys(targetData) : [];
-    pruned = pruneTarget(diffSource, targetData);
+    const before = countValues(output);
+    const topKeysBefore = isMap(output) ? Object.keys(output) : [];
+    pruned = pruneTarget(diffSource, output);
     if (!allowLargePrune && pruned.length > 0) {
-      guardPrune(before - countValues(targetData), before, topKeysBefore, targetData);
+      guardPrune(before - countValues(output), before, topKeysBefore, output);
     }
   }
   const unsyncedKeys = new Set<string>();
-  // Keys an abort never reached, to remove from the YAML write template.
-  const unreachedYamlPaths: (string | number)[][] = [];
 
   // Pre-fetch glossary entries once. runPipeline would otherwise re-query SQLite
   // for every leaf — at N leaves with M entries that's N round-trips and N*M row
@@ -576,7 +544,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
     ...(localeRoot && { rootLocaleKey: localeRoot.rename }),
   };
 
-  for (const d of duplicateKeys) {
+  for (const d of sourceCatalog.duplicateKeys) {
     summary.warnings.push(
       `Duplicate key "${d.path}" in source (line ${d.line}). The last value wins, matching JSON.parse.`,
     );
@@ -634,13 +602,7 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
       // Their source isn't synced: keep each key's previous lock hash so a
       // changed key is still re-queued next run.
       unsyncedKeys.add(lockKey(q.path));
-      // A key the target file lacks stays absent, so the app falls back to its
-      // default locale ("" would render blank); one it has keeps its value.
-      const existing = existingTarget ? getAtPath(targetData, q.path) : undefined;
-      if (existing === undefined) deletePath(targetData, q.path);
-      // writeYaml keeps the source document's value wherever the data has none
-      // (null included), so drop those keys from the write template too.
-      if (existing === undefined || existing === null) unreachedYamlPaths.push(q.path);
+      target.revertLeaf(q.path);
     }
   };
 
@@ -745,16 +707,10 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
 
   if (dryRun) return summary;
 
-  // writeJson/writeYaml re-parse the tmp file before the rename, so a malformed
-  // serialization never replaces the existing target.
+  // The tmp file is re-parsed before the rename, so a malformed serialization
+  // never replaces the existing target.
   try {
-    if (parseFormat === "yaml") {
-      if (localeRoot) renameYamlRootKey(yamlRead!.doc, localeRoot.rename);
-      for (const path of unreachedYamlPaths) deleteYamlPath(yamlRead!.doc, path);
-      writeYaml(outPath, yamlRead!.doc, yamlRead!.meta, targetData);
-    } else {
-      writeJson(outPath, targetData, jsonMeta!);
-    }
+    atomicWriteFile(outPath, target.serialize(), (tmp) => { catalogFormat.read(readFileSync(tmp, "utf8")); });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new TlError("FILE_WRITE_FAILED", `Failed to write ${outPath}: ${msg}`, "Check that the output path is writable.", err);

@@ -1960,7 +1960,7 @@ describe("translateFile", () => {
       ...abortAfter(0),
     });
     expect(summary.aborted).toBe(true);
-    // The write template is the source document: unreached keys are removed from it
+    // The output is written onto the source document: unreached keys are removed from it
     // (with the containers left empty), never written with their source text.
     expect(parseYaml(readFileSync(out, "utf8"))).toEqual({ a: "EXISTING", b: "[ar] Two", empty: "" });
 
@@ -1973,6 +1973,45 @@ describe("translateFile", () => {
     expect(parseYaml(readFileSync(out, "utf8"))).toEqual({
       a: "EXISTING", b: "[ar] Two", c: "[ar] Three", nest: { d: "[ar] Four" }, list: ["[ar] x y", "[ar] z w"], empty: "[ar] Five",
     });
+  });
+
+  // The YAML output is the source document with the target data applied, so it
+  // differs from the JSON output in ways these tests pin byte for byte.
+  it("an aborted YAML run writes an unreached key the target holds as null at the end of its map", async () => {
+    const src = writeSrc("en.yml", "a: One\nc: Three\nb: Two\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "b: Old\nc: null\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(0),
+    });
+    expect(readFileSync(out, "utf8")).toBe('a: "[ar] One"\nb: Old\nc: null\n');
+  });
+
+  it("a YAML target keeps the source document's non-string values", async () => {
+    const src = writeSrc("en.yml", "title: Hello\ncount: 5\n");
+    const out = join(dir, "ar.yml");
+    writeFileSync(out, "count: 7\n");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+    });
+    expect(readFileSync(out, "utf8")).toBe('title: "[ar] Hello"\ncount: 5\n');
+  });
+
+  it("an aborted run on a Rails YAML catalog with plurals renames the root and drops the unreached plural forms", async () => {
+    const src = writeSrc("en.yml", "# Strings\nen:\n  title: Title\n  # Item count\n  item_one: \"{{count}} item\"\n  item_other: \"{{count}} items\"\n  footer: Footer\n");
+    const out = join(dir, "ar.yml");
+    await translateFile({
+      sourcePath: src, outPath: out,
+      sourceLang: "en", targetLang: "ar",
+      adapter, glossary, context,
+      ...abortAfter(2),
+    });
+    expect(readFileSync(out, "utf8")).toBe('# Strings\nar:\n  title: "[ar] Title"\n  # Item count\n  item_zero: "[ar] {{count}} items"\n  item_one: "[ar] {{count}} item"\n');
   });
 
   it("an aborted run keeps the previous lock hash of a changed key it did not reach", async () => {
