@@ -69,13 +69,13 @@ const scenarios: Scenario[] = [
     yamlOut: "ar:\n  title: \"[ar] Title\"\n  # Item count\n  item_zero: \"[ar] {{count}} items\"\n  item_one: \"[ar] {{count}} item\"\n",
   },
   {
-    name: "an abort keeps an existing value, and a YAML null moves to the end of its map",
+    name: "an abort keeps an existing value, null included, in its place",
     source: { a: "One", c: "Three", b: "Two" },
     yaml: "a: One\nc: Three\nb: Two\n",
     existing: { b: "Old", c: null },
     translate: 1,
     json: '{\n  "b": "Old",\n  "c": null,\n  "a": "[ar] One"\n}\n',
-    yamlOut: "a: \"[ar] One\"\nb: Old\nc: null\n",
+    yamlOut: "a: \"[ar] One\"\nc: null\nb: Old\n",
   },
   {
     // #159: removing the null items from the document shifted the source item
@@ -97,12 +97,30 @@ const scenarios: Scenario[] = [
     yamlOut: "a: \"[ar] One\"\nlegacy: kept\n",
   },
   {
-    name: "YAML keeps the source document's non-string values",
+    // #160: the target's non-string values win, as in JSON.
+    name: "keeps the target's non-string values",
     source: { title: "Hello", count: 5 },
     yaml: "title: Hello\ncount: 5\n",
     existing: { count: 7 },
     json: '{\n  "count": 7,\n  "title": "[ar] Hello"\n}\n',
-    yamlOut: "title: \"[ar] Hello\"\ncount: 5\n",
+    yamlOut: "title: \"[ar] Hello\"\ncount: 7\n",
+  },
+  {
+    // #160: a non-string source value the target lacks is not sync'd, as in JSON.
+    name: "leaves out non-string source values the target lacks",
+    source: { title: "Hello", limit: 10, flags: { beta: true }, empty: {} },
+    yaml: "title: Hello\n# Rate limit\nlimit: 10\nflags:\n  beta: true\nempty: {}\n",
+    existing: { title: "Bonjour" },
+    json: '{\n  "title": "Bonjour"\n}\n',
+    yamlOut: "title: Bonjour\n",
+  },
+  {
+    name: "keeps the source document's style for equal non-string values",
+    source: { size: 16, on: true, none: null },
+    yaml: "size: 0x10 # hex\non: true\nnone: ~\n",
+    existing: { size: 16, on: true, none: null },
+    json: '{\n  "size": 16,\n  "on": true,\n  "none": null\n}\n',
+    yamlOut: "size: 0x10 # hex\non: true\nnone: ~\n",
   },
 ];
 
@@ -113,7 +131,10 @@ describe("catalog formats", () => {
     });
     test(`yaml: ${s.name}`, () => {
       expect(yamlFormat.read(s.yaml)).toEqual(s.source);
-      expect(run(yamlFormat, s.yaml, s)).toBe(s.yamlOut);
+      const out = run(yamlFormat, s.yaml, s);
+      expect(out).toBe(s.yamlOut);
+      // Both formats write the same data; only the layout differs.
+      expect(yamlFormat.read(out)).toEqual(JSON.parse(s.json));
     });
   }
 

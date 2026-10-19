@@ -6,7 +6,7 @@
 // The data side (re-rooting, plural regeneration, the output data, reverting a
 // leaf an abort never reached) is shared here. A format only adds what its own
 // write-back needs through FormatHooks: YAML writes the target data onto the
-// source document, so that document is renamed, regenerated and pruned with it.
+// source document, so that document is renamed and regenerated with it.
 
 import type { JsonValue } from "./walk";
 import { getAtPath } from "./walk";
@@ -54,8 +54,6 @@ export interface TargetCatalog {
 /** What a format does to its own write-back state alongside the shared data side. */
 export type FormatHooks = {
   retarget?(r: Retarget): void;
-  /** Called by revertLeaf with the output's value at `path`, before the data side is reverted. */
-  revertLeaf?(path: Path, existing: JsonValue | undefined): void;
   serialize(output: JsonValue): string;
 };
 
@@ -84,7 +82,6 @@ export function sourceCatalog(data: JsonValue, duplicateKeys: readonly Duplicate
           // A key the target file lacks stays absent, so the app falls back to its
           // default locale ("" would render blank); one it has keeps its value.
           const existing = hadExisting ? getAtPath(output, path) : undefined;
-          hooks.revertLeaf?.(path, existing);
           if (existing === undefined) deletePath(output, path);
         },
         serialize: () => hooks.serialize(output),
