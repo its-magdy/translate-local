@@ -274,26 +274,53 @@ const SPACED_WORD_RE =
   /^[[\p{L}\p{N}\p{M}_\u200C\u200D]--[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}]]$/v;
 const isWordChar = (cp: number | undefined): boolean => cp !== undefined && SPACED_WORD_RE.test(String.fromCodePoint(cp));
 
+/** The KMP failure table of `part`: for each prefix, its longest proper border. */
+function kmpTable(part: string): number[] {
+  const fail = new Array<number>(part.length).fill(0);
+  for (let i = 1, k = 0; i < part.length; i++) {
+    while (k > 0 && part[i] !== part[k]) k = fail[k - 1];
+    if (part[i] === part[k]) k++;
+    fail[i] = k;
+  }
+  return fail;
+}
+
 /**
  * A finder for whole word `part` (or `capitalizeTerm(part)`): where it first
  * occurs in a text at or after `from`, as [start, end], or undefined. An edge of
  * `part` that is not a spaced-script word character (CJK, punctuation) is not
- * checked, as in core's glossary matcher.
+ * checked, as in core's glossary matcher. KMP over UTF-16 code units: linear even
+ * when `part` overlaps itself at every period and each match fails an edge check,
+ * where an indexOf loop is quadratic.
  */
 function wordFinder(part: string): (text: string, from: number) => [number, number] | undefined {
   const checkStart = isWordChar(part.codePointAt(0));
   const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
-  const variants = [...new Set([part, capitalizeTerm(part)])];
+  const variants = [...new Set([part, capitalizeTerm(part)])].map((p) => [p, kmpTable(p)] as const);
+  const whole = (text: string, i: number, end: number) => {
+    // The code point ending at i: step back over a surrogate pair.
+    const low = text.charCodeAt(i - 1);
+    const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
+    return !(checkStart && isWordChar(before)) && !(checkEnd && isWordChar(text.codePointAt(end)));
+  };
   return (text, from) => {
     let best: [number, number] | undefined;
-    for (const p of variants) {
-      for (let i = text.indexOf(p, from); i !== -1 && (!best || i < best[0]); i = text.indexOf(p, i + 1)) {
-        // The code point ending at i: step back over a surrogate pair.
-        const low = text.charCodeAt(i - 1);
-        const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
-        if ((checkStart && isWordChar(before)) || (checkEnd && isWordChar(text.codePointAt(i + p.length)))) continue;
-        best = [i, i + p.length];
-        break;
+    for (const [p, fail] of variants) {
+      const first = Math.min(Math.max(from, 0), text.length);
+      if (p.length === 0) {
+        if ((!best || first < best[0]) && whole(text, first, first)) best = [first, first];
+        continue;
+      }
+      // Only a match starting before the best one so far can replace it.
+      for (let j = first, k = 0; j < text.length && (!best || j + 1 - p.length < best[0]); j++) {
+        while (k > 0 && text[j] !== p[k]) k = fail[k - 1];
+        if (text[j] === p[k]) k++;
+        if (k < p.length) continue;
+        k = fail[k - 1];
+        if (whole(text, j + 1 - p.length, j + 1)) {
+          best = [j + 1 - p.length, j + 1];
+          break;
+        }
       }
     }
     return best;
@@ -523,35 +550,6 @@ function wordTokens(text: string): string[] {
 }
 
 /**
- * Whether `text` has `part` with no word character (see isWordChar) touching
- * either end where `part` has one there, as wordFinder checks it. KMP over UTF-16
- * code units: linear even when `part` overlaps itself at every period, where an
- * indexOf loop that rejects each match at its edges is quadratic.
- */
-function hasWholeWord(text: string, part: string): boolean {
-  const checkStart = isWordChar(part.codePointAt(0));
-  const checkEnd = isWordChar([...part].at(-1)?.codePointAt(0));
-  const fail = new Array<number>(part.length).fill(0);
-  for (let i = 1, k = 0; i < part.length; i++) {
-    while (k > 0 && part[i] !== part[k]) k = fail[k - 1];
-    if (part[i] === part[k]) k++;
-    fail[i] = k;
-  }
-  for (let j = 0, k = 0; j < text.length; j++) {
-    while (k > 0 && text[j] !== part[k]) k = fail[k - 1];
-    if (text[j] === part[k]) k++;
-    if (k < part.length) continue;
-    const i = j + 1 - part.length;
-    k = fail[k - 1];
-    // The code point ending at i: step back over a surrogate pair.
-    const low = text.charCodeAt(i - 1);
-    const before = i > 0 ? text.codePointAt(i - (low >= 0xdc00 && low <= 0xdfff && i >= 2 ? 2 : 1)) : undefined;
-    if (!(checkStart && isWordChar(before)) && !(checkEnd && isWordChar(text.codePointAt(j + 1)))) return true;
-  }
-  return false;
-}
-
-/**
  * A test for whether a string is a substring of `text`: a suffix automaton
  * built once in linear time, so each test costs only the tested string's length
  * (one `text.includes` per word of a long span would be quadratic).
@@ -609,7 +607,7 @@ export function checkWritesDriftedWord(check: string, term: string, inner: strin
   // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
   const span = fold(unquote(inner));
-  if (span.length > 0 && hasWholeWord(rest, span)) return true;
+  if (span.length > 0 && wordFinder(span)(rest, 0) !== undefined) return true;
   // The check's words once, as a set: one search per word of X would be quadratic.
   const written = new Set(wordTokens(rest));
   const sentinel = PLACEHOLDER_SENTINEL_PREFIX.toLowerCase();

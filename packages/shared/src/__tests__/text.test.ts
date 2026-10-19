@@ -576,6 +576,9 @@ describe("tag check", () => {
     tagCheckCandidates('<term translation="bereitstellen">'.repeat(50_000), [deploy]);
     tagCheckCandidates('<term translation="bereitstellen">a</term>'.repeat(50_000) + " bereitstellen", [deploy]);
     checkKeepsWord("a ".repeat(100_000) + "bereitstellen", "bereitstellen", "a b");
+    // A term that repeats outside the tag at every period, never at word edges.
+    const long = "abcd efgh".repeat(16_000);
+    tagCheckCandidates(`<term translation="${long}">taux</term> ${"abcd efgh".repeat(32_000)}`, [makeHit("cache", long, 0)]);
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
@@ -645,6 +648,8 @@ describe("drift check", () => {
     // A long term and a span of many distinct words, each looked for inside the term.
     const term = "z".repeat(32_000);
     checkWritesDriftedWord(term, term, Array.from({ length: 32_000 }, (_, i) => `word${i}`).join(" "));
+    const long = "abcd efgh".repeat(16_000);
+    driftCandidates(`<term translation="${long}">taux de réussite</term> ${"abcd efgh".repeat(32_000)}`, [makeHit("cache", long, 0)]);
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
