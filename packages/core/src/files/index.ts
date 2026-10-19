@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
 import { extname, resolve, dirname, basename, join } from "path";
 import type { Adapter } from "@translate-local/shared/types";
 import { TlError, type ErrorTag } from "@translate-local/shared/errors";
@@ -500,8 +500,9 @@ export async function translateFile(opts: FileTranslateOptions): Promise<FileTra
   if (dryRun) return summary;
 
   // The tmp file is re-parsed before the rename, so a malformed serialization
-  // never replaces the existing target.
+  // never replaces the existing target. An inferred locales/ar/ may not exist yet.
   try {
+    mkdirSync(dirname(outPath), { recursive: true });
     atomicWriteFile(outPath, target.serialize(), (tmp) => { catalogFormat.read(readFileSync(tmp, "utf8")); });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

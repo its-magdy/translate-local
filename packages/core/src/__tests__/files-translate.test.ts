@@ -1749,6 +1749,19 @@ describe("translateFile", () => {
     expect(summary.changed).toEqual(["/a"]);
   });
 
+  it("creates a missing output directory (inferred locales/ar/), but not on a dry run", async () => {
+    mkdirSync(join(dir, "locales/en"), { recursive: true });
+    const src = join(dir, "locales/en/common.json");
+    writeFileSync(src, '{\n  "a": "Hello"\n}\n');
+
+    await translateFile({ sourcePath: src, sourceLang: "en", targetLang: "ar", translator: tr(adapter), dryRun: true });
+    expect(existsSync(join(dir, "locales/ar"))).toBe(false);
+
+    const summary = await translateFile({ sourcePath: src, sourceLang: "en", targetLang: "ar", translator: tr(adapter) });
+    expect(summary.outPath).toBe(join(dir, "locales/ar/common.json"));
+    expect(JSON.parse(readFileSync(summary.outPath, "utf8")).a).toBe("[ar] Hello");
+  });
+
   it("each target has its own lock: syncing ar does not mark fr as up to date", async () => {
     const src = writeSrc("en.json", '{\n  "a": "Hello"\n}\n');
     const ar = join(dir, "ar.json");

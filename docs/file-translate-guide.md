@@ -39,6 +39,8 @@ When `--from` is `auto` (default), any BCP-47-shaped token in the filename (e.g.
 
 If no token can be detected, `tl` errors with `INVALID_INPUT` and asks you to pass `--out`.
 
+The output's directory (inferred or `--out`) is created if it doesn't exist, so `locales/ar/` need not exist before the first run. A dry run creates nothing.
+
 ---
 
 ## Sync semantics
