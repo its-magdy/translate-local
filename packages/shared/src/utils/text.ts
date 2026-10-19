@@ -506,14 +506,20 @@ export function checkKeepsWord(check: string, term: string, inner: string, forms
 /** Arabic harakat (fathatan … sukun), which the model adds or drops at will. */
 const HARAKAT_RE = /[\u064B-\u0652]/g;
 
-/** `word` without the non-letters at either end, by a code point scan (a `\P{L}+$` regex backtracks). */
-function trimToLetters(word: string): string {
-  const cps = [...word];
-  let start = 0;
-  let end = cps.length;
-  while (start < end && !/\p{L}/u.test(cps[start])) start++;
-  while (end > start && !/\p{L}/u.test(cps[end - 1])) end--;
-  return cps.slice(start, end).join("");
+/** The maximal runs of spaced-script word characters in `text` (see isWordChar), in one scan. */
+function wordTokens(text: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  for (const ch of text) {
+    if (isWordChar(ch.codePointAt(0))) {
+      current += ch;
+    } else if (current) {
+      tokens.push(current);
+      current = "";
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
 }
 
 /**
@@ -522,8 +528,9 @@ function trimToLetters(word: string): string {
  * still writes the drifted span X, so X translated other source words and the
  * check's output (which places T itself) is the better answer. X counts when,
  * after the tag strip and outside every occurrence of T and its one-piece
- * `forms`, the check has X, or at least half of X's distinct words of four or
- * more letters that are not inside T, as whole words, case-insensitively (fr
+ * `forms`, the check has X, or at least half of X's distinct words (runs of
+ * word characters, so `Commit-Operation` is two) of four or more characters
+ * that are not inside T or a placeholder, as whole words, case-insensitively (fr
  * `antémémoire : taille` for X `Taille de la mémoire cache :`; one stray
  * `Ihre` or `الآن` doesn't make `Ihre Daten im Archiv` count). Text is NFC-
  * normalized and only Arabic harakat are dropped: Latin accents are kept, so
@@ -534,11 +541,13 @@ export function checkWritesDriftedWord(check: string, term: string, inner: strin
   const spans = [term, ...contiguousForms(forms?.get(term) ?? [])].map(fold).filter(Boolean).sort((a, b) => b.length - a.length);
   // A NUL where T was, as checkKeepsWord blanks it (split/join: linear, no regex).
   const rest = spans.reduce((text, span) => text.split(span).join("\0"), fold(stripGlossaryTags(check, forms)));
-  const writes = (w: string) => wordFinder(w)(rest, 0) !== undefined;
   const span = fold(unquote(inner));
-  if (span.length > 0 && writes(span)) return true;
-  const words = [...new Set(span.split(/\s+/).map(trimToLetters))].filter((w) => [...w].length >= 4 && !fold(term).includes(w));
-  return words.length > 0 && 2 * words.filter(writes).length >= words.length;
+  if (span.length > 0 && wordFinder(span)(rest, 0) !== undefined) return true;
+  // The check's words once, as a set: one search per word of X would be quadratic.
+  const written = new Set(wordTokens(rest));
+  const sentinel = PLACEHOLDER_SENTINEL_PREFIX.toLowerCase();
+  const words = [...new Set(wordTokens(span))].filter((w) => [...w].length >= 4 && !fold(term).includes(w) && !w.startsWith(sentinel));
+  return words.length > 0 && 2 * words.filter((w) => written.has(w)).length >= words.length;
 }
 
 /** Drops combining marks (accents, Arabic harakat, hamza above/below) the way coverage compares text. */

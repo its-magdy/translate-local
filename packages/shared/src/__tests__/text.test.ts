@@ -637,6 +637,9 @@ describe("drift check", () => {
     driftCandidates('<term translation="antémémoire">a b</term> '.repeat(50_000), [cache]);
     checkWritesDriftedWord("taux ".repeat(100_000), "antémémoire", "réussite de taux");
     checkWritesDriftedWord("antémémoire", "antémémoire", `a${"-".repeat(40_000)}a b`);
+    // A long drifted span and a long check without its words.
+    const span = Array.from({ length: 40_000 }, (_, i) => `mot${i}x`).join(" ");
+    checkWritesDriftedWord(Array.from({ length: 40_000 }, (_, i) => `autre${i}y`).join(" "), "antémémoire", span);
     expect(performance.now() - start).toBeLessThan(1000);
   });
 });
