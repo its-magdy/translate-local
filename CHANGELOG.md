@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.19] - 2026-10-20
+
+### Fixed
+- **A glossary term no longer swallows the words next to it.** When the model put a term tag around a neighbouring word, stripping the tag replaced that word too: French `Cache size: {size}` with `cache → antémémoire` could come out as only `Antémémoire : {size}`. `tl` now detects the drift and takes the answer from the code-switched check, which keeps those words (`Antémémoire : taille : {size}`). The JSON output reports it as `metadata.tagDrift`. That answer starts uppercase when the draft did, using the target language's casing rules, and glossary spellings like `iOS` or `.env` are left as written.
+
 ## [0.5.18] - 2026-10-19
 
 ### Added
