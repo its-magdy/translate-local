@@ -244,6 +244,12 @@ describe("stripGlossaryTags", () => {
     expect(stripGlossaryTags(input)).toBe("prefix مرحبا");
   });
 
+  test("keeps the text after an unclosed tag when it has more words than the term", () => {
+    expect(stripGlossaryTags('<term translation="antémémoire">Taille du cache : 5 Mo')).toBe("Taille du cache : 5 Mo");
+    expect(stripGlossaryTags('Vider <term translation="antémémoire">la mémoire cache.')).toBe("Vider la mémoire cache.");
+    expect(stripGlossaryTags('<term translation="__TLPH_0__">__TLPH_0__ éléments')).toBe("__TLPH_0__ éléments");
+  });
+
   test("uses the translation attribute for a code-switched tag, closed or not", () => {
     expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">الكاش</term>.')).toBe("مسح الكاش.");
     expect(stripGlossaryTags('مسح <term translation="الكاش" source="cache">ذاكرة')).toBe("مسح الكاش");
@@ -273,7 +279,7 @@ describe("stripGlossaryTags", () => {
     };
     const regexStrip = (text: string) =>
       replaceTags(text)
-        .replace(/<term\s+translation="([^"]*)">[^<]*/g, "$1")
+        .replace(/<term\s+translation="([^"]*)">([^<]*)/g, (_m, attr: string, rest: string) => (rest.trim().split(/\s+/).length > attr.trim().split(/\s+/).length ? rest : attr))
         .replace(/<term[^>]*>/g, "");
     const pieces = ['<term translation="t">', "<term", "<term ", ">", "</term>", "</term", '"', "a", "T", "S", ". ", " ", "\n", "<b>"];
     let seed = 42;
@@ -521,8 +527,11 @@ describe("tag check", () => {
     expect(tagCheckCandidates(raw, [makeHit("server", "hôte", 0), makeHit("token", "jeton", 10)])).toEqual(new Map([["hôte", "serveur"], ["jeton", "clé"]]));
   });
 
-  test("an unclosed tag and the text after it are not outside", () => {
-    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term translation="Zweig">nach bereitstellen', [deploy, makeHit("branch", "Zweig", 20)]).size).toBe(0);
+  test("an unclosed tag and the text after it are not outside, unless that text runs past the term", () => {
+    const hits = [deploy, makeHit("branch", "Zweig", 20)];
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term translation="Zweig">bereitstellen', hits).size).toBe(0);
+    // The strip keeps `nach bereitstellen`, so it is outside.
+    expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term translation="Zweig">nach bereitstellen', hits).size).toBe(1);
     // A leftover opening tag without a translation attribute is dropped, its text kept.
     expect(tagCheckCandidates('<term translation="bereitstellen">Automatisch</term> <term>bereitstellen', [deploy]).size).toBe(1);
   });

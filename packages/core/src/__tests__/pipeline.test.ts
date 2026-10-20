@@ -984,6 +984,19 @@ describe("runPipeline", () => {
       expect(result.metadata.repaired).toBe(true);
     });
 
+    it("retries an unclosed tag around more words than the term instead of returning only the term", async () => {
+      const requests: any[] = [];
+      const unclosed = '<term translation="antémémoire">Taille du cache : 5 Mo';
+      const result = await runPipeline("Cache size: 5 MB", "en", "fr", driftAdapter([unclosed, "Taille de l'antémémoire : 5 Mo"], requests), store, {
+        glossaryEntries: [cache],
+      });
+      expect(requests).toHaveLength(2);
+      expect(requests[1].glossaryReminder).toBeDefined();
+      expect(result.translated).toBe("Taille de l'antémémoire : 5 Mo");
+      expect(result.glossaryCoverage).toBe(1);
+      expect(result.metadata.retries).toBe(1);
+    });
+
     it("strips as before when the check doesn't write the drifted words or lacks the term", async () => {
       for (const check of ["antémémoire", "Taux de réussite"]) {
         const requests: any[] = [];
