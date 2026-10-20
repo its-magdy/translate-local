@@ -42,6 +42,9 @@ export function formatTranslationResult(
       ? color(`Glossary: ${pct}% covered ✓`, GREEN, stream)
       : color(`Glossary: ${pct}% covered (missing: ${result.missingTerms.join(", ")})`, YELLOW, stream));
   }
+  if (result.metadata.placeholderMismatch) {
+    lines.push(color("Placeholders: not all kept (check {…} and %s in the translation)", YELLOW, stream));
+  }
 
   return lines.join("\n");
 }

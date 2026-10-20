@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import type { FileTranslateSummary } from "@translate-local/core/files";
-import { formatFileSummary } from "../formatters/output";
+import { formatFileSummary, formatTranslationResult } from "../formatters/output";
 
 const base: FileTranslateSummary = {
   contentFormat: "vanilla",
@@ -16,6 +16,17 @@ const base: FileTranslateSummary = {
   outPath: "/tmp/ar.json",
   rootLocaleKey: { from: "en", to: "ar" },
 };
+
+describe("formatTranslationResult", () => {
+  it("warns when the translation lost a placeholder", () => {
+    const result = {
+      translated: "Taille", sourceLang: "en", targetLang: "fr", glossaryCoverage: 1, missingTerms: [], glossaryTerms: 0,
+      metadata: { adapter: "mock", durationMs: 1, retries: 0, placeholderMismatch: true },
+    };
+    expect(formatTranslationResult(result, false, { isTTY: false } as never)).toContain("Placeholders: not all kept");
+    expect(formatTranslationResult({ ...result, metadata: { ...result.metadata, placeholderMismatch: undefined } }, false, { isTTY: false } as never)).not.toContain("Placeholders");
+  });
+});
 
 describe("formatFileSummary", () => {
   it("prints counts on stdout, then failures and warnings on stderr", () => {

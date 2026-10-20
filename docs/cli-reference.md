@@ -65,6 +65,16 @@ source counts as punctuated even behind closing quotes, brackets, markdown
 closers and placeholders (`**Saved.**`, `Read the __TLPH_0__docs.__TLPH_1__`).
 Image translations are left alone.
 
+**Placeholders:** `{name}`, `{{count}}` (with formatting, `{{n, number}}`),
+`%{name}`, `%s`/`%d` and `%1$s` in the text are sent to the model as
+placeholder tokens, as in file mode, so it can't translate them (`{user}` →
+`{utilisateur}`), and come back as written. An answer that loses, adds or
+translates one is retried, up to 3 attempts in all; if every attempt does,
+the last one is printed with a `Placeholders: not all kept` warning on stderr
+(`metadata.placeholderMismatch` in JSON). Markup (`<b>`), `@:linked` keys and
+`$t(...)` stay ordinary text, since they also occur in prose; file mode
+protects those too. Image translations are left alone.
+
 **Ctrl+C:** interrupting a translation (`SIGINT`, or `SIGTERM`) cancels the
 request, unloads the model (waiting at most 3 s) and exits `130` (`143` for
 `SIGTERM`). A second Ctrl+C exits immediately. In file mode the keys finished
@@ -88,8 +98,8 @@ so far are written first and the rest are left for the next run (see
 `glossaryTerms` is the number of distinct glossary terms found in the source; at
 0 no term matched, so `glossaryCoverage` reads 1 without meaning anything.
 
-`metadata` carries four more fields when the corresponding pass ran, all
-described in the [glossary guide](glossary-guide.md):
+`metadata` carries more fields when the corresponding pass ran. The first
+four are described in the [glossary guide](glossary-guide.md):
 
 | Field | Meaning |
 |---|---|
@@ -97,6 +107,7 @@ described in the [glossary guide](glossary-guide.md):
 | `tagChecked` | An extra [tag check](glossary-guide.md#tag-check-a-term-tagged-around-the-wrong-word) call was made (also when it did not keep the word). |
 | `keptWord` | The tag check kept the model's own word inside a term tag. |
 | `tagDrift` | A term tag had drifted onto the words next to the term, so the result is the [drift check](glossary-guide.md#drift-check-a-term-tag-around-the-words-next-to-it)'s answer. |
+| `placeholderMismatch` | Every attempt lost, added or translated a [placeholder](#tl-translate-text) of the text; the result is the last attempt. |
 
 #### File mode
 

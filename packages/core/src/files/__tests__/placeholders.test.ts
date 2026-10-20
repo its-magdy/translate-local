@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { extract, mask, unmask, validate, containsICU, containsICUBranching } from "../placeholders";
+import { extract, mask, maskText, unmask, unmaskStream, validate, containsICU, containsICUBranching } from "../placeholders";
 
 describe("extract", () => {
   test("i18next double-mustache", () => {
@@ -252,4 +252,45 @@ describe("placeholder property round-trip", () => {
       expect(validate(s, s).ok).toBe(true);
     });
   }
+});
+
+describe("maskText", () => {
+  test("masks only the forms that don't occur in prose", () => {
+    const { masked, placeholders } = maskText("{{count}} %{user} {name} %1$s %d <b>x</b> @:a.b $t(k)");
+    expect(masked).toBe("__TLPH_0__ __TLPH_1__ __TLPH_2__ __TLPH_3__ __TLPH_4__ <b>x</b> @:a.b $t(k)");
+    expect(placeholders.map((p) => p.raw)).toEqual(["{{count}}", "%{user}", "{name}", "%1$s", "%d"]);
+  });
+});
+
+describe("unmaskStream", () => {
+  test("writes placeholders back, holding a sentinel split across chunks", () => {
+    const { placeholders } = maskText("{a} {b}");
+    let out = "";
+    const write = unmaskStream((c) => (out += c), placeholders);
+    write("x __");
+    expect(out).toBe("x ");
+    for (const c of ["TLPH_", "1", "__ y __TLPH_0", "__"]) write(c);
+    expect(out).toBe("x {b} y {a}");
+  });
+
+  test("writes a placeholder's term tag as the placeholder, holding the tag until it closes", () => {
+    const { placeholders } = maskText("Hi {name}!");
+    let out = "";
+    const write = unmaskStream((c) => (out += c), placeholders);
+    for (const c of ["Salut <", "term translation=\"__TLPH_0", "__\">__TLPH_0__</te", "rm> !"]) {
+      write(c);
+      if (c.startsWith("Salut")) expect(out).toBe("Salut ");
+    }
+    expect(out).toBe("Salut {name} !");
+    // A glossary term's tag streams as it did, once complete.
+    write(' <term translation="hôte">serveur</term>');
+    expect(out).toBe('Salut {name} ! <term translation="hôte">serveur</term>');
+  });
+
+  test("lets underscores through once they can't start a sentinel", () => {
+    let out = "";
+    const write = unmaskStream((c) => (out += c), []);
+    for (const c of ["snake_", "case __", "init__ ok"]) write(c);
+    expect(out).toBe("snake_case __init__ ok");
+  });
 });
