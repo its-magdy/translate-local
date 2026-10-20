@@ -177,20 +177,32 @@ export function keptTermForm(inner: string, term: string, forms: readonly string
  *   term `kept` maps to exactly its inner text (the pipeline's tag check, see
  *   tagCheckCandidates) keeps that text as written. Tags without
  *   a translation attribute keep their inner content.
- * - Unclosed tags (model didn't emit </term>): extract the translation attribute value.
+ * - Unclosed tags (model didn't emit </term>): extract the translation attribute value, unless
+ *   the text after the tag has more words than that value (see runsPastTerm): then the tag ran
+ *   past the term, so only the opening tag goes and the text stays.
  * - Any remaining bare <term ...> opening tags: remove.
  */
 export function stripGlossaryTags(text: string, forms?: ReadonlyMap<string, readonly string[]>, kept?: ReadonlyMap<string, string>): string {
   // Complete tags: <term translation="X">content</term> → X (or the model's form of X)
   let result = removeTermTags(text, true, forms, kept);
-  // Unclosed tags: <term translation="X">... → X (use translation attribute)
-  result = result.replace(UNCLOSED_TAG_RE, (_m, attr: string) => unescapeAttr(attr));
+  // Unclosed tags: <term translation="X">... → X (use translation attribute), or the text when it runs past X
+  result = result.replace(UNCLOSED_TAG_RE, (_m, attr: string, rest: string) => (runsPastTerm(attr, rest) ? rest : unescapeAttr(attr)));
   // Any remaining bare opening tags
   result = removeTermTags(result, false);
   return result;
 }
 
-const UNCLOSED_TAG_RE = /<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>[^<]*/g;
+const UNCLOSED_TAG_RE = /<term\s+translation="([^"]*)"(?:\s+[a-z]+="[^"]*")*>([^<]*)/g;
+
+/**
+ * Whether the text after an unclosed tag for `attr` has more words than the term:
+ * fr `<term translation="antémémoire">Taille du cache : 5 Mo` for `Cache size: 5 MB`.
+ * Replacing it with the term would drop the rest of the answer, so the strip keeps
+ * the text; the term is then missing, and the pipeline's glossary retries run.
+ */
+function runsPastTerm(attr: string, rest: string): boolean {
+  return wordCount(rest.trim()) > wordCount(unescapeAttr(attr).trim());
+}
 
 /**
  * Tracks whether the output written so far ends at a sentence start: empty or
@@ -422,7 +434,7 @@ function termAttr(openTag: string): string | undefined {
  * leak, `<term …>Deploy</term>`). Never when X, T or a form has a CJK, kana,
  * Thai, Lao, Khmer or Myanmar letter: with no word edges to check, T could be
  * part of another word (`キー` in `キーボード`), and X too. Outside excludes all the strip replaces:
- * complete tags, and an unclosed tag with the text after it. Linear in `raw`
+ * complete tags, and an unclosed tag with the text after it (unless that text runs past the term). Linear in `raw`
  * per distinct term of `hits`.
  */
 export function tagCheckCandidates(raw: string, hits: readonly GlossaryHit[], forms?: ReadonlyMap<string, readonly string[]>): Map<string, string> {
@@ -486,8 +498,9 @@ function replacedTags(raw: string, hits: readonly GlossaryHit[], forms?: Readonl
     count(termAttr(rest.slice(open, openEnd)));
     open = rest.indexOf("<term", openEnd + 1);
   }
-  // The strip replaces an unclosed tag and the text after it; leftover opening tags go too.
-  outside = removeTermTags((outside + rest).replace(UNCLOSED_TAG_RE, "\0"), false);
+  // The strip replaces an unclosed tag and the text after it, unless that text runs past
+  // the term; leftover opening tags go too.
+  outside = removeTermTags((outside + rest).replace(UNCLOSED_TAG_RE, (_m, attr: string, text: string) => (runsPastTerm(attr, text) ? "\0" + text : "\0")), false);
 
   const fold = (s: string) => stripCombiningMarks(s).toLowerCase();
   for (const [term, inner] of tags) {
