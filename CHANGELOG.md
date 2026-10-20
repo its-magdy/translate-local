@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.20] - 2026-10-20
+
+### Changed
+- **Text translations protect placeholders.** `{name}`, `{{count}}` (also `{{n, number}}`), `%{name}`, `%s`/`%d` and `%1$s` in the text are now sent to the model the way file mode sends them, so they come back as written: `Clear the cache for {user}.` no longer becomes `… pour {utilisateur}.` An answer that loses, adds or translates one is retried, up to 3 attempts. If every attempt does, `tl` prints the last one with a `Placeholders: not all kept` warning on stderr (`metadata.placeholderMismatch` in JSON). Markup (`<b>`), `@:linked` keys and `$t(...)` stay ordinary text, since they also occur in prose. Streaming shows the placeholders, not the internal tokens.
+
+### Fixed
+- **A translation no longer shrinks to the glossary term.** When the model left a term tag open, `tl` replaced the tag and everything after it with the term: `tl "Cache size: 5 MB" --to fr` with `cache → antémémoire` often printed only `antémémoire`. This happened mostly when a term starts a `Label: value` text, and in file mode too (an Arabic benchmark sentence came back as the single word `نشر` in half the runs). The text is now kept, and the glossary retries place the term: `Antémémoire : taille : 5 Mo`.
+- **The last glossary retry's answer starts uppercase when the first answer did.** That retry sends the term in place of the source word, so a text starting with the term came back lowercase (`antémémoire : taille : {size}`). Its first letter is now raised as in 0.5.19's drift fix, again leaving glossary spellings like `iOS` as written.
+
 ## [0.5.19] - 2026-10-20
 
 ### Fixed
