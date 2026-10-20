@@ -2,6 +2,7 @@
 // stripped from the model output entirely. The `__TLPH_` prefix is unlikely to
 // appear in real i18n content. The prefix/suffix live in shared constants so
 // adapter prompt builders enforce the exact same token format.
+import type { GlossaryHit } from "@translate-local/shared/types";
 import {
   PLACEHOLDER_SENTINEL_PREFIX as SENTINEL_PREFIX,
   PLACEHOLDER_SENTINEL_SUFFIX as SENTINEL_SUFFIX,
@@ -12,20 +13,24 @@ export function sentinelFor(index: number): string {
   return `${SENTINEL_PREFIX}${index}${SENTINEL_SUFFIX}`;
 }
 
-// Order matters: longer/more-specific patterns first so `{{name}}` matches as one token.
-const PATTERN_SOURCES = [
-  // i18next, with optional formatting: {{count, number}}, {{val, currency(USD)}}.
-  /\{\{\s*[\w.]+\s*(?:,[^{}]*)?\}\}/.source,
-  /%\{[\w.]+\}/.source,
-  /\$t\([^)]+\)/.source,
-  /@(?:\.\w+)?:[\w.]+/.source,
-  /\{\s*[\w.]+\s*\}/.source,
-  /%\d+\$[sdif]/.source,
-  /%[sdif]/.source,
-  /<\/?[a-zA-Z][^>]*>/.source,
-];
+// i18next, with optional formatting: {{count, number}}, {{val, currency(USD)}}.
+const I18NEXT = /\{\{\s*[\w.]+\s*(?:,[^{}]*)?\}\}/.source;
+const RAILS = /%\{[\w.]+\}/.source;
+const I18NEXT_NESTING = /\$t\([^)]+\)/.source;
+const VUE_LINKED = /@(?:\.\w+)?:[\w.]+/.source;
+const BRACES = /\{\s*[\w.]+\s*\}/.source;
+const PRINTF_POSITIONAL = /%\d+\$[sdif]/.source;
+const PRINTF = /%[sdif]/.source;
+const MARKUP = /<\/?[a-zA-Z][^>]*>/.source;
 
-const COMBINED = new RegExp(PATTERN_SOURCES.map((s) => `(?:${s})`).join("|"), "g");
+const combine = (sources: string[]) => new RegExp(sources.map((s) => `(?:${s})`).join("|"), "g");
+
+// Order matters: longer/more-specific patterns first so `{{name}}` matches as one token.
+const COMBINED = combine([I18NEXT, RAILS, I18NEXT_NESTING, VUE_LINKED, BRACES, PRINTF_POSITIONAL, PRINTF, MARKUP]);
+
+// Text mode masks only the forms that don't occur in prose: not markup
+// (`<b>`), Vue linked keys (`@:x`, an email has `@`) or `$t(x)`.
+const TEXT_COMBINED = combine([I18NEXT, RAILS, BRACES, PRINTF_POSITIONAL, PRINTF]);
 
 // `(?<!\{)`: i18next's `{{val, number}}` is interpolation, not ICU.
 const ICU = /(?<!\{)\{[^{}]*,\s*(?:plural|select|selectordinal|number|date|time|spellout|ordinal|duration|choice)\s*[,}]/;
@@ -66,9 +71,19 @@ export function mask(text: string): { masked: string; placeholders: Placeholder[
   return { masked: maskAppend(text, placeholders), placeholders };
 }
 
+/** mask() for text mode (TranslationSession.translate): only the placeholder forms that don't occur in prose. */
+export function maskText(text: string): { masked: string; placeholders: Placeholder[] } {
+  const placeholders: Placeholder[] = [];
+  return { masked: maskWith(TEXT_COMBINED, text, placeholders), placeholders };
+}
+
 /** mask() that appends to an existing list, so sentinel indices continue from its length. */
 export function maskAppend(text: string, placeholders: Placeholder[]): string {
-  return text.replace(COMBINED, (m) => {
+  return maskWith(COMBINED, text, placeholders);
+}
+
+function maskWith(pattern: RegExp, text: string, placeholders: Placeholder[]): string {
+  return text.replace(pattern, (m) => {
     const index = placeholders.length;
     placeholders.push({ raw: m, index });
     return sentinelFor(index);
@@ -98,6 +113,79 @@ export function unmask(masked: string, placeholders: Placeholder[]): string {
     const ph = placeholders[parseInt(idx, 10)];
     return ph ? ph.raw : "";
   });
+}
+
+/**
+ * Wraps a stream's onChunk so it gets the text with its placeholders back. A
+ * sentinel's term tag is written as the placeholder, as the tag strip writes
+ * its attribute. A chunk ending in what could start a sentinel (`__TL`,
+ * `__TLPH_1`) or inside a term tag (`<te`, `<term …>x</ter`) is held until a
+ * later chunk completes it. A held tail the stream ends on is not written:
+ * frontends print the final translation when it differs from the stream.
+ */
+export function unmaskStream(onChunk: (chunk: string) => void, placeholders: Placeholder[]): (chunk: string) => void {
+  let pending = "";
+  return (chunk) => {
+    pending += chunk;
+    const cut = Math.min(partialSentinelStart(pending), openTermTagStart(pending));
+    const ready = pending.slice(0, cut);
+    pending = pending.slice(cut);
+    if (ready) onChunk(unmask(ready.replace(SENTINEL_TAG_RE, "$1"), placeholders));
+  };
+}
+
+const SENTINEL_TAG_RE = new RegExp(`<term translation="(${SENTINEL_PREFIX}\\d+${SENTINEL_SUFFIX})"[^>]*>[^<]*</term>`, "g");
+
+/** Where a term tag `text` ends inside (opened, not yet closed, or a partial `<term`/`</term>`) starts, or text.length. */
+function openTermTagStart(text: string): number {
+  const open = text.lastIndexOf("<term");
+  if (open !== -1 && !text.includes("</term>", open)) return open;
+  for (let i = Math.max(0, text.length - "</term>".length); i < text.length; i++) {
+    const tail = text.slice(i);
+    if (["<term", "</term>"].some((tag) => tail.length < tag.length && tag.startsWith(tail))) return i;
+  }
+  return text.length;
+}
+
+// Prefix, up to 10 digits, suffix: the longest tail that can still be an incomplete sentinel.
+const MAX_PARTIAL = SENTINEL_PREFIX.length + 10 + SENTINEL_SUFFIX.length;
+
+/** Where the incomplete sentinel `text` ends on starts, or text.length. */
+function partialSentinelStart(text: string): number {
+  // Not inside a complete sentinel: its `__` suffix also starts a prefix.
+  let from = Math.max(0, text.length - MAX_PARTIAL);
+  for (const m of text.matchAll(SENTINEL_RE)) from = Math.max(from, m.index + m[0].length);
+  for (let i = from; i < text.length; i++) {
+    if (isPartialSentinel(text.slice(i))) return i;
+  }
+  return text.length;
+}
+
+function isPartialSentinel(tail: string): boolean {
+  if (SENTINEL_PREFIX.startsWith(tail)) return true;
+  if (!tail.startsWith(SENTINEL_PREFIX)) return false;
+  const rest = /^(\d*)(.*)$/s.exec(tail.slice(SENTINEL_PREFIX.length))!;
+  if (rest[1] === "") return rest[2] === "";
+  return rest[2].length < SENTINEL_SUFFIX.length && SENTINEL_SUFFIX.startsWith(rest[2]);
+}
+
+// translategemma reliably honors <term> tags from the glossary path; routing
+// sentinels through that channel preserves them better than naked-token instructions.
+// The pipeline only tags them (no strict-mode enforcement or coverage), so a
+// dropped sentinel reaches the caller's placeholder check and retry loop.
+export function sentinelHits(text: string, indices: number[], sourceLang: string, targetLang: string): GlossaryHit[] {
+  const hits: GlossaryHit[] = [];
+  for (const index of indices) {
+    const tok = sentinelFor(index);
+    const idx = text.indexOf(tok);
+    if (idx < 0) continue;
+    hits.push({
+      entry: { id: `__sentinel_${index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
+      startIndex: idx,
+      endIndex: idx + tok.length,
+    });
+  }
+  return hits;
 }
 
 export function validate(source: string, translated: string): ValidationResult {

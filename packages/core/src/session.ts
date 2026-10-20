@@ -1,4 +1,4 @@
-import type { Adapter, AdapterBackend, TranslationResult } from "@translate-local/shared/types";
+import type { Adapter, AdapterBackend, GlossaryHit, TranslationResult } from "@translate-local/shared/types";
 import { TlError } from "@translate-local/shared/errors";
 import { IMAGE_EXT_RE, IMAGE_MAX_BYTES } from "@translate-local/shared/constants";
 import { createAdapter } from "@translate-local/adapters/factory";
@@ -7,6 +7,11 @@ import { GlossaryStore } from "./glossary";
 import { ContextStore } from "./context";
 import { runPipeline } from "./pipeline";
 import { pipelineTranslator, type FileTranslator } from "./files";
+import { maskText, sentinelHits, sentinelIndices, unmask, unmaskStream } from "./files/placeholders";
+
+// Attempts for a text whose answer loses, adds or translates a placeholder.
+// Fewer than file mode's 10: someone is waiting, and sees the result.
+const TEXT_PLACEHOLDER_ATTEMPTS = 3;
 
 /** Adapter backend from TL_ADAPTER: "mock", else "ollama" (with a warning for unknown values). */
 export function resolveBackend(value = process.env.TL_ADAPTER): AdapterBackend {
@@ -74,20 +79,41 @@ export class TranslationSession {
     }
   }
 
-  /** Context retrieval + runPipeline with the config's glossary and context settings. */
-  translate(text: string, sourceLang: string, targetLang: string, options: SessionTranslateOptions = {}): Promise<TranslationResult> {
+  /**
+   * Context retrieval + runPipeline with the config's glossary and context
+   * settings. Placeholders in the text (`{name}`, `{{count}}`, `%s`) go to the
+   * model as sentinels, as in file mode, and an answer that loses one is retried.
+   */
+  async translate(text: string, sourceLang: string, targetLang: string, options: SessionTranslateOptions = {}): Promise<TranslationResult> {
     const { glossaryMode, maxRetries, maxSnippets, minRelevance } = this.settings(options.glossaryMode);
     const contextSnippets = text
       ? this.contextStore.retrieve(text, maxSnippets, minRelevance).map((s) => s.content)
       : [];
-    return runPipeline(text, sourceLang, targetLang, this.adapter, this.glossaryStore, {
-      glossaryMode,
-      maxRetries,
-      contextSnippets,
-      imageBase64: options.imageBase64,
-      onChunk: options.onChunk,
-      signal: this.signalWith(options.signal),
-    });
+    const run = (source: string, extraGlossaryHits: GlossaryHit[], onChunk?: (chunk: string) => void) =>
+      runPipeline(source, sourceLang, targetLang, this.adapter, this.glossaryStore, {
+        glossaryMode,
+        maxRetries,
+        contextSnippets,
+        imageBase64: options.imageBase64,
+        onChunk,
+        extraGlossaryHits,
+        signal: this.signalWith(options.signal),
+      });
+    const { masked, placeholders } = options.imageBase64 ? { masked: text, placeholders: [] } : maskText(text);
+    if (placeholders.length === 0) return run(text, [], options.onChunk);
+
+    const hits = sentinelHits(masked, placeholders.map((ph) => ph.index), sourceLang, targetLang);
+    const expected = placeholders.map((ph) => ph.index).join(" ");
+    let result!: TranslationResult;
+    for (let attempt = 0; attempt < TEXT_PLACEHOLDER_ATTEMPTS; attempt++) {
+      // Only the first attempt streams, as only the pipeline's first call does.
+      const onChunk = attempt === 0 && options.onChunk ? unmaskStream(options.onChunk, placeholders) : undefined;
+      result = await run(masked, hits, onChunk);
+      const kept = sentinelIndices(result.translated).sort((a, b) => a - b).join(" ") === expected;
+      result = { ...result, translated: unmask(result.translated, placeholders) };
+      if (kept) return result;
+    }
+    return { ...result, metadata: { ...result.metadata, placeholderMismatch: true } };
   }
 
   /** What translateFile translates with: the same settings as translate(), per leaf. */

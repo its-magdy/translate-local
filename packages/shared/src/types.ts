@@ -63,6 +63,12 @@ export interface TranslationResult {
      * term itself, instead of the tag strip's.
      */
     tagDrift?: boolean;
+    /**
+     * Set by TranslationSession.translate when every attempt lost, added or
+     * translated a placeholder of the text (`{name}`, `%s`): the result is the
+     * last attempt anyway.
+     */
+    placeholderMismatch?: boolean;
   };
 }
 

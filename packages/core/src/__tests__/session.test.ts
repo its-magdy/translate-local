@@ -97,6 +97,51 @@ describe("TranslationSession", () => {
     }
   });
 
+  it("masks text placeholders, so the model never sees them, and restores them", async () => {
+    const result = await session.translate("The cache size is {size}, %s and {{count}}.", "en", "fr");
+    expect(requests).toHaveLength(1);
+    expect(requests[0].source).toBe(
+      'The cache size is <term translation="__TLPH_0__">__TLPH_0__</term>, <term translation="__TLPH_1__">__TLPH_1__</term> and <term translation="__TLPH_2__">__TLPH_2__</term>.',
+    );
+    expect(result.translated).toBe("[fr] The cache size is {size}, %s and {{count}}.");
+    expect(result.metadata.placeholderMismatch).toBeUndefined();
+  });
+
+  it("leaves markup, linked keys and $t() as text", async () => {
+    await session.translate("<b>Save</b> @:common.ok $t(key) {name}", "en", "fr");
+    expect(requests[0].source).toBe('<b>Save</b> @:common.ok $t(key) <term translation="__TLPH_0__">__TLPH_0__</term>');
+  });
+
+  it("retries an answer that loses or translates a placeholder, then flags the last attempt", async () => {
+    const answers = ["Taille : {taille}", "Taille : __TLPH_0__"];
+    translateSpy.mockImplementation(async (req: TranslationRequest) => {
+      requests.push(req);
+      return { translated: answers.shift() ?? "Taille", metadata: { adapter: "mock", durationMs: 0 } };
+    });
+    const kept = await session.translate("Size: {size}", "en", "fr");
+    expect(requests).toHaveLength(2);
+    expect(kept.translated).toBe("Taille : {size}");
+    expect(kept.metadata.placeholderMismatch).toBeUndefined();
+
+    requests.length = 0;
+    const lost = await session.translate("Size: {size}", "en", "fr");
+    expect(requests).toHaveLength(3);
+    expect(lost.translated).toBe("Taille");
+    expect(lost.metadata.placeholderMismatch).toBe(true);
+  });
+
+  it("streams the first attempt with its placeholders restored", async () => {
+    translateSpy.mockImplementation(async (req: TranslationRequest) => {
+      requests.push(req);
+      for (const chunk of ["Taille : __TL", "PH_0_", "_."]) req.onChunk?.(chunk);
+      return { translated: "Taille : __TLPH_0__.", metadata: { adapter: "mock", durationMs: 0 } };
+    });
+    let streamed = "";
+    const result = await session.translate("Size: {size}.", "en", "fr", { onChunk: (c) => (streamed += c) });
+    expect(streamed).toBe("Taille : {size}.");
+    expect(result.translated).toBe("Taille : {size}.");
+  });
+
   it("skips context retrieval for image-only input and forwards the image", async () => {
     const retrieve = spyOn(session.contextStore, "retrieve");
     await session.translate("", "en", "ar", { imageBase64: "aGk=" });

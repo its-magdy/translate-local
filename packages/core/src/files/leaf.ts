@@ -7,7 +7,7 @@
 import type { GlossaryHit } from "@translate-local/shared/types";
 import { TlError, type ErrorTag } from "@translate-local/shared/errors";
 import type { ContentFormat } from "./detect";
-import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices } from "./placeholders";
+import { mask, unmask, validate, containsICU, containsICUBranching, sentinelFor, sentinelIndices, sentinelHits } from "./placeholders";
 import { parseICU, translateICU, type UnitTranslator } from "./icu";
 import { classifyValue } from "./skip";
 import { isCountPlaceholder, type PluralHint } from "./i18next";
@@ -118,25 +118,6 @@ class LeafFailed extends Error {
     const tag = this.pipelineError instanceof TlError ? this.pipelineError.tag : "TRANSLATION_FAILED";
     return { message: this.message, tag, hint: PLACEHOLDER_HINT, pipelineError: this.pipelineError };
   }
-}
-
-// translategemma reliably honors <term> tags from the glossary path; routing
-// sentinels through that channel preserves them better than naked-token instructions.
-// The pipeline only tags them (no strict-mode enforcement or coverage), so a
-// dropped sentinel reaches translateLeaf's placeholder check and retry loop.
-function sentinelHits(text: string, indices: number[], sourceLang: string, targetLang: string): GlossaryHit[] {
-  const hits: GlossaryHit[] = [];
-  for (const index of indices) {
-    const tok = sentinelFor(index);
-    const idx = text.indexOf(tok);
-    if (idx < 0) continue;
-    hits.push({
-      entry: { id: `__sentinel_${index}`, sourceTerm: tok, targetTerm: tok, sourceLang, targetLang },
-      startIndex: idx,
-      endIndex: idx + tok.length,
-    });
-  }
-  return hits;
 }
 
 /**
