@@ -66,6 +66,8 @@ export async function runPipeline(
   let best: Attempt | undefined;
   // The code-switched attempt's raw output, once it ran: the tag check's answer.
   let codeSwitchedRaw: string | undefined;
+  // The first attempt's text: the casing the code-switched attempt's answer should start with.
+  let draft: string | undefined;
 
   while (true) {
     if (signal?.aborted) throw cancelledError();
@@ -91,6 +93,7 @@ export async function runPipeline(
     const raw = await adapter.translate(request);
     if (codeSwitched) codeSwitchedRaw = raw.translated;
     const reading = terms.read(raw.translated);
+    draft ??= reading.translated;
     const result: TranslationResult = {
       translated: reading.translated, sourceLang, targetLang, glossaryCoverage: reading.glossaryCoverage, missingTerms: reading.missingTerms,
       glossaryTerms: terms.count, metadata: { ...raw.metadata, retries },
@@ -127,6 +130,11 @@ export async function runPipeline(
   /** The attempt to return, after the tag and drift checks and, for a forced term, the agreement repair. */
   async function finish(attempt: Attempt): Promise<TranslationResult> {
     let { result, forced } = attempt;
+    if (attempt.codeSwitched && draft !== undefined) {
+      // Its source starts with the lowercase term, so its answer may too: start as the draft does.
+      const translated = terms.matchStartCase(result.translated, draft);
+      if (translated !== result.translated) result = { ...result, translated, ...terms.coverage(translated) };
+    }
     // The code-switched attempt was already sent the check's source.
     const candidates: KeptWords = attempt.codeSwitched ? new Map() : terms.tagCheckCandidates(attempt.raw);
     const driftSpans: KeptWords = attempt.codeSwitched ? new Map() : terms.driftCandidates(attempt.raw);

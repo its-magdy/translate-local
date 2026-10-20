@@ -997,6 +997,24 @@ describe("runPipeline", () => {
       expect(result.metadata.retries).toBe(1);
     });
 
+    it("starts the code-switched retry's answer uppercase when the draft does", async () => {
+      const codeSwitched = '<term translation="antémémoire">antémémoire</term> : taille : 5 Mo';
+      for (const [draft, expected] of [
+        ["Taille du cache : 5 Mo", "Antémémoire : taille : 5 Mo"],
+        ["taille du cache : 5 Mo", "antémémoire : taille : 5 Mo"],
+      ]) {
+        const requests: any[] = [];
+        const result = await runPipeline("Cache size: 5 MB", "en", "fr", driftAdapter([draft, draft, codeSwitched], requests), store, {
+          glossaryEntries: [cache],
+        });
+        expect(requests).toHaveLength(4);
+        expect(requests[3].repairTerms).toEqual(["antémémoire"]);
+        expect(requests[3].source).toBe(expected);
+        expect(result.translated).toBe(expected);
+        expect(result.glossaryCoverage).toBe(1);
+      }
+    });
+
     it("strips as before when the check doesn't write the drifted words or lacks the term", async () => {
       for (const check of ["antémémoire", "Taux de réussite"]) {
         const requests: any[] = [];
