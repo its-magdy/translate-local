@@ -6,6 +6,7 @@ Most translation tools are black boxes: you send text, you get text back, and yo
 
 [![CI](https://github.com/its-magdy/translate-local/actions/workflows/ci.yml/badge.svg)](https://github.com/its-magdy/translate-local/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@translate-local/tl)](https://www.npmjs.com/package/@translate-local/tl)
+[![npm downloads](https://img.shields.io/npm/dm/@translate-local/tl)](https://www.npmjs.com/package/@translate-local/tl)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
