@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.21] - 2026-11-03
+
+### Changed
+- **The TUI runs on OpenTUI 0.7.0** (was 0.5.17). Typing and pasting into a long input no longer slows down with its length, because only the lines around an edit are laid out again.
+- Dependency updates: `zod` 4.6.7 and `@formatjs/icu-messageformat-parser` 3.5.22.
+
 ## [0.5.20] - 2026-10-20
 
 ### Changed
